@@ -1,38 +1,163 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { eq, desc, count, and, gte, sql } from "drizzle-orm";
+import { db } from "./db";
+import {
+  users, apiModules, syncLogs, auditLogs,
+  type User, type InsertUser,
+  type ApiModule, type InsertApiModule,
+  type SyncLog, type InsertSyncLog,
+  type AuditLog, type InsertAuditLog,
+} from "@shared/schema";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getAllUsers(): Promise<User[]>;
+  updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
+
+  getAllModules(): Promise<ApiModule[]>;
+  getModule(id: string): Promise<ApiModule | undefined>;
+  getModuleByCode(code: string): Promise<ApiModule | undefined>;
+  createModule(mod: InsertApiModule): Promise<ApiModule>;
+  updateModule(id: string, data: Partial<ApiModule>): Promise<ApiModule | undefined>;
+  deleteModule(id: string): Promise<void>;
+
+  getSyncLogs(limit?: number, moduleId?: string): Promise<SyncLog[]>;
+  createSyncLog(log: InsertSyncLog): Promise<SyncLog>;
+  updateSyncLog(id: string, data: Partial<SyncLog>): Promise<SyncLog | undefined>;
+  getSyncStats(): Promise<{ total: number; success: number; error: number; running: number }>;
+
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogs(limit?: number): Promise<AuditLog[]>;
+
+  getDashboardStats(): Promise<{
+    totalModules: number;
+    connectedModules: number;
+    todaySyncs: number;
+    errorSyncs: number;
+    recentSyncs: SyncLog[];
+    moduleStatuses: ApiModule[];
+  }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async createUser(user: InsertUser): Promise<User> {
+    const [created] = await db.insert(users).values(user).returning();
+    return created;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
+    const [updated] = await db.update(users).set(data).where(eq(users.id, id)).returning();
+    return updated;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  async getAllModules(): Promise<ApiModule[]> {
+    return db.select().from(apiModules).orderBy(apiModules.code);
+  }
+
+  async getModule(id: string): Promise<ApiModule | undefined> {
+    const [mod] = await db.select().from(apiModules).where(eq(apiModules.id, id));
+    return mod;
+  }
+
+  async getModuleByCode(code: string): Promise<ApiModule | undefined> {
+    const [mod] = await db.select().from(apiModules).where(eq(apiModules.code, code));
+    return mod;
+  }
+
+  async createModule(mod: InsertApiModule): Promise<ApiModule> {
+    const [created] = await db.insert(apiModules).values(mod).returning();
+    return created;
+  }
+
+  async updateModule(id: string, data: Partial<ApiModule>): Promise<ApiModule | undefined> {
+    const [updated] = await db.update(apiModules).set(data).where(eq(apiModules.id, id)).returning();
+    return updated;
+  }
+
+  async deleteModule(id: string): Promise<void> {
+    await db.delete(apiModules).where(eq(apiModules.id, id));
+  }
+
+  async getSyncLogs(limit = 50, moduleId?: string): Promise<SyncLog[]> {
+    if (moduleId) {
+      return db.select().from(syncLogs)
+        .where(eq(syncLogs.moduleId, moduleId))
+        .orderBy(desc(syncLogs.startedAt))
+        .limit(limit);
+    }
+    return db.select().from(syncLogs).orderBy(desc(syncLogs.startedAt)).limit(limit);
+  }
+
+  async createSyncLog(log: InsertSyncLog): Promise<SyncLog> {
+    const [created] = await db.insert(syncLogs).values(log).returning();
+    return created;
+  }
+
+  async updateSyncLog(id: string, data: Partial<SyncLog>): Promise<SyncLog | undefined> {
+    const [updated] = await db.update(syncLogs).set(data).where(eq(syncLogs.id, id)).returning();
+    return updated;
+  }
+
+  async getSyncStats() {
+    const allLogs = await db.select().from(syncLogs);
+    return {
+      total: allLogs.length,
+      success: allLogs.filter(l => l.status === "success").length,
+      error: allLogs.filter(l => l.status === "error").length,
+      running: allLogs.filter(l => l.status === "running").length,
+    };
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [created] = await db.insert(auditLogs).values(log).returning();
+    return created;
+  }
+
+  async getAuditLogs(limit = 100): Promise<AuditLog[]> {
+    return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(limit);
+  }
+
+  async getDashboardStats() {
+    const allModules = await this.getAllModules();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayLogs = await db.select().from(syncLogs)
+      .where(gte(syncLogs.startedAt, today));
+
+    const recentSyncs = await db.select().from(syncLogs)
+      .orderBy(desc(syncLogs.startedAt))
+      .limit(10);
+
+    return {
+      totalModules: allModules.length,
+      connectedModules: allModules.filter(m => m.status === "connected").length,
+      todaySyncs: todayLogs.length,
+      errorSyncs: todayLogs.filter(l => l.status === "error").length,
+      recentSyncs,
+      moduleStatuses: allModules,
+    };
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
