@@ -71,7 +71,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllModules(): Promise<ApiModule[]> {
-    return db.select().from(apiModules).orderBy(apiModules.code);
+    return db.select().from(apiModules).orderBy(apiModules.sortOrder);
   }
 
   async getModule(id: string): Promise<ApiModule | undefined> {

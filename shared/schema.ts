@@ -25,8 +25,11 @@ export const apiModules = pgTable("api_modules", {
   name: text("name").notNull(),
   description: text("description"),
   baseUrl: text("base_url"),
+  sortOrder: integer("sort_order").notNull().default(0),
   status: moduleStatusEnum("status").notNull().default("disconnected"),
   config: jsonb("config").$type<Record<string, any>>().default({}),
+  dataFields: jsonb("data_fields").$type<string[]>().default([]),
+  docsUrl: text("docs_url"),
   lastSyncAt: timestamp("last_sync_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -79,8 +82,11 @@ export const insertApiModuleSchema = createInsertSchema(apiModules).pick({
   name: true,
   description: true,
   baseUrl: true,
+  sortOrder: true,
   status: true,
   config: true,
+  dataFields: true,
+  docsUrl: true,
 });
 
 export const insertSyncLogSchema = createInsertSchema(syncLogs).pick({

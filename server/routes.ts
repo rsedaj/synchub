@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
+import { testModuleConnection, fetchModuleData } from "./data-fetcher";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema } from "@shared/schema";
@@ -124,6 +125,34 @@ export async function registerRoutes(
       return res.json(mod);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to update module" });
+    }
+  });
+
+  app.post("/api/modules/:id/test-connection", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const result = await testModuleConnection(mod);
+      if (result.success && mod.status !== "connected") {
+        await storage.updateModule(mod.id, { status: "connected" });
+      } else if (!result.success && mod.status === "connected") {
+        await storage.updateModule(mod.id, { status: "error" });
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Connection test failed" });
+    }
+  });
+
+  app.get("/api/modules/:id/data-preview", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const limit = parseInt(req.query.limit as string) || 20;
+      const result = await fetchModuleData(mod, limit);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to fetch data preview" });
     }
   });
 

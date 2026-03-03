@@ -84,7 +84,7 @@ export default function ModulesPage() {
                     )}
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium">{mod.name}</h3>
+                    <h3 className="text-sm font-medium">{mod.sortOrder.toString().padStart(2, "0")}. {mod.name}</h3>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <StatusDot status={mod.status} />
                       <span className="text-xs text-muted-foreground">{mod.code}</span>
