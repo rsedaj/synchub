@@ -97,7 +97,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground text-center mt-6">
-          Hauerland s.r.o. &middot; Integration Platform
+          &copy; {new Date().getFullYear()} SEDAJ s.r.o.
         </p>
       </div>
     </div>

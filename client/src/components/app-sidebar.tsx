@@ -151,6 +151,9 @@ export function AppSidebar() {
             </Button>
           </div>
         </div>
+        <p className="text-[10px] text-muted-foreground text-center mt-3">
+          &copy; {new Date().getFullYear()} SEDAJ s.r.o.
+        </p>
       </SidebarFooter>
     </Sidebar>
   );
