@@ -54,9 +54,14 @@ function LiveClock() {
   }, []);
 
   return (
-    <span className="text-xs font-mono text-muted-foreground" data-testid="text-live-clock">
-      {time.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-    </span>
+    <div className="flex flex-col items-center" data-testid="text-live-clock">
+      <span className="text-[10px] text-muted-foreground">
+        {time.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric" })}
+      </span>
+      <span className="text-xs font-mono text-muted-foreground">
+        {time.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+      </span>
+    </div>
   );
 }
 
