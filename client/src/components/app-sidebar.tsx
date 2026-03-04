@@ -58,11 +58,16 @@ export function AppSidebar() {
             <ArrowLeftRight className="h-5 w-5 text-background" />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">
-              SyncHub
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">
+                SyncHub
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-app-version">
+                v1.2.0
+              </span>
+            </div>
             <span className="text-xs text-muted-foreground">
-              Hauerland Integration
+              SEDAJ s.r.o. | Hauerland
             </span>
           </div>
         </div>

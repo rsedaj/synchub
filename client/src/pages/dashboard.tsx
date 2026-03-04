@@ -182,7 +182,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{mod.name}</p>
+                      <p className="text-sm font-medium truncate">{mod.sortOrder.toString().padStart(2, "0")}. {mod.name}</p>
                       <p className="text-xs text-muted-foreground">{mod.code}</p>
                     </div>
                   </div>

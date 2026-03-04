@@ -38,11 +38,16 @@ export default function LoginPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-foreground mb-4">
             <ArrowLeftRight className="h-6 w-6 text-background" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight" data-testid="text-login-title">
-            SyncHub
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-login-title">
+              SyncHub
+            </h1>
+            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-login-version">
+              v1.2.0
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Hauerland Integration Platform
+            SEDAJ s.r.o. | Hauerland Integration Platform
           </p>
         </div>
 
