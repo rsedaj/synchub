@@ -19,6 +19,7 @@ const ALLOWED_HOSTS = new Set([
   "ws.stricker-europe.com",
   "www.stricker-europe.com",
   "xml.andapresent.com",
+  "feeds.xindao.com",
 ]);
 
 function isUrlAllowed(urlStr: string): boolean {
@@ -102,6 +103,17 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Accept"] = "text/json";
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
+      }
+    } else if (mod.code === "XDCONNECT") {
+      const feedUrl = config?.productFeedUrl || config?.stockFeedUrl || config?.combinedFeedUrl || config?.pricesFeedUrl || config?.printDataFeedUrl || config?.printPricesFeedUrl;
+      if (feedUrl) {
+        testUrl = feedUrl;
+      } else {
+        return {
+          success: false,
+          responseTime: Date.now() - start,
+          message: "No feed URLs configured. Request your feed links from onlineclients@xdconnects.com and add them in Settings tab.",
+        };
       }
     } else if (mod.code === "GIVING") {
       const env = config?.environment || "sandbox";
@@ -211,6 +223,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchPipedriveData(config, source, limit);
     case "MID":
       return fetchMidoceanData(config, source, limit);
+    case "XDCONNECT":
+      return fetchXdConnectsData(config, source, limit);
     case "GIVING":
       return fetchGivingEuropeData(config, limit);
     default:
@@ -627,6 +641,241 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       fetchedAt: new Date().toISOString(),
     };
   }
+}
+
+const XD_FEED_KEYS: Record<string, { configKey: string; label: string; format: string }> = {
+  products: { configKey: "productFeedUrl", label: "Product Data V5", format: "auto" },
+  prices: { configKey: "pricesFeedUrl", label: "Product Prices V2", format: "auto" },
+  printdata: { configKey: "printDataFeedUrl", label: "Print Data V3", format: "auto" },
+  printprices: { configKey: "printPricesFeedUrl", label: "Print Prices V3", format: "auto" },
+  stock: { configKey: "stockFeedUrl", label: "Stock V2", format: "auto" },
+  combined: { configKey: "combinedFeedUrl", label: "Combined Data V5", format: "auto" },
+};
+
+async function fetchXdConnectsData(config: Record<string, any>, source: string | undefined, limit: number): Promise<FetchResult> {
+  const selectedSource = source && source !== "auto" ? source : "products";
+  const feedDef = XD_FEED_KEYS[selectedSource];
+  if (!feedDef) {
+    return {
+      success: false, source: selectedSource, recordCount: 0, fields: [], preview: [],
+      error: `Unknown data source: ${selectedSource}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const feedUrl = config?.[feedDef.configKey];
+  if (!feedUrl) {
+    return {
+      success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+      error: `Feed URL not configured for "${feedDef.label}". Request your feed links from onlineclients@xdconnects.com and add them in Settings tab.`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!isUrlAllowed(feedUrl)) {
+    return {
+      success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+      error: "Feed URL not in allowed hosts list. Feeds must be from feeds.xindao.com.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    const res = await fetch(feedUrl, {
+      signal: controller.signal,
+      headers: { "User-Agent": "SyncHub/1.0", "Accept": "*/*" },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}: ${res.statusText}`;
+      if (res.status === 401 || res.status === 403) {
+        errMsg += " — Feed link may have expired or been revoked. Contact onlineclients@xdconnects.com for new links.";
+      } else if (res.status === 404) {
+        errMsg += " — Feed not found. Check the URL or contact XD Connects support.";
+      }
+      return {
+        success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+        error: errMsg, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
+
+    if (contentType.includes("json") || text.trimStart().startsWith("[") || text.trimStart().startsWith("{")) {
+      return parseXdJsonFeed(text, feedDef.label, selectedSource, limit);
+    }
+
+    if (contentType.includes("xml") || text.trimStart().startsWith("<?xml") || text.trimStart().startsWith("<")) {
+      return parseXdXmlFeed(text, feedDef.label, selectedSource, limit);
+    }
+
+    if (contentType.includes("csv") || contentType.includes("text/plain") || contentType.includes("tab-separated")) {
+      return parseXdCsvFeed(text, feedDef.label, selectedSource, limit);
+    }
+
+    if (contentType.includes("spreadsheet") || contentType.includes("excel") || contentType.includes("vnd.openxmlformats") || contentType.includes("vnd.ms-excel")) {
+      return {
+        success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+        error: "Excel format detected. SyncHub supports XML, CSV and JSON feeds. Request your feeds in XML or JSON format from onlineclients@xdconnects.com.",
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    if (text.includes("\t") || text.includes(";") || text.includes(",")) {
+      return parseXdCsvFeed(text, feedDef.label, selectedSource, limit);
+    }
+
+    return {
+      success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+      error: `Unrecognized feed format (Content-Type: ${contentType}). Expected XML, JSON or CSV. Request feeds in supported format from onlineclients@xdconnects.com.`,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false, source: feedDef.label, recordCount: 0, fields: [], preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (60s) — XD Connects feeds can be large, try again later"
+        : `Failed to fetch: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+function parseXdJsonFeed(text: string, label: string, source: string, limit: number): FetchResult {
+  try {
+    const json = JSON.parse(text);
+    let items: any[] = [];
+
+    if (Array.isArray(json)) {
+      items = json;
+    } else if (json.data && Array.isArray(json.data)) {
+      items = json.data;
+    } else {
+      const rootKeys = Object.keys(json);
+      for (const k of rootKeys) {
+        if (Array.isArray(json[k]) && json[k].length > 0) {
+          items = json[k];
+          break;
+        }
+      }
+      if (items.length === 0) items = [json];
+    }
+
+    const preview = items.slice(0, limit).map((item: any) => {
+      const flat: Record<string, any> = {};
+      for (const [k, v] of Object.entries(item)) {
+        if (v === null || v === undefined) {
+          flat[k] = "";
+        } else if (typeof v === "object") {
+          if (Array.isArray(v)) {
+            flat[k] = `[${v.length} items]`;
+          } else {
+            flat[k] = JSON.stringify(v).substring(0, 120);
+          }
+        } else {
+          flat[k] = String(v);
+        }
+      }
+      return flat;
+    });
+
+    return {
+      success: true, source: label, recordCount: items.length,
+      fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+      preview, fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false, source: label, recordCount: 0, fields: [], preview: [],
+      error: `JSON parse error: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+async function parseXdXmlFeed(text: string, label: string, source: string, limit: number): Promise<FetchResult> {
+  try {
+    const parsed = await parseStringPromise(text, { explicitArray: false, trim: true, tagNameProcessors: [stripPrefix] });
+
+    let items: any[] = [];
+    const rootKey = Object.keys(parsed)[0];
+    if (rootKey && parsed[rootKey]) {
+      const root = parsed[rootKey];
+      const innerKeys = Object.keys(root);
+      for (const k of innerKeys) {
+        if (Array.isArray(root[k]) && root[k].length > 0) {
+          items = root[k];
+          break;
+        }
+        if (root[k] && typeof root[k] === "object" && !Array.isArray(root[k])) {
+          const subKeys = Object.keys(root[k]);
+          for (const sk of subKeys) {
+            if (Array.isArray(root[k][sk]) && root[k][sk].length > 0) {
+              items = root[k][sk];
+              break;
+            }
+          }
+          if (items.length > 0) break;
+        }
+      }
+    }
+
+    const totalCount = items.length;
+    const preview = items.slice(0, limit).map((p: any) => flattenObject(p));
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+
+    return {
+      success: true, source: label, recordCount: totalCount,
+      fields, preview, fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false, source: label, recordCount: 0, fields: [], preview: [],
+      error: `XML parse error: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+function parseXdCsvFeed(text: string, label: string, source: string, limit: number): FetchResult {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) {
+    return {
+      success: false, source: label, recordCount: 0, fields: [], preview: [],
+      error: "CSV feed is empty or has no data rows.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const headerLine = lines[0];
+  let delimiter = "\t";
+  if (headerLine.split("\t").length < 3) {
+    if (headerLine.split(";").length >= 3) delimiter = ";";
+    else if (headerLine.split(",").length >= 3) delimiter = ",";
+  }
+
+  const headers = headerLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, "").trim());
+  const totalCount = lines.length - 1;
+
+  const preview: Record<string, any>[] = [];
+  for (let i = 1; i <= Math.min(totalCount, limit); i++) {
+    const values = lines[i].split(delimiter);
+    const row: Record<string, any> = {};
+    headers.forEach((h, idx) => {
+      row[h] = (values[idx] || "").replace(/^["']|["']$/g, "").trim();
+    });
+    preview.push(row);
+  }
+
+  return {
+    success: true, source: label, recordCount: totalCount,
+    fields: headers, preview, fetchedAt: new Date().toISOString(),
+  };
 }
 
 async function fetchGivingEuropeData(config: Record<string, any>, limit: number): Promise<FetchResult> {

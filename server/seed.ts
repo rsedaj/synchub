@@ -122,15 +122,17 @@ const MODULE_DEFINITIONS = [
   },
   {
     code: "XDCONNECT",
-    name: "XD Connect",
+    name: "XD Connects",
     sortOrder: 8,
-    description: "Supplier - product data feeds and catalog synchronization.",
-    baseUrl: "",
+    description: "Dodávateľ reklamných predmetov XD Connects (predtým Xindao, Holandsko). 6 dátových feedov (XML/CSV/JSON): produkty, ceny, sklady, potlačové dáta, potlačové ceny a kombinovaný feed. Zákaznícky špecifické URL linky na feeds.xindao.com.",
+    baseUrl: "https://feeds.xindao.com",
     status: "disconnected" as const,
-    dataFields: standardDataFields,
+    docsUrl: "https://www.xdconnects.com",
+    dataFields: ["ModelCode", "ItemCode", "ItemName", "Brand", "MainCategory", "SubCategory", "Color", "Material", "ItemDimensions", "ItemWeightGr", "EANCode", "CommodityCode", "CountryOfOrigin", "MainImage", "ProductLifeCycle", "CurrentStock", "FutureIncomingStockDate1", "FutureIncomingStockQty1", "ItemPriceNet", "ItemPriceGross", "PrintTechniqueDefault", "PrintPositionDefault", "MaxPrintAreaDefault"],
     config: {
       apiType: "data_feed",
-      authType: "credentials",
+      authType: "feed_url",
+      feedFormat: "XML/CSV/JSON",
     },
   },
   {
