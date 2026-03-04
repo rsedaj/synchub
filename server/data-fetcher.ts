@@ -50,9 +50,19 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
 
   try {
     let testUrl = "";
+    const headers: Record<string, string> = { "User-Agent": "SyncHub/1.0" };
 
     if (mod.code === "EASYGIFTS" && config?.skuFeedUrl) {
       testUrl = config.skuFeedUrl;
+    } else if (mod.code === "GIVING") {
+      const env = config?.environment || "sandbox";
+      const token = env === "production" ? (config?.apiTokenProd || config?.apiToken) : config?.apiToken;
+      const base = config?.apiBaseUrl || (env === "production" ? "https://debtorapi.givingeurope.com" : "https://debtorapi-sandbox.givingeurope.com");
+      testUrl = `${base}/v1/products?limit=1`;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["Accept"] = "application/json";
+      }
     } else if (mod.baseUrl) {
       testUrl = mod.baseUrl;
     } else {
@@ -77,20 +87,27 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
     const res = await fetch(testUrl, {
       method: "GET",
       signal: controller.signal,
-      headers: {
-        "User-Agent": "SyncHub/1.0",
-      },
+      headers,
     });
 
     clearTimeout(timeout);
+
+    let message = res.ok
+      ? `Connection successful (HTTP ${res.status})`
+      : `Server responded with HTTP ${res.status}`;
+
+    if (mod.code === "GIVING" && res.ok) {
+      try {
+        const data = await res.json();
+        message = `Connection successful — ${data.total || 0} products available`;
+      } catch {}
+    }
 
     return {
       success: res.ok,
       statusCode: res.status,
       responseTime: Date.now() - start,
-      message: res.ok
-        ? `Connection successful (HTTP ${res.status})`
-        : `Server responded with HTTP ${res.status}`,
+      message,
     };
   } catch (err: any) {
     return {
