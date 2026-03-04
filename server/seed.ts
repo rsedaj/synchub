@@ -136,13 +136,14 @@ const MODULE_DEFINITIONS = [
     code: "ANDA",
     name: "Anda Present",
     sortOrder: 9,
-    description: "Supplier - XML/CSV product feeds and pricing.",
-    baseUrl: "",
+    description: "Dodávateľ reklamných predmetov Anda Present. XML a CSV feedy pre produkty, ceny, sklady, potlač a kategórie. Prístup cez unikátne feed ID + IP whitelist.",
+    baseUrl: "https://xml.andapresent.com",
     status: "disconnected" as const,
-    dataFields: standardDataFields,
+    docsUrl: "https://andapresent.com",
+    dataFields: ["Item Number", "Design Name", "Primary Color", "Secondary Color", "Name", "Description", "Primary Image", "MOQ", "Weight", "Country of Origin", "Tariff Number", "Brand", "EAN Code", "Price (List)", "Price (Discount)", "Stock (Central)", "Stock (External)", "Incoming Stock", "Labeling Info", "Categories"],
     config: {
       apiType: "XML/CSV",
-      authType: "feed_url",
+      authType: "feed_id",
     },
   },
   {
@@ -192,7 +193,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "skuFeedUrl", "language"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "skuFeedUrl", "language"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);

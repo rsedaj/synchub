@@ -17,6 +17,7 @@ const ALLOWED_HOSTS = new Set([
   "www.pfconcept.com",
   "ws.stricker-europe.com",
   "www.stricker-europe.com",
+  "xml.andapresent.com",
 ]);
 
 function isUrlAllowed(urlStr: string): boolean {
@@ -63,6 +64,16 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Accept"] = "application/json";
       } else if (config?.xmlFeedUrl) {
         testUrl = config.xmlFeedUrl;
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
+      }
+    } else if (mod.code === "ANDA") {
+      const feedId = config?.xmlFeedId;
+      const lang = config?.language || "sk";
+      if (feedId) {
+        testUrl = `https://xml.andapresent.com/export/products/${lang}/${feedId}`;
+      } else if (config?.skuFeedUrl) {
+        testUrl = config.skuFeedUrl;
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
       }
@@ -185,7 +196,7 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
     case "STICKER":
       return fetchStrickerData(config, source, limit);
     case "ANDA":
-      return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
+      return fetchAndaData(config, source, limit);
     case "PIPEDRIVE":
       return fetchPipedriveData(config, source, limit);
     case "GIVING":
@@ -509,6 +520,102 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
       fetchedAt: new Date().toISOString(),
     };
   }
+}
+
+async function fetchCsvFeedData(source: string, feedUrl: string | undefined, limit: number): Promise<FetchResult> {
+  if (!feedUrl || !isUrlAllowed(feedUrl)) {
+    return {
+      success: false, source, recordCount: 0, fields: [], preview: [],
+      error: !feedUrl ? "CSV feed URL not configured." : "URL not in allowed hosts list",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const res = await fetch(feedUrl, { signal: controller.signal, headers: { "User-Agent": "SyncHub/1.0" } });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return {
+        success: false, source, recordCount: 0, fields: [], preview: [],
+        error: `HTTP ${res.status}: ${res.statusText}`, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const text = await res.text();
+    const lines = text.split("\n").filter((l) => l.trim().length > 0);
+    if (lines.length === 0) {
+      return { success: true, source, recordCount: 0, fields: [], preview: [], fetchedAt: new Date().toISOString() };
+    }
+
+    const delimiter = lines[0].includes("\t") ? "\t" : lines[0].includes(";") ? ";" : ",";
+    const headers_row = lines[0].split(delimiter).map((h) => h.replace(/^"|"$/g, "").trim());
+    const dataLines = lines.slice(1, limit + 1);
+
+    const preview = dataLines.map((line) => {
+      const vals = line.split(delimiter).map((v) => v.replace(/^"|"$/g, "").trim());
+      const row: Record<string, any> = {};
+      headers_row.forEach((h, i) => { row[h] = vals[i] || ""; });
+      return row;
+    });
+
+    return {
+      success: true, source, recordCount: lines.length - 1,
+      fields: headers_row, preview, fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false, source, recordCount: 0, fields: [], preview: [],
+      error: err.name === "AbortError" ? "Request timed out (30s)" : `Failed to fetch CSV: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+const ANDA_SOURCES: Record<string, { path: string; label: string; needsLang: boolean; format: "xml" | "csv" }> = {
+  products: { path: "products", label: "Products (XML)", needsLang: true, format: "xml" },
+  prices: { path: "prices", label: "Prices (XML)", needsLang: false, format: "xml" },
+  inventories: { path: "inventories", label: "Inventory / Stocks (XML)", needsLang: false, format: "xml" },
+  labeling: { path: "labeling", label: "Labeling Info (XML)", needsLang: true, format: "xml" },
+  categories: { path: "categories", label: "Categories (XML)", needsLang: true, format: "xml" },
+  "labeling-prices": { path: "labeling-prices", label: "Labeling Prices (XML)", needsLang: false, format: "xml" },
+  "unique-prices": { path: "unique-product-prices", label: "Unique Prices (XML)", needsLang: false, format: "xml" },
+  "products-csv": { path: "products-csv", label: "Products (CSV)", needsLang: true, format: "csv" },
+  "prices-csv": { path: "prices-csv", label: "Prices (CSV)", needsLang: false, format: "csv" },
+};
+
+async function fetchAndaData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const feedId = config?.xmlFeedId;
+  if (!feedId) {
+    if (config?.skuFeedUrl) {
+      return fetchXmlFeedData("ANDA", config.skuFeedUrl, limit);
+    }
+    return {
+      success: false,
+      source: "Anda Present",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "XML Feed ID nie je nakonfigurované. Prejdite na záložku Settings a zadajte unikátne Feed ID od Anda Present.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const lang = config?.language || "sk";
+  const srcKey = source && ANDA_SOURCES[source] ? source : "products";
+  const src = ANDA_SOURCES[srcKey];
+
+  const id = src.format === "csv" ? (config?.csvFeedId || feedId) : feedId;
+  const feedUrl = src.needsLang
+    ? `https://xml.andapresent.com/export/${src.path}/${lang}/${id}`
+    : `https://xml.andapresent.com/export/${src.path}/${id}`;
+
+  if (src.format === "csv") {
+    return fetchCsvFeedData(`Anda ${src.label}`, feedUrl, limit);
+  }
+  return fetchXmlFeedData(`Anda ${src.label}`, feedUrl, limit);
 }
 
 const STRICKER_SOURCES: Record<string, { data: string; restEndpoint: string; label: string }> = {

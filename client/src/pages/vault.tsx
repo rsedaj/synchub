@@ -8,7 +8,7 @@ import type { ApiModule } from "@shared/schema";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-const SENSITIVE_KEYS = new Set(["apiToken", "apiTokenProd", "apiKey", "accessKey", "password"]);
+const SENSITIVE_KEYS = new Set(["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "password"]);
 
 const FIELD_LABELS: Record<string, string> = {
   apiType: "Typ API",
@@ -28,6 +28,8 @@ const FIELD_LABELS: Record<string, string> = {
   pricelistFeedUrl: "Cenníkový Feed URL",
   swaggerUrl: "Swagger URL",
   accessKey: "Access Key",
+  xmlFeedId: "XML Feed ID",
+  csvFeedId: "CSV Feed ID",
   language: "Jazyk",
   note: "Poznámka",
 };
@@ -35,7 +37,7 @@ const FIELD_LABELS: Record<string, string> = {
 const FIELD_ORDER = [
   "apiType", "authType", "environment",
   "apiBaseUrl", "swaggerUrl",
-  "apiToken", "apiTokenProd", "apiKey", "accessKey",
+  "apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId",
   "username", "password",
   "companyDomain", "companyId", "shopId",
   "xmlFeedUrl", "skuFeedUrl", "pricelistFeedUrl",
