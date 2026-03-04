@@ -54,6 +54,16 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
 
     if (mod.code === "EASYGIFTS" && config?.skuFeedUrl) {
       testUrl = config.skuFeedUrl;
+    } else if (mod.code === "PROMOTRON") {
+      if (config?.apiKey) {
+        testUrl = `${mod.baseUrl || "https://api-ts-westeu.promotron.com"}/tronshop-api/products`;
+        headers["ApiKey"] = config.apiKey;
+        headers["Accept"] = "application/json";
+      } else if (config?.xmlFeedUrl) {
+        testUrl = config.xmlFeedUrl;
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
+      }
     } else if (mod.code === "GIVING") {
       const env = config?.environment || "sandbox";
       const token = env === "production" ? (config?.apiTokenProd || config?.apiToken) : config?.apiToken;
@@ -127,6 +137,9 @@ export async function fetchModuleData(mod: ApiModule, limit = 20): Promise<Fetch
     case "EASYGIFTS":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
     case "PROMOTRON":
+      if (config?.apiKey) {
+        return fetchPromotronApiData(config, mod.baseUrl || "https://api-ts-westeu.promotron.com", limit);
+      }
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
     case "ANDA":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
@@ -237,6 +250,108 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     return {
       success: false,
       source,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (30s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+async function fetchPromotronApiData(config: Record<string, any>, baseUrl: string, limit: number): Promise<FetchResult> {
+  const apiKey = config?.apiKey;
+
+  if (!apiKey) {
+    return {
+      success: false,
+      source: "PROMOTRON",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "API Key not configured. Add the key in Configuration tab.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const testUrl = `${baseUrl}/tronshop-api/orders`;
+  if (!isUrlAllowed(testUrl)) {
+    return {
+      success: false,
+      source: "PROMOTRON",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "API URL not in allowed hosts list",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const res = await fetch(`${baseUrl}/tronshop-api/orders`, {
+      signal: controller.signal,
+      headers: {
+        "ApiKey": apiKey,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub/1.0",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => "");
+      return {
+        success: false,
+        source: "PROMOTRON",
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `HTTP ${res.status}: ${res.statusText}${errorBody ? ` - ${errorBody.substring(0, 200)}` : ""}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const data = await res.json();
+    const items: any[] = Array.isArray(data) ? data : (data.items || data.orders || data.data || []);
+    const totalCount = items.length;
+
+    const preview = items.slice(0, limit).map((item: any) => {
+      const row: Record<string, any> = {};
+      for (const [key, val] of Object.entries(item)) {
+        if (val === null || val === undefined) {
+          row[key] = "";
+        } else if (typeof val === "object") {
+          if (Array.isArray(val)) {
+            row[key] = `[${val.length} items]`;
+          } else {
+            row[key] = JSON.stringify(val).substring(0, 100);
+          }
+        } else {
+          row[key] = String(val);
+        }
+      }
+      return row;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+
+    return {
+      success: true,
+      source: "PROMOTRON",
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: "PROMOTRON",
       recordCount: 0,
       fields: [],
       preview: [],

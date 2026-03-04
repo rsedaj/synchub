@@ -42,7 +42,7 @@ const MODULE_DEFINITIONS = [
     baseUrl: "https://api-ts-westeu.promotron.com",
     status: "disconnected" as const,
     docsUrl: "https://support.promotron.com/hc/en-us/articles/16618416323473-TronShop-API-access-reading-data-from-orders-inquiries-and-customers",
-    dataFields: ["Orders", "Customers", "Inquiries", "Products"],
+    dataFields: ["Orders", "Customers", "Inquiries", "Carts", "Coupons", "Products", "Payment States"],
     config: {
       swaggerUrl: "https://api-ts-westeu.promotron.com/swagger/index.html",
       apiType: "REST",
