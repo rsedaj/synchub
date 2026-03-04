@@ -5,6 +5,7 @@ const ALLOWED_HOSTS = new Set([
   "195.146.148.139",
   "api-ts-westeu.promotron.com",
   "shop.hauerland.sk",
+  "feed.hauerland.sk",
   "www.hauerland.sk",
   "hauerland.sk",
   "api.pipedrive.com",
@@ -159,11 +160,14 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     }
 
     const xml = await res.text();
-    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true });
+    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true, tagNameProcessors: [stripPrefix] });
 
     let products: any[] = [];
 
-    if (parsed?.products?.product) {
+    if (parsed?.rss?.channel?.item) {
+      const items = parsed.rss.channel.item;
+      products = Array.isArray(items) ? items : [items];
+    } else if (parsed?.products?.product) {
       products = Array.isArray(parsed.products.product)
         ? parsed.products.product
         : [parsed.products.product];
@@ -221,6 +225,11 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
       fetchedAt: new Date().toISOString(),
     };
   }
+}
+
+function stripPrefix(name: string): string {
+  const idx = name.indexOf(":");
+  return idx >= 0 ? name.substring(idx + 1) : name;
 }
 
 function flattenObject(obj: any, prefix = ""): Record<string, string> {
