@@ -1,7 +1,5 @@
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
-import { db } from "./db";
-import { syncLogs } from "@shared/schema";
 import { log } from "./index";
 
 const standardDataFields = [
@@ -191,26 +189,31 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
+  const sensitiveKeys = ["apiToken", "apiKey", "username", "password", "shopId", "companyId", "companyDomain"];
+
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);
     if (existing) {
+      const existingConfig = (existing.config as Record<string, any>) || {};
+      const mergedConfig = { ...modDef.config };
+      for (const key of sensitiveKeys) {
+        if (existingConfig[key]) {
+          mergedConfig[key] = existingConfig[key];
+        }
+      }
       await storage.updateModule(existing.id, {
         name: modDef.name,
         sortOrder: modDef.sortOrder,
         description: modDef.description,
         baseUrl: modDef.baseUrl,
-        status: modDef.status,
         docsUrl: modDef.docsUrl || null,
         dataFields: modDef.dataFields,
-        config: modDef.config,
+        config: mergedConfig,
       });
     } else {
       await storage.createModule(modDef);
     }
   }
-
-  log("Cleaning old demo sync logs...", "seed");
-  await db.delete(syncLogs);
 
   log("Seed data synced successfully", "seed");
 }

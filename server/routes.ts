@@ -14,6 +14,7 @@ const updateModuleSchema = z.object({
   description: z.string().optional(),
   baseUrl: z.string().optional(),
   status: z.enum(["connected", "disconnected", "error", "configuring"]).optional(),
+  config: z.record(z.any()).optional(),
 });
 
 const updateUserSchema = z.object({

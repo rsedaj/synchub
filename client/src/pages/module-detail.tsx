@@ -39,12 +39,130 @@ import {
   ExternalLink,
   FileText,
   Zap,
+  Eye,
+  EyeOff,
+  Key,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ApiModule, SyncLog } from "@shared/schema";
 import { useState, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
+
+interface ConfigFieldDef {
+  key: string;
+  label: string;
+  type: "text" | "password" | "url";
+  placeholder: string;
+  required?: boolean;
+  helpText?: string;
+}
+
+const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
+  ONIX: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "token" },
+    { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "http://195.146.148.139/onix_api/swagger/ui/index" },
+    { key: "apiToken", label: "API Token", type: "password", placeholder: "Enter ONIX API token", required: true, helpText: "Authentication token for ONIX API" },
+    { key: "companyId", label: "Company ID", type: "text", placeholder: "Enter company identifier", helpText: "ONIX company/database identifier" },
+  ],
+  PROMOTRON: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
+    { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "https://api-ts-westeu.promotron.com/swagger/index.html" },
+    { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Promotron API key", required: true, helpText: "API key from Promotron admin panel" },
+    { key: "shopId", label: "Shop ID", type: "text", placeholder: "Enter shop identifier", helpText: "Promotron shop/tenant ID" },
+  ],
+  PIPEDRIVE: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
+    { key: "apiToken", label: "API Token", type: "password", placeholder: "Enter Pipedrive API token", required: true, helpText: "Personal API token from Pipedrive Settings > API" },
+    { key: "companyDomain", label: "Company Domain", type: "text", placeholder: "yourcompany", helpText: "Pipedrive subdomain (e.g. 'hauerland')" },
+  ],
+  GIVING: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "web" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "credentials" },
+    { key: "username", label: "Username", type: "text", placeholder: "Enter Giving Europe username", required: true },
+    { key: "password", label: "Password", type: "password", placeholder: "Enter password", required: true },
+    { key: "feedUrl", label: "Product Feed URL", type: "url", placeholder: "https://www.givingeurope.com/...", helpText: "URL to product data feed" },
+  ],
+  MID: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
+    { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Midocean API key", required: true, helpText: "API key from Midocean portal" },
+  ],
+  STICKER: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "SOAP/REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
+    { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Sticker API key", required: true },
+    { key: "feedUrl", label: "Feed URL", type: "url", placeholder: "Enter feed URL" },
+  ],
+  MACMA: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "TBD" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "TBD" },
+    { key: "note", label: "Note", type: "text", placeholder: "Waiting for documentation" },
+  ],
+  XDCONNECT: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "data_feed" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "credentials" },
+    { key: "username", label: "Username", type: "text", placeholder: "Enter XD Connect username", required: true },
+    { key: "password", label: "Password", type: "password", placeholder: "Enter password", required: true },
+    { key: "feedUrl", label: "Data Feed URL", type: "url", placeholder: "Enter feed URL" },
+  ],
+  ANDA: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "XML/CSV" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "feed_url" },
+    { key: "skuFeedUrl", label: "SKU Feed URL", type: "url", placeholder: "Enter SKU XML feed URL", required: true },
+    { key: "pricelistFeedUrl", label: "Pricelist Feed URL", type: "url", placeholder: "Enter pricelist feed URL" },
+  ],
+  EASYGIFTS: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "XML" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "feed_url" },
+    { key: "skuFeedUrl", label: "SKU Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../sku.xml", required: true, helpText: "XML feed URL for product SKU data" },
+    { key: "pricelistFeedUrl", label: "Pricelist Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../pricelist.xml", helpText: "XML feed URL for pricelist data" },
+  ],
+  PFCONCEPT: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "data_feed" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "credentials" },
+    { key: "username", label: "Username", type: "text", placeholder: "Enter PF Concept username", required: true },
+    { key: "password", label: "Password", type: "password", placeholder: "Enter password", required: true },
+    { key: "feedUrl", label: "Data Feed URL", type: "url", placeholder: "Enter feed gateway URL" },
+  ],
+};
+
+function PasswordField({
+  value,
+  onChange,
+  placeholder,
+  testId,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  testId: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        data-testid={testId}
+        className="pr-10"
+      />
+      <button
+        type="button"
+        onClick={() => setVisible(!visible)}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        data-testid={`${testId}-toggle`}
+      >
+        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
 
 interface ConnectionTestResult {
   success: boolean;
@@ -108,6 +226,7 @@ export default function ModuleDetailPage() {
   const [description, setDescription] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [status, setStatus] = useState("");
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [dataPreview, setDataPreview] = useState<DataPreviewResult | null>(null);
 
@@ -117,6 +236,12 @@ export default function ModuleDetailPage() {
       setDescription(mod.description || "");
       setBaseUrl(mod.baseUrl || "");
       setStatus(mod.status);
+      const cfg = (mod.config as Record<string, any>) || {};
+      const vals: Record<string, string> = {};
+      for (const [k, v] of Object.entries(cfg)) {
+        vals[k] = typeof v === "string" ? v : JSON.stringify(v);
+      }
+      setConfigValues(vals);
     }
   }, [mod]);
 
@@ -179,7 +304,11 @@ export default function ModuleDetailPage() {
   });
 
   const handleSave = () => {
-    updateMutation.mutate({ name, description, baseUrl, status: status as any });
+    updateMutation.mutate({ name, description, baseUrl, status: status as any, config: configValues });
+  };
+
+  const updateConfigValue = (key: string, value: string) => {
+    setConfigValues((prev) => ({ ...prev, [key]: value }));
   };
 
   if (isLoading) {
@@ -482,7 +611,7 @@ export default function ModuleDetailPage() {
         <TabsContent value="config" className="space-y-6">
           <Card>
             <CardHeader className="pb-3">
-              <h2 className="text-sm font-medium">Module Configuration</h2>
+              <h2 className="text-sm font-medium">General Settings</h2>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -533,39 +662,82 @@ export default function ModuleDetailPage() {
                   rows={3}
                 />
               </div>
+            </CardContent>
+          </Card>
 
-              {config && Object.keys(config).length > 0 && (
-                <div className="space-y-2 pt-2 border-t">
-                  <Label>API Configuration</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {Object.entries(config).map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-md bg-muted/50 text-sm">
-                        <span className="text-muted-foreground text-xs">{key}</span>
-                        <span className="text-xs font-mono truncate max-w-[150px]">
-                          {typeof value === "string" ? value : JSON.stringify(value)}
-                        </span>
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Key className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-medium">API Credentials & Connection</h2>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                API keys and tokens are stored encrypted in the database. Fill in the required fields and save to connect.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(() => {
+                const fields = MODULE_CONFIG_FIELDS[mod?.code || ""] || [];
+                if (fields.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center py-8 text-center">
+                      <Key className="h-6 w-6 text-muted-foreground/40 mb-2" />
+                      <p className="text-sm text-muted-foreground">No configuration schema defined for this module</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="space-y-4">
+                    {fields.map((field) => (
+                      <div key={field.key} className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor={`cfg-${field.key}`}>
+                            {field.label}
+                            {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                          </Label>
+                        </div>
+                        {field.type === "password" ? (
+                          <PasswordField
+                            value={configValues[field.key] || ""}
+                            onChange={(val) => updateConfigValue(field.key, val)}
+                            placeholder={field.placeholder}
+                            testId={`input-config-${field.key}`}
+                          />
+                        ) : (
+                          <Input
+                            id={`cfg-${field.key}`}
+                            data-testid={`input-config-${field.key}`}
+                            type={field.type === "url" ? "url" : "text"}
+                            value={configValues[field.key] || ""}
+                            onChange={(e) => updateConfigValue(field.key, e.target.value)}
+                            placeholder={field.placeholder}
+                          />
+                        )}
+                        {field.helpText && (
+                          <p className="text-xs text-muted-foreground">{field.helpText}</p>
+                        )}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              <div className="flex justify-end pt-2">
-                <Button
-                  onClick={handleSave}
-                  disabled={updateMutation.isPending}
-                  data-testid="button-save-module"
-                >
-                  {updateMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
-                  )}
-                  Save Changes
-                </Button>
-              </div>
+                );
+              })()}
             </CardContent>
           </Card>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              data-testid="button-save-module"
+            >
+              {updateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save Changes
+            </Button>
+          </div>
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
