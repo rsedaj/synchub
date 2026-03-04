@@ -81,11 +81,12 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "companyDomain", label: "Company Domain", type: "text", placeholder: "yourcompany", helpText: "Pipedrive subdomain (e.g. 'hauerland')" },
   ],
   GIVING: [
-    { key: "apiType", label: "API Type", type: "text", placeholder: "web" },
-    { key: "authType", label: "Auth Type", type: "text", placeholder: "credentials" },
-    { key: "username", label: "Username", type: "text", placeholder: "Enter Giving Europe username", required: true },
-    { key: "password", label: "Password", type: "password", placeholder: "Enter password", required: true },
-    { key: "feedUrl", label: "Product Feed URL", type: "url", placeholder: "https://www.givingeurope.com/...", helpText: "URL to product data feed" },
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "bearer_token" },
+    { key: "apiBaseUrl", label: "API Base URL", type: "url", placeholder: "https://debtorapi-sandbox.givingeurope.com", helpText: "Sandbox alebo production API URL" },
+    { key: "apiToken", label: "API Token (Sandbox)", type: "password", placeholder: "Enter sandbox bearer token", required: true, helpText: "Bearer token pre sandbox prostredie" },
+    { key: "apiTokenProd", label: "API Token (Production)", type: "password", placeholder: "Enter production bearer token", helpText: "Bearer token pre produkčné prostredie (hau-web)" },
+    { key: "environment", label: "Active Environment", type: "text", placeholder: "sandbox", helpText: "sandbox alebo production" },
   ],
   MID: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
@@ -583,11 +584,15 @@ export default function ModuleDetailPage() {
                               {dataPreview.preview.map((row, i) => (
                                 <TableRow key={i} data-testid={`row-preview-${i}`}>
                                   <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                                  {dataPreview.fields.slice(0, 10).map((field) => (
-                                    <TableCell key={field} className="text-xs max-w-[200px] truncate">
-                                      {row[field] || ""}
-                                    </TableCell>
-                                  ))}
+                                  {dataPreview.fields.slice(0, 10).map((field) => {
+                                    const val = row[field];
+                                    const display = val === null || val === undefined ? "" : typeof val === "object" ? JSON.stringify(val) : String(val);
+                                    return (
+                                      <TableCell key={field} className="text-xs max-w-[200px] truncate" title={display}>
+                                        {display}
+                                      </TableCell>
+                                    );
+                                  })}
                                   {dataPreview.fields.length > 10 && (
                                     <TableCell className="text-xs text-muted-foreground">...</TableCell>
                                   )}

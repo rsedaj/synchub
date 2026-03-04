@@ -49,7 +49,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 1. **ONIX** - Central ERP (products, prices, stock) - PRIMARY
 2. **PROMOTRON** - E-shop (shop.hauerland.sk)
 3. **PIPEDRIVE** - CRM system
-4. **GIVING** - Supplier (Giving Europe)
+4. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
 5. **MID** - Supplier (Midocean)
 6. **STICKER** - Supplier
 7. **MACMA** - Supplier (pending docs)

@@ -10,6 +10,8 @@ const ALLOWED_HOSTS = new Set([
   "hauerland.sk",
   "api.pipedrive.com",
   "www.givingeurope.com",
+  "debtorapi-sandbox.givingeurope.com",
+  "debtorapi.givingeurope.com",
   "api.midocean.com",
   "easygifts.sk",
   "www.pfconcept.com",
@@ -111,6 +113,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20): Promise<Fetch
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
     case "ANDA":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
+    case "GIVING":
+      return fetchGivingEuropeData(config, limit);
     default:
       return {
         success: false,
@@ -225,6 +229,119 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
       fetchedAt: new Date().toISOString(),
     };
   }
+}
+
+async function fetchGivingEuropeData(config: Record<string, any>, limit: number): Promise<FetchResult> {
+  const env = config?.environment || "sandbox";
+  const apiToken = env === "production" ? (config?.apiTokenProd || config?.apiToken) : config?.apiToken;
+  const apiBaseUrl = config?.apiBaseUrl || (env === "production" ? "https://debtorapi.givingeurope.com" : "https://debtorapi-sandbox.givingeurope.com");
+
+  if (!apiToken) {
+    return {
+      success: false,
+      source: "GIVING",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "API token not configured. Add the token in Configuration tab and save.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!isUrlAllowed(apiBaseUrl)) {
+    return {
+      success: false,
+      source: "GIVING",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "API base URL not in allowed hosts list",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const res = await fetch(`${apiBaseUrl}/v1/products?limit=${limit}&locale=en-US`, {
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiToken}`,
+        "Accept": "application/json",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => "");
+      return {
+        success: false,
+        source: "GIVING",
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `HTTP ${res.status}: ${res.statusText}${errorBody ? ` - ${errorBody.substring(0, 200)}` : ""}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const data = await res.json();
+    const totalCount = data.total || 0;
+    const items: any[] = data.items || [];
+
+    const preview = items.map((item: any) => {
+      const row: Record<string, any> = {};
+      row["code"] = item.code || "";
+      row["name"] = extractLocalized(item.name, "en-US");
+      row["description"] = extractLocalized(item.description_long, "en-US")?.substring(0, 150) || "";
+      row["brand"] = extractLocalized(item.brand, "en-US");
+      row["origin_country"] = item.origin_country || "";
+      row["commodity_code"] = item.commodity_code || "";
+      row["can_order_printed"] = item.can_order_printed ? "Yes" : "No";
+      row["can_order_unprinted"] = item.can_order_unprinted ? "Yes" : "No";
+      row["min_qty_unprinted"] = item.min_quantity_unprinted ?? "";
+      row["min_qty_printed"] = item.min_quantity_printed ?? "";
+      row["categories"] = (item.categories || []).map((c: any) => typeof c === "string" ? c : extractLocalized(c.name || c, "en-US")).filter(Boolean).join(", ");
+      row["variants_count"] = item.variants?.length ?? 0;
+      row["images_count"] = item.images?.length ?? 0;
+      row["image_url"] = item.images?.[0]?.value || item.images?.[0]?.url || "";
+      return row;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+
+    return {
+      success: true,
+      source: "GIVING",
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: "GIVING",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (30s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+function extractLocalized(arr: any, locale: string): string {
+  if (!arr) return "";
+  if (typeof arr === "string") return arr;
+  if (Array.isArray(arr)) {
+    const match = arr.find((a: any) => a.locale === locale);
+    return match?.value || arr[0]?.value || "";
+  }
+  return "";
 }
 
 function stripPrefix(name: string): string {

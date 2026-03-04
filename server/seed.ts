@@ -67,13 +67,15 @@ const MODULE_DEFINITIONS = [
     code: "GIVING",
     name: "Giving Europe",
     sortOrder: 4,
-    description: "Supplier - promotional products catalog, prices, and stock.",
-    baseUrl: "https://www.givingeurope.com",
+    description: "Supplier - promotional products catalog, prices, and stock via Debtor API.",
+    baseUrl: "https://debtorapi-sandbox.givingeurope.com",
+    docsUrl: "https://debtorapi-sandbox.givingeurope.com/spec/index.html",
     status: "disconnected" as const,
-    dataFields: standardDataFields,
+    dataFields: ["Products", "Categories", "Orders", "Stock Levels", "Print Methods"],
     config: {
-      apiType: "web",
-      authType: "credentials",
+      apiType: "REST",
+      authType: "bearer_token",
+      environment: "sandbox",
     },
   },
   {
@@ -189,7 +191,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiKey", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "skuFeedUrl"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);
