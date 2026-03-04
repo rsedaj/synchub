@@ -42,6 +42,9 @@ import {
   Eye,
   EyeOff,
   Key,
+  HelpCircle,
+  Globe,
+  BookOpen,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +60,117 @@ interface ConfigFieldDef {
   required?: boolean;
   helpText?: string;
 }
+
+interface HelpSection {
+  title: string;
+  content: string;
+}
+
+const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoints?: string[]; authInfo: string; dataFields: string; notes?: string; links?: { label: string; url: string }[] }> = {
+  ONIX: {
+    description: "Centrálny ERP systém ONIX od KROS. Slúži ako hlavný zdroj dát pre produkty, ceny, skladové zásoby a všetky ostatné moduly sa s ním synchronizujú.",
+    apiInfo: "REST API dostupné na internom serveri (195.146.148.139). Swagger dokumentácia je dostupná priamo na serveri.",
+    authInfo: "Autentifikácia cez API token v hlavičke požiadavky.",
+    dataFields: "Stock Cards, Product Codes, Names, Descriptions, Prices (Purchase/Manager/Retail), Images, Stock Availability, Intrastat",
+    links: [
+      { label: "ONIX Web API Dokumentácia", url: "https://onix.kros.sk/externe-prepojenie/web-api-dokumentacia/" },
+    ],
+  },
+  PROMOTRON: {
+    description: "E-shop platforma Promotron (shop.hauerland.sk). Spravuje objednávky, zákazníkov a produktový katalóg. Synchronizuje sa s ONIX ERP.",
+    apiInfo: "REST API + XML product feed. API poskytuje prístup k objednávkam, zákazníkom a dopytom. XML feed obsahuje kompletný produktový katalóg (~100k produktov).",
+    endpoints: ["Orders", "Customers", "Inquiries", "Products"],
+    authInfo: "API Key autentifikácia. XML Feed je verejne dostupný na feed.hauerland.sk.",
+    dataFields: "Orders, Customers, Inquiries, Products",
+    notes: "XML Feed URL: https://feed.hauerland.sk/hau-feed.xml (RSS/Google Shopping formát, ~99 000 produktov)",
+    links: [
+      { label: "Promotron API Dokumentácia", url: "https://support.promotron.com/hc/en-us/articles/16618416323473-TronShop-API-access-reading-data-from-orders-inquiries-and-customers" },
+      { label: "Swagger UI", url: "https://api-ts-westeu.promotron.com/swagger/index.html" },
+      { label: "E-shop", url: "https://shop.hauerland.sk" },
+    ],
+  },
+  PIPEDRIVE: {
+    description: "CRM systém Pipedrive pre správu obchodných príležitostí, kontaktov a aktivít. Synchronizácia s ONIX ERP.",
+    apiInfo: "REST API v1. Plná integrácia pre deals, contacts, organizations a activities.",
+    endpoints: ["Deals", "Contacts", "Organizations", "Activities"],
+    authInfo: "API Token autentifikácia (Personal API token z Pipedrive Settings > API).",
+    dataFields: "Deals, Contacts, Organizations, Activities",
+    links: [
+      { label: "Pipedrive API Dokumentácia", url: "https://developers.pipedrive.com/docs/api/v1" },
+    ],
+  },
+  GIVING: {
+    description: "Dodávateľ reklamných predmetov Giving Europe. Prístup cez Debtor API pre katalóg produktov, ceny, objednávky a skladové zásoby.",
+    apiInfo: "REST Debtor API (v1). Podporuje sandbox aj production prostredie. API vracia lokalizované dáta (DE, EN, ES, FR, IT, NL, PT).",
+    endpoints: ["/v1/products", "/v1/categories", "/v1/orders", "/v1/stock_levels", "/v1/print_methods", "/v1/print_handlings", "/v1/products/{code}/prices/breakdown"],
+    authInfo: "Bearer Token autentifikácia. Dva tokeny: sandbox (hauerland) a production (hau-web). Aktívne prostredie sa prepína v konfigurácii.",
+    dataFields: "Products (~1 600), Categories, Orders, Stock Levels, Print Methods, Print Handlings, Price Breakdowns",
+    notes: "Sandbox URL: https://debtorapi-sandbox.givingeurope.com\nProduction URL: https://debtorapi.givingeurope.com\nObjednávky sú ešte v testovacej fáze (môžu sa meniť).",
+    links: [
+      { label: "API Dokumentácia (Swagger)", url: "https://debtorapi-sandbox.givingeurope.com/spec/index.html" },
+      { label: "Giving Europe Web", url: "https://www.givingeurope.com/global/en/" },
+    ],
+  },
+  MID: {
+    description: "Dodávateľ Midocean. Produktový katalóg, cenníky a skladové zásoby cez REST API.",
+    apiInfo: "REST API v2.0. Katalóg produktov s cenami a dostupnosťou.",
+    authInfo: "API Key autentifikácia.",
+    dataFields: "Product Code, Name, Description, Purchase/Manager/Retail Price, Image, Stock Availability, Intrastat",
+    links: [
+      { label: "Midocean", url: "https://www.midocean.com" },
+    ],
+  },
+  STICKER: {
+    description: "Dodávateľ Sticker. Produktový katalóg a cenníky cez webové služby.",
+    apiInfo: "SOAP/REST API pre produktové dáta.",
+    authInfo: "API Key autentifikácia.",
+    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+  },
+  MACMA: {
+    description: "Dodávateľ Macma. Čaká sa na dokumentáciu a nastavenie integrácie.",
+    apiInfo: "Typ API ešte nie je určený. Čaká sa na dokumentáciu od dodávateľa.",
+    authInfo: "Zatiaľ neurčené.",
+    dataFields: "Zatiaľ nedefinované",
+    notes: "Integrácia bude nastavená po obdržaní API dokumentácie od dodávateľa.",
+  },
+  XDCONNECT: {
+    description: "Dodávateľ XD Connect (XD Connects / Xindao). Produktové dáta a katalóg cez data feeds.",
+    apiInfo: "Data feed formát (XML/CSV). Prístup cez prihlasovacie údaje.",
+    authInfo: "Username/Password autentifikácia.",
+    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+    links: [
+      { label: "XD Connects", url: "https://www.xdconnects.com" },
+    ],
+  },
+  ANDA: {
+    description: "Dodávateľ Anda Present. Produktové dáta cez XML/CSV feedy.",
+    apiInfo: "XML a CSV feedy pre produkty a cenníky. Feed URL sa konfiguruje v nastaveniach.",
+    authInfo: "Priamy prístup cez feed URL (bez autentifikácie).",
+    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+    links: [
+      { label: "Anda Present", url: "https://andapresent.com" },
+    ],
+  },
+  EASYGIFTS: {
+    description: "Dodávateľ Easy Gifts. SKU a cenníkové XML feedy s automatickým prístupom.",
+    apiInfo: "XML API v2. Dva hlavné feedy: SKU (produkty) a Pricelist (cenník). Feed obsahuje kompletné produktové dáta.",
+    authInfo: "Priamy prístup cez feed URL s API kľúčom v URL.",
+    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+    notes: "SKU Feed: https://easygifts.sk/api/v2/.../sku.xml\nPricelist Feed: https://easygifts.sk/api/v2/.../pricelist.xml",
+    links: [
+      { label: "Easy Gifts", url: "https://easygifts.sk" },
+    ],
+  },
+  PFCONCEPT: {
+    description: "Dodávateľ PF Concept. Produktové dáta cez data feeds gateway.",
+    apiInfo: "Data feeds gateway pre produktovú synchronizáciu.",
+    authInfo: "Username/Password autentifikácia pre prístup k feedom.",
+    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+    links: [
+      { label: "PF Concept Data Feeds", url: "https://www.pfconcept.com/cs_cz/data-feeds-gateway" },
+    ],
+  },
+};
 
 const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   ONIX: [
@@ -286,7 +400,7 @@ export default function ModuleDetailPage() {
 
   const fetchDataMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=20`);
+      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=50`);
       return res.json();
     },
     onSuccess: (data: DataPreviewResult) => {
@@ -364,6 +478,7 @@ export default function ModuleDetailPage() {
           <TabsTrigger value="data" data-testid="tab-data">Data Preview</TabsTrigger>
           <TabsTrigger value="config" data-testid="tab-config">Configuration</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history">Sync History</TabsTrigger>
+          <TabsTrigger value="help" data-testid="tab-help">Help</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -802,6 +917,150 @@ export default function ModuleDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="help" className="space-y-4">
+          {(() => {
+            const help = MODULE_HELP[mod.code];
+            if (!help) {
+              return (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <HelpCircle className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">No help information available for this module yet.</p>
+                  </CardContent>
+                </Card>
+              );
+            }
+            return (
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-medium">About this module</h2>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm" data-testid="text-help-description">{help.description}</p>
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-sm font-medium">API Information</h2>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-sm" data-testid="text-help-api">{help.apiInfo}</p>
+                      {help.endpoints && help.endpoints.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Endpoints:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {help.endpoints.map((ep) => (
+                              <Badge key={ep} variant="outline" className="text-xs font-mono">{ep}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Key className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-sm font-medium">Authentication</h2>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm" data-testid="text-help-auth">{help.authInfo}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-medium">Data Fields</h2>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm" data-testid="text-help-fields">{help.dataFields}</p>
+                  </CardContent>
+                </Card>
+
+                {help.notes && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-sm font-medium">Notes</h2>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm whitespace-pre-line" data-testid="text-help-notes">{help.notes}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {help.links && help.links.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-sm font-medium">Useful Links</h2>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {help.links.map((link) => (
+                          <a
+                            key={link.url}
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm hover:underline"
+                            data-testid={`link-help-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            {link.label}
+                          </a>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {mod.docsUrl && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-sm font-medium">Official Documentation</h2>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <a
+                        href={mod.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm hover:underline flex items-center gap-2"
+                        data-testid="link-help-docs"
+                      >
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                        {mod.docsUrl}
+                      </a>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            );
+          })()}
         </TabsContent>
       </Tabs>
     </div>
