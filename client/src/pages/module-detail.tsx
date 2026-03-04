@@ -107,13 +107,15 @@ const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoi
     ],
   },
   PIPEDRIVE: {
-    description: "CRM systém Pipedrive pre správu obchodných príležitostí, kontaktov a aktivít. Synchronizácia s ONIX ERP.",
-    apiInfo: "REST API v1. Plná integrácia pre deals, contacts, organizations a activities.",
-    endpoints: ["Deals", "Contacts", "Organizations", "Activities"],
-    authInfo: "API Token autentifikácia (Personal API token z Pipedrive Settings > API).",
-    dataFields: "Deals, Contacts, Organizations, Activities",
+    description: "CRM systém Pipedrive pre správu obchodných príležitostí, kontaktov a aktivít. Pripojené konto: sedajsro (Rastislav Šedaj).",
+    apiInfo: "REST API v1. Personal API Token autentifikácia. Data Preview podporuje 6 zdrojov dát.",
+    endpoints: ["/v1/deals", "/v1/persons", "/v1/organizations", "/v1/activities", "/v1/leads", "/v1/products", "/v1/users/me", "/v1/pipelines", "/v1/stages"],
+    authInfo: "Personal API Token — pripojené a overené. Konto: sedajsro.",
+    dataFields: "Deals (obchody), Persons (kontakty), Organizations (firmy), Activities (aktivity), Leads, Products",
+    notes: "Dáta sa načítavajú priamo z Pipedrive REST API. V Data Preview je možné vybrať zdroj dát cez dropdown (Deals, Contacts, Organizations, Activities, Leads, Products).",
     links: [
       { label: "Pipedrive API Dokumentácia", url: "https://developers.pipedrive.com/docs/api/v1" },
+      { label: "Pipedrive Dashboard", url: "https://sedajsro.pipedrive.com" },
     ],
   },
   GIVING: {
@@ -639,6 +641,15 @@ export default function ModuleDetailPage() {
                         { value: "auto", label: "Auto (API / Feed)" },
                         { value: "api", label: "REST API (Orders)" },
                         { value: "feed", label: "XML Feed (Products)" },
+                      ],
+                      PIPEDRIVE: [
+                        { value: "auto", label: "Auto (Deals)" },
+                        { value: "deals", label: "Deals" },
+                        { value: "persons", label: "Contacts" },
+                        { value: "organizations", label: "Organizations" },
+                        { value: "activities", label: "Activities" },
+                        { value: "leads", label: "Leads" },
+                        { value: "products", label: "Products" },
                       ],
                     };
                     const options = sources[mod.code];

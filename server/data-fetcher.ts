@@ -64,6 +64,14 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
       }
+    } else if (mod.code === "PIPEDRIVE") {
+      const token = config?.apiToken;
+      if (token) {
+        testUrl = `https://api.pipedrive.com/v1/users/me?api_token=${token}`;
+        headers["Accept"] = "application/json";
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
+      }
     } else if (mod.code === "GIVING") {
       const env = config?.environment || "sandbox";
       const token = env === "production" ? (config?.apiTokenProd || config?.apiToken) : config?.apiToken;
@@ -106,6 +114,15 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       ? `Connection successful (HTTP ${res.status})`
       : `Server responded with HTTP ${res.status}`;
 
+    if (mod.code === "PIPEDRIVE" && res.ok) {
+      try {
+        const data = await res.json();
+        if (data.success && data.data) {
+          message = `Connection successful — User: ${data.data.name} (${data.data.email}), Company: ${data.data.company_domain || "N/A"}`;
+        }
+      } catch {}
+    }
+
     if (mod.code === "GIVING" && res.ok) {
       try {
         const data = await res.json();
@@ -146,6 +163,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
     case "ANDA":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
+    case "PIPEDRIVE":
+      return fetchPipedriveData(config, source, limit);
     case "GIVING":
       return fetchGivingEuropeData(config, limit);
     default:
@@ -463,6 +482,108 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
       preview: [],
       error: err.name === "AbortError"
         ? "Request timed out (30s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+const PIPEDRIVE_SOURCES: Record<string, { endpoint: string; label: string }> = {
+  deals: { endpoint: "/v1/deals", label: "Deals" },
+  persons: { endpoint: "/v1/persons", label: "Contacts" },
+  organizations: { endpoint: "/v1/organizations", label: "Organizations" },
+  activities: { endpoint: "/v1/activities", label: "Activities" },
+  leads: { endpoint: "/v1/leads", label: "Leads" },
+  products: { endpoint: "/v1/products", label: "Products" },
+};
+
+async function fetchPipedriveData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const token = config?.apiToken;
+  if (!token) {
+    return {
+      success: false,
+      source: "PIPEDRIVE",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "API Token is not configured. Go to Settings tab and add your Pipedrive Personal API Token.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const srcKey = source && PIPEDRIVE_SOURCES[source] ? source : "deals";
+  const src = PIPEDRIVE_SOURCES[srcKey];
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const url = `https://api.pipedrive.com${src.endpoint}?api_token=${token}&limit=${limit}&start=0`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return {
+        success: false,
+        source: `Pipedrive ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `Pipedrive API error: HTTP ${res.status}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const data = await res.json();
+    const items: any[] = data.data || [];
+    const totalCount = data.additional_data?.pagination?.total_count;
+
+    const SKIP_KEYS = new Set(["v_goals", "picture_id", "cc_email"]);
+    const preview = items.map((item: any) => {
+      const flat: Record<string, any> = {};
+      for (const [k, v] of Object.entries(item)) {
+        if (SKIP_KEYS.has(k)) continue;
+        if (k.match(/^[0-9a-f]{40}$/)) continue;
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          const obj = v as Record<string, any>;
+          if (obj.name !== undefined) {
+            flat[k] = obj.name;
+          } else if (obj.value !== undefined) {
+            flat[k] = obj.value;
+          } else {
+            flat[k] = JSON.stringify(v).substring(0, 100);
+          }
+        } else if (Array.isArray(v)) {
+          flat[k] = `[${v.length} items]`;
+        } else {
+          flat[k] = v;
+        }
+      }
+      return flat;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+
+    return {
+      success: true,
+      source: `Pipedrive ${src.label}`,
+      recordCount: totalCount ?? items.length,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: `Pipedrive ${src.label}`,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (15s)"
         : `Failed to fetch data: ${err.message}`,
       fetchedAt: new Date().toISOString(),
     };
