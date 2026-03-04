@@ -362,6 +362,7 @@ export default function ModuleDetailPage() {
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [dataPreview, setDataPreview] = useState<DataPreviewResult | null>(null);
+  const [dataSource, setDataSource] = useState<string>("");
 
   useEffect(() => {
     if (mod) {
@@ -417,7 +418,8 @@ export default function ModuleDetailPage() {
 
   const fetchDataMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=50`);
+      const sourceParam = dataSource ? `&source=${dataSource}` : "";
+      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=50${sourceParam}`);
       return res.json();
     },
     onSuccess: (data: DataPreviewResult) => {
@@ -630,20 +632,47 @@ export default function ModuleDetailPage() {
                   <Database className="h-4 w-4 text-muted-foreground" />
                   <h2 className="text-sm font-medium">Live Data Preview</h2>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchDataMutation.mutate()}
-                  disabled={fetchDataMutation.isPending}
-                  data-testid="button-fetch-data"
-                >
-                  {fetchDataMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />
-                  ) : (
-                    <ArrowDownToLine className="h-3.5 w-3.5 mr-2" />
-                  )}
-                  Fetch Data
-                </Button>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const sources: Record<string, { value: string; label: string }[]> = {
+                      PROMOTRON: [
+                        { value: "auto", label: "Auto (API / Feed)" },
+                        { value: "api", label: "REST API (Orders)" },
+                        { value: "feed", label: "XML Feed (Products)" },
+                      ],
+                    };
+                    const options = sources[mod.code];
+                    if (!options) return null;
+                    return (
+                      <Select value={dataSource || "auto"} onValueChange={(v) => setDataSource(v === "auto" ? "" : v)}>
+                        <SelectTrigger className="h-8 w-[180px] text-xs" data-testid="select-data-source">
+                          <SelectValue placeholder="Data source" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} data-testid={`option-source-${opt.value}`}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    );
+                  })()}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchDataMutation.mutate()}
+                    disabled={fetchDataMutation.isPending}
+                    data-testid="button-fetch-data"
+                  >
+                    {fetchDataMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />
+                    ) : (
+                      <ArrowDownToLine className="h-3.5 w-3.5 mr-2" />
+                    )}
+                    Fetch Data
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>

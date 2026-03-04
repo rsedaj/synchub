@@ -130,14 +130,17 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
   }
 }
 
-export async function fetchModuleData(mod: ApiModule, limit = 20): Promise<FetchResult> {
+export async function fetchModuleData(mod: ApiModule, limit = 20, source?: string): Promise<FetchResult> {
   const config = mod.config as Record<string, any>;
 
   switch (mod.code) {
     case "EASYGIFTS":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
     case "PROMOTRON":
-      if (config?.apiKey) {
+      if (source === "feed") {
+        return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
+      }
+      if (source === "api" || (!source && config?.apiKey)) {
         return fetchPromotronApiData(config, mod.baseUrl || "https://api-ts-westeu.promotron.com", limit);
       }
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);

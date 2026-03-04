@@ -150,7 +150,8 @@ export async function registerRoutes(
       const mod = await storage.getModule(req.params.id);
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const limit = parseInt(req.query.limit as string) || 20;
-      const result = await fetchModuleData(mod, limit);
+      const source = (req.query.source as string) || undefined;
+      const result = await fetchModuleData(mod, limit, source);
       return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to fetch data preview" });
