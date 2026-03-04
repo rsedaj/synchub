@@ -140,10 +140,22 @@ const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoi
     ],
   },
   STICKER: {
-    description: "Dodávateľ Sticker. Produktový katalóg a cenníky cez webové služby.",
-    apiInfo: "SOAP/REST API pre produktové dáta.",
-    authInfo: "API Key autentifikácia.",
-    dataFields: "Product Code, Name, Description, Prices, Image, Stock Availability, Intrastat",
+    description: "Dodávateľ reklamných predmetov Stricker Europe (Paul Stricker). Kompletný produktový katalóg, ceny, sklady, personalizácia a objednávky cez REST API v2.20.",
+    apiInfo: "REST API v2.20 na ws.stricker-europe.com. Autentifikácia cez Access Key → session token (platný 24h). Dáta dostupné aj cez priamy download (JSON/XML/CSV).",
+    endpoints: [
+      "/api/v1/authenticateclient", "/api/v1/products", "/api/v1/optionals", "/api/v1/optionalscomplete",
+      "/api/v1/stocks", "/api/v1/colors", "/api/v1/customizationOptions", "/api/v1/customizationTables",
+      "/api/v1/productTypes", "/api/v1/catalogPrices", "/api/v1/orders", "/api/v1/StocksByCountry",
+      "/downloads/v1/file (JSON/XML/CSV)",
+    ],
+    authInfo: "Access Key autentifikácia — kľúč poskytne obchodný manažér Stricker. Dva kroky: 1) AuthenticateClient → session token, 2) požiadavky so session tokenom. Token platí do 24h.",
+    dataFields: "Products (referencia, názov, popis, farba, veľkosť, kapacita, kategória, brand, materiál), Optionals (SKU, cena, YourPrice), Stocks (celkový, PT, CZ, NextQuantities), Customization (techniky, plochy, ceny), Colors, ProductTypes, CatalogPrices, Orders",
+    notes: "Stricker má 3 značky: Branve, Ekston, Original Lanyards. Dva katalógy ročne: hi!dea a Stockout.\nJazyk pre SK: lang=SK. Dostupné formáty: JSON, XML, CSV.\nObrázky: produktové (500/1000px), komponenty, lokácie, printing lines.\nCloud pre HR obrázky: cloud.stricker.pt (heslo: hideacloudfiles).\nLimit požiadaviek: autentifikácia/objednávky neobmedzené, stocks 48/deň, ostatné 1/jazyk/deň.",
+    links: [
+      { label: "Stricker Europe Web", url: "https://www.stricker-europe.com" },
+      { label: "SOAP WSDL", url: "http://ws.stricker-europe.com/strickerservice.svc?WSDL" },
+      { label: "Cloud (HR obrázky)", url: "http://cloud.stricker.pt:8085/index.php/s/7AtUI9DImV7LYeK" },
+    ],
   },
   MACMA: {
     description: "Dodávateľ Macma. Čaká sa na dokumentáciu a nastavenie integrácie.",
@@ -227,10 +239,10 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Midocean API key", required: true, helpText: "API key from Midocean portal" },
   ],
   STICKER: [
-    { key: "apiType", label: "API Type", type: "text", placeholder: "SOAP/REST" },
-    { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
-    { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Sticker API key", required: true },
-    { key: "feedUrl", label: "Feed URL", type: "url", placeholder: "Enter feed URL" },
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "access_key" },
+    { key: "accessKey", label: "Access Key", type: "password", placeholder: "Enter Stricker Europe Access Key", required: true, helpText: "Prístupový kľúč od obchodného manažéra Stricker Europe" },
+    { key: "language", label: "Jazyk dát", type: "text", placeholder: "SK", helpText: "Kód jazyka: SK, CZ, EN, DE, FR, IT, ES, PT, PL, NL, HU, RO, RU, BG, HR, DK, FI, GR, NO, RS, SE, UA" },
   ],
   MACMA: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "TBD" },
@@ -650,6 +662,20 @@ export default function ModuleDetailPage() {
                         { value: "activities", label: "Activities" },
                         { value: "leads", label: "Leads" },
                         { value: "products", label: "Products" },
+                      ],
+                      STICKER: [
+                        { value: "auto", label: "Auto (Products)" },
+                        { value: "products", label: "Products" },
+                        { value: "optionals", label: "Optionals (SKUs)" },
+                        { value: "optionalscomplete", label: "Optionals Complete" },
+                        { value: "stocks", label: "Stocks" },
+                        { value: "stocksPt", label: "Stocks PT" },
+                        { value: "stocksCz", label: "Stocks CZ" },
+                        { value: "colors", label: "Colors" },
+                        { value: "customizationOptions", label: "Customization Options" },
+                        { value: "customizationTables", label: "Customization Tables" },
+                        { value: "producttypes", label: "Product Types" },
+                        { value: "catalogprices", label: "Catalog Prices" },
                       ],
                     };
                     const options = sources[mod.code];

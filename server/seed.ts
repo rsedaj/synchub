@@ -93,15 +93,16 @@ const MODULE_DEFINITIONS = [
   },
   {
     code: "STICKER",
-    name: "Sticker",
+    name: "Stricker Europe",
     sortOrder: 6,
-    description: "Supplier - product catalog and pricing via web service.",
-    baseUrl: "",
+    description: "Dodávateľ reklamných predmetov Stricker Europe (Paul Stricker). REST API v2.20 s autentifikáciou cez Access Key + session token. Produkty, ceny, sklady, personalizácia, objednávky.",
+    baseUrl: "http://ws.stricker-europe.com",
     status: "disconnected" as const,
-    dataFields: standardDataFields,
+    docsUrl: "https://www.stricker-europe.com",
+    dataFields: ["Product Reference", "SKU", "Name", "Description", "Color", "Size", "Capacity", "Category", "Brand", "Material", "Price", "YourPrice", "Catalog Price", "Stock", "Stock PT", "Stock CZ", "Next Quantities", "Customization Options", "Images"],
     config: {
-      apiType: "SOAP/REST",
-      authType: "api_key",
+      apiType: "REST",
+      authType: "access_key",
     },
   },
   {
@@ -191,7 +192,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "skuFeedUrl"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "skuFeedUrl", "language"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);

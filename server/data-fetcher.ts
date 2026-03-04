@@ -15,6 +15,8 @@ const ALLOWED_HOSTS = new Set([
   "api.midocean.com",
   "easygifts.sk",
   "www.pfconcept.com",
+  "ws.stricker-europe.com",
+  "www.stricker-europe.com",
 ]);
 
 function isUrlAllowed(urlStr: string): boolean {
@@ -61,6 +63,14 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Accept"] = "application/json";
       } else if (config?.xmlFeedUrl) {
         testUrl = config.xmlFeedUrl;
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
+      }
+    } else if (mod.code === "STICKER") {
+      const accessKey = config?.accessKey;
+      if (accessKey) {
+        testUrl = `http://ws.stricker-europe.com/api/v1/authenticateclient?AccessKey=${accessKey}`;
+        headers["Accept"] = "application/json";
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
       }
@@ -114,6 +124,17 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       ? `Connection successful (HTTP ${res.status})`
       : `Server responded with HTTP ${res.status}`;
 
+    if (mod.code === "STICKER" && res.ok && config?.accessKey) {
+      try {
+        const data = await res.json();
+        if (data.SessionToken) {
+          message = `Connection successful — Session token received. Stricker Europe webservice v2.20 ready.`;
+        } else if (data.ErrorMessage) {
+          message = `Authentication failed: ${data.ErrorMessage}`;
+        }
+      } catch {}
+    }
+
     if (mod.code === "PIPEDRIVE" && res.ok) {
       try {
         const data = await res.json();
@@ -161,6 +182,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
         return fetchPromotronApiData(config, mod.baseUrl || "https://api-ts-westeu.promotron.com", limit);
       }
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
+    case "STICKER":
+      return fetchStrickerData(config, source, limit);
     case "ANDA":
       return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
     case "PIPEDRIVE":
@@ -477,6 +500,177 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
     return {
       success: false,
       source: "GIVING",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (30s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+const STRICKER_SOURCES: Record<string, { data: string; restEndpoint: string; label: string }> = {
+  products: { data: "products", restEndpoint: "/api/v1/products", label: "Products" },
+  optionals: { data: "optionals", restEndpoint: "/api/v1/optionals", label: "Optionals (SKUs)" },
+  optionalscomplete: { data: "optionalscomplete", restEndpoint: "/api/v1/optionalscomplete", label: "Optionals Complete" },
+  stocks: { data: "stocks", restEndpoint: "/api/v1/stocks", label: "Stocks" },
+  stocksPt: { data: "stocksPt", restEndpoint: "/api/v1/StocksByCountry", label: "Stocks PT" },
+  stocksCz: { data: "stocksCz", restEndpoint: "/api/v1/StocksByCountry", label: "Stocks CZ" },
+  colors: { data: "colors", restEndpoint: "/api/v1/colors", label: "Colors" },
+  customizationOptions: { data: "customizationOptions", restEndpoint: "/api/v1/customizationOptions", label: "Customization Options" },
+  customizationTables: { data: "customizationTables", restEndpoint: "/api/v1/customizationTables", label: "Customization Tables" },
+  producttypes: { data: "producttypes", restEndpoint: "/api/v1/productTypes", label: "Product Types" },
+  catalogprices: { data: "catalogprices", restEndpoint: "/api/v1/CatalogPrices", label: "Catalog Prices" },
+};
+
+let strickerSessionToken: string | null = null;
+let strickerSessionExpiry = 0;
+
+async function authenticateStricker(accessKey: string): Promise<string | null> {
+  if (strickerSessionToken && Date.now() < strickerSessionExpiry) {
+    return strickerSessionToken;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(`http://ws.stricker-europe.com/api/v1/authenticateclient?AccessKey=${accessKey}`, {
+      signal: controller.signal,
+      headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.SessionToken) {
+      strickerSessionToken = data.SessionToken;
+      strickerSessionExpiry = Date.now() + 23 * 60 * 60 * 1000;
+      return strickerSessionToken;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchStrickerData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const accessKey = config?.accessKey;
+  if (!accessKey) {
+    return {
+      success: false,
+      source: "Stricker Europe",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "Access Key nie je nakonfigurovaný. Prejdite na záložku Settings a zadajte Access Key od Stricker Europe.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const lang = config?.language || "SK";
+  const srcKey = source && STRICKER_SOURCES[source] ? source : "products";
+  const src = STRICKER_SOURCES[srcKey];
+
+  try {
+    const sessionToken = await authenticateStricker(accessKey);
+
+    let fetchUrl: string;
+    if (sessionToken) {
+      if (srcKey === "stocksPt") {
+        fetchUrl = `http://ws.stricker-europe.com${src.restEndpoint}?token=${sessionToken}&country=PT&lang=${lang}`;
+      } else if (srcKey === "stocksCz") {
+        fetchUrl = `http://ws.stricker-europe.com${src.restEndpoint}?token=${sessionToken}&country=CZ&lang=${lang}`;
+      } else {
+        fetchUrl = `http://ws.stricker-europe.com${src.restEndpoint}?token=${sessionToken}&lang=${lang}`;
+      }
+    } else {
+      fetchUrl = `http://ws.stricker-europe.com/downloads/v1/file?AccessKey=${accessKey}&data=${src.data}&lang=${lang}&extension=json`;
+    }
+
+    if (!isUrlAllowed(fetchUrl)) {
+      return {
+        success: false, source: `Stricker ${src.label}`, recordCount: 0, fields: [], preview: [],
+        error: "URL not in allowed hosts", fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const res = await fetch(fetchUrl, {
+      signal: controller.signal,
+      headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        strickerSessionToken = null;
+        strickerSessionExpiry = 0;
+      }
+      return {
+        success: false,
+        source: `Stricker ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `Stricker API error: HTTP ${res.status}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const rawData = await res.json();
+    let items: any[] = [];
+
+    if (Array.isArray(rawData)) {
+      items = rawData;
+    } else if (rawData && typeof rawData === "object") {
+      const firstArrayKey = Object.keys(rawData).find((k) => Array.isArray(rawData[k]));
+      if (firstArrayKey) {
+        items = rawData[firstArrayKey];
+      } else {
+        items = [rawData];
+      }
+    }
+
+    const totalCount = items.length;
+    const limited = items.slice(0, limit);
+
+    const preview = limited.map((item: any) => {
+      if (typeof item !== "object" || item === null) return { value: String(item) };
+      const flat: Record<string, any> = {};
+      for (const [k, v] of Object.entries(item)) {
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          const obj = v as Record<string, any>;
+          if (obj.name !== undefined) flat[k] = obj.name;
+          else if (obj.value !== undefined) flat[k] = obj.value;
+          else flat[k] = JSON.stringify(v).substring(0, 120);
+        } else if (Array.isArray(v)) {
+          flat[k] = `[${v.length} items]`;
+        } else {
+          flat[k] = v;
+        }
+      }
+      return flat;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const method = sessionToken ? "REST API" : "Direct Download";
+
+    return {
+      success: true,
+      source: `Stricker ${src.label} (${method})`,
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: `Stricker ${src.label}`,
       recordCount: 0,
       fields: [],
       preview: [],
