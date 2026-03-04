@@ -72,6 +72,7 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "https://api-ts-westeu.promotron.com/swagger/index.html" },
     { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Promotron API key", required: true, helpText: "API key from Promotron admin panel" },
     { key: "shopId", label: "Shop ID", type: "text", placeholder: "Enter shop identifier", helpText: "Promotron shop/tenant ID" },
+    { key: "xmlFeedUrl", label: "XML Feed URL", type: "url", placeholder: "https://shop.hauerland.sk/feed/...", required: false, helpText: "URL XML product feedu pre prezeranie produktov v Data Preview" },
   ],
   PIPEDRIVE: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },

@@ -4,6 +4,9 @@ import type { ApiModule } from "@shared/schema";
 const ALLOWED_HOSTS = new Set([
   "195.146.148.139",
   "api-ts-westeu.promotron.com",
+  "shop.hauerland.sk",
+  "www.hauerland.sk",
+  "hauerland.sk",
   "api.pipedrive.com",
   "www.givingeurope.com",
   "api.midocean.com",
@@ -102,7 +105,11 @@ export async function fetchModuleData(mod: ApiModule, limit = 20): Promise<Fetch
 
   switch (mod.code) {
     case "EASYGIFTS":
-      return fetchEasyGiftsData(config, limit);
+      return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
+    case "PROMOTRON":
+      return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
+    case "ANDA":
+      return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
     default:
       return {
         success: false,
@@ -116,16 +123,15 @@ export async function fetchModuleData(mod: ApiModule, limit = 20): Promise<Fetch
   }
 }
 
-async function fetchEasyGiftsData(config: Record<string, any>, limit: number): Promise<FetchResult> {
-  const feedUrl = config?.skuFeedUrl;
+async function fetchXmlFeedData(source: string, feedUrl: string | undefined, limit: number): Promise<FetchResult> {
   if (!feedUrl || !isUrlAllowed(feedUrl)) {
     return {
       success: false,
-      source: "EASYGIFTS",
+      source,
       recordCount: 0,
       fields: [],
       preview: [],
-      error: !feedUrl ? "SKU feed URL not configured" : "URL not in allowed hosts list",
+      error: !feedUrl ? "XML feed URL not configured. Add the URL in Configuration tab and save." : "URL not in allowed hosts list",
       fetchedAt: new Date().toISOString(),
     };
   }
@@ -143,7 +149,7 @@ async function fetchEasyGiftsData(config: Record<string, any>, limit: number): P
     if (!res.ok) {
       return {
         success: false,
-        source: "EASYGIFTS",
+        source,
         recordCount: 0,
         fields: [],
         preview: [],
@@ -196,7 +202,7 @@ async function fetchEasyGiftsData(config: Record<string, any>, limit: number): P
 
     return {
       success: true,
-      source: "EASYGIFTS",
+      source,
       recordCount: totalCount,
       fields,
       preview,
@@ -205,7 +211,7 @@ async function fetchEasyGiftsData(config: Record<string, any>, limit: number): P
   } catch (err: any) {
     return {
       success: false,
-      source: "EASYGIFTS",
+      source,
       recordCount: 0,
       fields: [],
       preview: [],
