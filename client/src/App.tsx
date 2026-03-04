@@ -14,6 +14,7 @@ import ModuleDetailPage from "@/pages/module-detail";
 import SyncLogsPage from "@/pages/sync-logs";
 import UsersPage from "@/pages/users";
 import AuditLogPage from "@/pages/audit-log";
+import VaultPage from "@/pages/vault";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -51,6 +52,7 @@ function AppLayout() {
               <Route path="/modules" component={ModulesPage} />
               <Route path="/modules/:id" component={ModuleDetailPage} />
               <Route path="/sync-logs" component={SyncLogsPage} />
+              <Route path="/vault" component={VaultPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/audit-log" component={AuditLogPage} />
               <Route component={NotFound} />

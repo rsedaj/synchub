@@ -17,6 +17,7 @@ import {
   ArrowLeftRight,
   Users,
   Shield,
+  KeyRound,
   LogOut,
   Sun,
   Moon,
@@ -41,6 +42,7 @@ const mainNav = [
 ];
 
 const adminNav = [
+  { title: "Trezor", url: "/vault", icon: KeyRound },
   { title: "Users", url: "/users", icon: Users },
   { title: "Audit Log", url: "/audit-log", icon: Shield },
 ];
@@ -54,7 +56,7 @@ function LiveClock() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center" data-testid="text-live-clock">
+    <div className="flex flex-col items-start" data-testid="text-live-clock">
       <span className="text-[10px] text-muted-foreground">
         {time.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric" })}
       </span>
