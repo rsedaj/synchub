@@ -13,6 +13,7 @@ const ALLOWED_HOSTS = new Set([
   "debtorapi-sandbox.givingeurope.com",
   "debtorapi.givingeurope.com",
   "api.midocean.com",
+  "apitest.midocean.com",
   "easygifts.sk",
   "www.pfconcept.com",
   "ws.stricker-europe.com",
@@ -90,6 +91,15 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       if (token) {
         testUrl = `https://api.pipedrive.com/v1/users/me?api_token=${token}`;
         headers["Accept"] = "application/json";
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
+      }
+    } else if (mod.code === "MID") {
+      const apiKey = config?.apiKey;
+      if (apiKey) {
+        testUrl = "https://api.midocean.com/gateway/stock/2.0";
+        headers["x-Gateway-APIKey"] = apiKey;
+        headers["Accept"] = "text/json";
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
       }
@@ -199,6 +209,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchAndaData(config, source, limit);
     case "PIPEDRIVE":
       return fetchPipedriveData(config, source, limit);
+    case "MID":
+      return fetchMidoceanData(config, source, limit);
     case "GIVING":
       return fetchGivingEuropeData(config, limit);
     default:
@@ -414,6 +426,204 @@ async function fetchPromotronApiData(config: Record<string, any>, baseUrl: strin
       error: err.name === "AbortError"
         ? "Request timed out (30s)"
         : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+const MID_ENDPOINTS: Record<string, { path: string; label: string; dataKey?: string }> = {
+  products: { path: "gateway/products/2.0", label: "Products v2.0" },
+  stock: { path: "gateway/stock/2.0", label: "Stock Levels", dataKey: "stock" },
+  pricelist: { path: "gateway/pricelist/2.0", label: "Pricelist", dataKey: "price" },
+  printdata: { path: "gateway/printdata/1.0", label: "Print Data" },
+  printpricelist: { path: "gateway/printpricelist/2.0", label: "Print Pricelist" },
+};
+
+async function fetchMidoceanData(config: Record<string, any>, source: string | undefined, limit: number): Promise<FetchResult> {
+  const apiKey = config?.apiKey;
+  if (!apiKey) {
+    return {
+      success: false, source: source || "products", recordCount: 0, fields: [], preview: [],
+      error: "API Key not configured. Get your key from midocean.com → Account → Customer API tab.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const selectedSource = source && source !== "auto" ? source : "products";
+  const endpoint = MID_ENDPOINTS[selectedSource];
+  if (!endpoint) {
+    return {
+      success: false, source: selectedSource, recordCount: 0, fields: [], preview: [],
+      error: `Unknown data source: ${selectedSource}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const lang = config?.language || "en";
+  let url = `https://api.midocean.com/${endpoint.path}`;
+  if (selectedSource === "products") {
+    url += `?language=${lang}`;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "x-Gateway-APIKey": apiKey,
+        "Accept": "text/json",
+        "User-Agent": "SyncHub/1.0",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}: ${res.statusText}`;
+      if (res.status === 401 || res.status === 403) {
+        errMsg += " — Invalid API Key or missing API subscription. Check your key at midocean.com → Account → Customer API.";
+      } else if (res.status === 503) {
+        errMsg += " — Service temporarily unavailable. Test environment is off outside EU business hours.";
+      }
+      return {
+        success: false, source: selectedSource, recordCount: 0, fields: [], preview: [],
+        error: errMsg, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const json = await res.json();
+
+    let items: any[] = [];
+    if (selectedSource === "products") {
+      items = Array.isArray(json) ? json : (json?.product || json?.products || []);
+      const flatItems = items.slice(0, limit).map((p: any) => {
+        const flat: Record<string, any> = {};
+        flat.master_code = p.master_code || "";
+        flat.product_name = p.product_name || "";
+        flat.brand = p.brand || "";
+        flat.short_description = p.short_description || "";
+        flat.material = p.material || "";
+        flat.dimensions = p.dimensions || "";
+        flat.country_of_origin = p.country_of_origin || "";
+        flat.commodity_code = p.commodity_code || "";
+        flat.category_code = p.category_code || "";
+        flat.product_class = p.product_class || "";
+        flat.green = p.green || "";
+        flat.printable = p.printable || "";
+        const variants = p.variants || [];
+        if (variants.length > 0) {
+          const v = variants[0];
+          flat.sku = v.sku || "";
+          flat.color_description = v.color_description || "";
+          flat.color_group = v.color_group || "";
+          flat.plc_status_description = v.plc_status_description || "";
+          flat.gtin = v.gtin || "";
+          const imgs = v.digital_assets || [];
+          const mainImg = imgs.find((a: any) => a.subtype === "item_picture_front");
+          flat.image_url = mainImg?.url || (imgs[0]?.url || "");
+        }
+        return flat;
+      });
+      return {
+        success: true, source: selectedSource, recordCount: items.length,
+        fields: flatItems.length > 0 ? Object.keys(flatItems[0]) : [],
+        preview: flatItems, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    if (selectedSource === "stock") {
+      items = json?.stock || (Array.isArray(json) ? json : []);
+      const preview = items.slice(0, limit);
+      return {
+        success: true, source: selectedSource, recordCount: items.length,
+        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        preview, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    if (selectedSource === "pricelist") {
+      items = json?.price || (Array.isArray(json) ? json : []);
+      const preview = items.slice(0, limit).map((p: any) => {
+        const flat: Record<string, any> = {
+          sku: p.sku || "",
+          variant_id: p.variant_id || "",
+          price: p.price || "",
+          valid_until: p.valid_until || "",
+        };
+        const scales = p.scale || [];
+        scales.forEach((s: any, i: number) => {
+          flat[`scale_${i + 1}_qty`] = s.minimum_quantity || "";
+          flat[`scale_${i + 1}_price`] = s.price || "";
+        });
+        return flat;
+      });
+      return {
+        success: true, source: selectedSource, recordCount: items.length,
+        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        preview, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    if (selectedSource === "printdata") {
+      const products = json?.print_data || json?.products || (Array.isArray(json) ? json : []);
+      const preview = products.slice(0, limit).map((p: any) => {
+        const flat: Record<string, any> = {
+          master_code: p.master_code || "",
+          master_id: p.master_id || "",
+          print_manipulation: p.print_manipulation || "",
+        };
+        const positions = p.printing_positions || [];
+        flat.positions_count = positions.length;
+        if (positions.length > 0) {
+          flat.first_position = positions[0]?.position_id || "";
+          const techs = positions[0]?.printing_techniques || [];
+          flat.first_techniques = techs.map((t: any) => t.id).join(", ");
+        }
+        const colors = p.item_color_numbers || [];
+        flat.color_variants = Array.isArray(colors) ? colors.join(", ") : "";
+        return flat;
+      });
+      return {
+        success: true, source: selectedSource, recordCount: products.length,
+        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        preview, fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    if (selectedSource === "printpricelist") {
+      const techniques = json?.print_techniques || [];
+      const manipulations = json?.print_manipulations || [];
+      const preview: Record<string, any>[] = [];
+      manipulations.forEach((m: any) => {
+        preview.push({ type: "manipulation", code: m.code, description: m.description, price: m.price });
+      });
+      techniques.slice(0, limit).forEach((t: any) => {
+        const flat: Record<string, any> = {
+          type: "technique",
+          id: t.id || "",
+          description: t.description || "",
+          pricing_type: t.pricing_type || "",
+          setup: t.setup || "",
+          setup_repeat: t.setup_repeat || "",
+        };
+        preview.push(flat);
+      });
+      return {
+        success: true, source: selectedSource, recordCount: techniques.length + manipulations.length,
+        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        preview: preview.slice(0, limit), fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    return {
+      success: false, source: selectedSource, recordCount: 0, fields: [], preview: [],
+      error: "Unsupported source", fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false, source: selectedSource, recordCount: 0, fields: [], preview: [],
+      error: err.name === "AbortError" ? "Request timed out (60s) — Midocean API can be slow for large datasets" : `Failed to fetch: ${err.message}`,
       fetchedAt: new Date().toISOString(),
     };
   }

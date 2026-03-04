@@ -82,13 +82,14 @@ const MODULE_DEFINITIONS = [
     code: "MID",
     name: "Midocean",
     sortOrder: 5,
-    description: "Supplier - product catalog, pricing, stock levels via API.",
-    baseUrl: "https://api.midocean.com/2.0",
+    description: "Supplier — products, pricing, stock, print data & orders via REST API v2.0.",
+    baseUrl: "https://api.midocean.com",
     status: "disconnected" as const,
-    dataFields: standardDataFields,
+    dataFields: ["Products v2.0", "Stock Levels", "Pricelist", "Print Data", "Print Pricelist", "Order Entry", "Order Tracking"],
     config: {
       apiType: "REST",
       authType: "api_key",
+      language: "en",
     },
   },
   {
