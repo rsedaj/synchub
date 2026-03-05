@@ -52,7 +52,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ApiModule, SyncLog } from "@shared/schema";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 
 interface ConfigFieldDef {
@@ -521,6 +521,10 @@ export default function ModuleDetailPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [visibleColumns, setVisibleColumns] = useState<number>(0);
   const rowsPerPage = 50;
+  const rowLimitRef = useRef(rowLimit);
+  const dataSourceRef = useRef(dataSource);
+  rowLimitRef.current = rowLimit;
+  dataSourceRef.current = dataSource;
 
   useEffect(() => {
     if (mod) {
@@ -575,7 +579,9 @@ export default function ModuleDetailPage() {
   });
 
   const fetchDataMutation = useMutation({
-    mutationFn: async ({ limit, source }: { limit: number; source: string }) => {
+    mutationFn: async () => {
+      const limit = rowLimitRef.current;
+      const source = dataSourceRef.current;
       const sourceParam = source ? `&source=${source}` : "";
       const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=${limit}${sourceParam}`);
       return res.json();
@@ -893,7 +899,7 @@ export default function ModuleDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => fetchDataMutation.mutate({ limit: rowLimit, source: dataSource })}
+                    onClick={() => fetchDataMutation.mutate()}
                     disabled={fetchDataMutation.isPending}
                     data-testid="button-fetch-data"
                   >
