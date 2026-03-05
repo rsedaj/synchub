@@ -17,6 +17,7 @@ const ALLOWED_HOSTS = new Set([
   "easygifts.sk",
   "macma.sk",
   "www.pfconcept.com",
+  "images.pfconcept.com",
   "ws.stricker-europe.com",
   "www.stricker-europe.com",
   "xml.andapresent.com",
@@ -125,6 +126,17 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Authorization"] = `Bearer ${token}`;
         headers["Accept"] = "application/json";
       }
+    } else if (mod.code === "PFCONCEPT") {
+      const feedUrl = config?.stockFeedUrl || config?.productFeedUrl || config?.priceFeedUrl;
+      if (feedUrl) {
+        testUrl = feedUrl;
+      } else {
+        return {
+          success: false,
+          responseTime: Date.now() - start,
+          message: "No feed URLs configured. Add Product/Price/Stock feed URLs in Configuration tab.",
+        };
+      }
     } else if (mod.baseUrl) {
       testUrl = mod.baseUrl;
     } else {
@@ -185,6 +197,12 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       } catch {}
     }
 
+    if (mod.code === "PFCONCEPT" && res.ok) {
+      const contentLength = res.headers.get("content-length");
+      const sizeKb = contentLength ? Math.round(parseInt(contentLength) / 1024) : 0;
+      message = `Connection successful — PF Concept Data Feed v3 accessible${sizeKb ? ` (${sizeKb} KB)` : ""}`;
+    }
+
     return {
       success: res.ok,
       statusCode: res.status,
@@ -229,6 +247,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchXdConnectsData(config, source, limit);
     case "GIVING":
       return fetchGivingEuropeData(config, limit);
+    case "PFCONCEPT":
+      return fetchPfConceptData(config, source, limit);
     default:
       return {
         success: false,
@@ -1053,6 +1073,196 @@ async function fetchEasyGiftsData(config: Record<string, any> | undefined, sourc
     return { success: true, source: src.label, recordCount: totalCount, fields, preview, fetchedAt: new Date().toISOString() };
   } catch (err: any) {
     return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: err.name === "AbortError" ? "Request timed out (30s)" : `Failed: ${err.message}`, fetchedAt: new Date().toISOString() };
+  }
+}
+
+async function fetchPfConceptData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const sources: Record<string, { label: string; urlKey: string; rootPath: string[][] }> = {
+    products: { label: "Product Feed v3", urlKey: "productFeedUrl", rootPath: [["PFCProductFeed", "productfeed", "models", "model"], ["productfeed", "models", "model"]] },
+    prices: { label: "Price Feed v3", urlKey: "priceFeedUrl", rootPath: [["PFCPriceFeed", "priceInfo", "models", "model"], ["priceInfo", "models", "model"]] },
+    printprices: { label: "Print Price Feed v3", urlKey: "printPriceFeedUrl", rootPath: [["PFCPrintpricefeed", "decoCharges", "decoCharge"], ["decoCharges", "decoCharge"]] },
+    stock: { label: "Stock Feed v3", urlKey: "stockFeedUrl", rootPath: [["PFCStockFeed", "stockFeed", "models", "model"], ["stockFeed", "models", "model"]] },
+  };
+
+  const selectedSource = source && source !== "auto" ? source : "products";
+  const src = sources[selectedSource];
+  if (!src) {
+    return { success: false, source: selectedSource, recordCount: 0, fields: [], preview: [], error: `Unknown source: ${selectedSource}`, fetchedAt: new Date().toISOString() };
+  }
+
+  const feedUrl = config?.[src.urlKey];
+  if (!feedUrl || !isUrlAllowed(feedUrl)) {
+    return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: !feedUrl ? `${src.label} URL not configured. Add it in Configuration tab.` : "URL not in allowed hosts", fetchedAt: new Date().toISOString() };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const res = await fetch(feedUrl, { signal: controller.signal, headers: { "User-Agent": "SyncHub/1.0" } });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: `HTTP ${res.status}: ${res.statusText}`, fetchedAt: new Date().toISOString() };
+    }
+
+    const xml = await res.text();
+    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true, tagNameProcessors: [stripPrefix] });
+
+    let items: any[] = [];
+    for (const path of src.rootPath) {
+      let obj: any = parsed;
+      for (const key of path) {
+        if (obj && typeof obj === "object") {
+          obj = obj[key];
+        } else {
+          obj = undefined;
+          break;
+        }
+      }
+      if (Array.isArray(obj) && obj.length > 0) {
+        items = obj;
+        break;
+      } else if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+        items = [obj];
+        break;
+      }
+    }
+
+    if (items.length === 0) {
+      const rootKey = Object.keys(parsed)[0];
+      if (rootKey && parsed[rootKey]) {
+        const inner = parsed[rootKey];
+        for (const k of Object.keys(inner)) {
+          if (k === "$") continue;
+          const val = inner[k];
+          if (val && typeof val === "object" && !Array.isArray(val)) {
+            for (const sk of Object.keys(val)) {
+              if (sk === "$") continue;
+              const sv = val[sk];
+              if (Array.isArray(sv) && sv.length > 0) { items = sv; break; }
+              if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+                for (const ssk of Object.keys(sv)) {
+                  if (Array.isArray(sv[ssk]) && sv[ssk].length > 0) { items = sv[ssk]; break; }
+                }
+                if (items.length > 0) break;
+              }
+            }
+            if (items.length > 0) break;
+          }
+        }
+      }
+    }
+
+    const totalCount = items.length;
+
+    const preview = items.slice(0, limit).map((item: any) => {
+      const row: Record<string, any> = {};
+      const processObj = (prefix: string, o: any) => {
+        if (!o || typeof o !== "object") return;
+        for (const [key, val] of Object.entries(o)) {
+          const fullKey = prefix ? `${prefix}.${key}` : key;
+          if (key === "$") {
+            for (const [ak, av] of Object.entries(val as Record<string, any>)) {
+              row[ak] = av;
+            }
+          } else if (val === null || val === undefined) {
+            row[fullKey] = "";
+          } else if (typeof val === "object" && !Array.isArray(val)) {
+            const subKeys = Object.keys(val as Record<string, any>);
+            if (subKeys.length <= 4 && !subKeys.some(sk => typeof (val as any)[sk] === "object")) {
+              for (const [sk, sv] of Object.entries(val as Record<string, any>)) {
+                if (sk === "$") {
+                  for (const [ak, av] of Object.entries(sv as Record<string, any>)) {
+                    row[`${fullKey}.${ak}`] = av;
+                  }
+                } else {
+                  row[`${fullKey}.${sk}`] = sv;
+                }
+              }
+            } else {
+              row[fullKey] = JSON.stringify(val).substring(0, 120);
+            }
+          } else if (Array.isArray(val)) {
+            row[fullKey] = `[${(val as any[]).length} items]`;
+          } else {
+            row[fullKey] = val;
+          }
+        }
+      };
+
+      if (item && item.$ && item.$.modelCode) {
+        row["modelCode"] = item.$.modelCode;
+      }
+      if (item && item.$ && item.$.itemCode) {
+        row["itemCode"] = item.$.itemCode;
+      }
+      if (item && item.$ && item.$.modelcode) {
+        row["modelCode"] = item.$.modelcode;
+      }
+      if (item && item.$ && item.$.itemcode) {
+        row["itemCode"] = item.$.itemcode;
+      }
+
+      for (const [key, val] of Object.entries(item)) {
+        if (key === "$") continue;
+        if (key === "items" && typeof val === "object") {
+          const innerItems = (val as any)?.item;
+          if (innerItems) {
+            const firstItem = Array.isArray(innerItems) ? innerItems[0] : innerItems;
+            if (firstItem) {
+              if (firstItem.$ && (firstItem.$.itemCode || firstItem.$.itemcode)) {
+                row["firstItemCode"] = firstItem.$.itemCode || firstItem.$.itemcode;
+              }
+              row["itemCount"] = Array.isArray(innerItems) ? innerItems.length : 1;
+              for (const [ik, iv] of Object.entries(firstItem)) {
+                if (ik === "$" || ik === "items") continue;
+                if (typeof iv === "string" || typeof iv === "number") {
+                  row[ik] = iv;
+                } else if (iv && typeof iv === "object" && !Array.isArray(iv)) {
+                  const sub = iv as Record<string, any>;
+                  if (sub.$ && Object.keys(sub).length === 1) {
+                    for (const [ak, av] of Object.entries(sub.$)) {
+                      row[`${ik}.${ak}`] = av;
+                    }
+                  } else {
+                    row[ik] = JSON.stringify(iv).substring(0, 100);
+                  }
+                }
+              }
+            }
+          }
+          continue;
+        }
+        if (typeof val === "string" || typeof val === "number") {
+          row[key] = val;
+        } else if (val && typeof val === "object" && !Array.isArray(val)) {
+          const sub = val as Record<string, any>;
+          if (sub.$ && Object.keys(sub).length <= 3) {
+            for (const [ak, av] of Object.entries(sub.$)) {
+              row[`${key}.${ak}`] = av;
+            }
+            for (const [sk, sv] of Object.entries(sub)) {
+              if (sk === "$") continue;
+              if (typeof sv === "string" || typeof sv === "number") {
+                row[`${key}.${sk}`] = sv;
+              }
+            }
+          } else {
+            row[key] = JSON.stringify(val).substring(0, 100);
+          }
+        } else if (Array.isArray(val)) {
+          row[key] = `[${(val as any[]).length} items]`;
+        } else {
+          row[key] = val;
+        }
+      }
+      return row;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    return { success: true, source: src.label, recordCount: totalCount, fields, preview, fetchedAt: new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: err.name === "AbortError" ? "Request timed out (60s) — PF Concept feeds can be large" : `Failed: ${err.message}`, fetchedAt: new Date().toISOString() };
   }
 }
 

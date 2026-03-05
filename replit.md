@@ -54,11 +54,11 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 4. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
 5. **MID** - Supplier (Midocean) - REST API v2.0, x-Gateway-APIKey auth, 5 active endpoints (Products/Stock/Pricelist/PrintData/PrintPricelist) + Order v2.1/Proof v1.0 (inactive), API key configured ✅
 6. **STICKER** - Supplier (Stricker Europe) - REST API v2.20, AccessKey session auth
-7. **MACMA** - Supplier (JSON API v2 on macma.sk, same platform as EASYGIFTS) - 3 feeds: SKU (3,169), Pricelist (3,103), Stock (2,806)
+7. **MACMA** - Supplier (JSON API v2 on macma.sk, same platform as EASYGIFTS) - 3 feeds: SKU (3,169), Pricelist (3,103), Stock (2,806) ✅
 8. **XDCONNECT** - Supplier (XD Connects) - 6 data feeds on feeds.xindao.com (Product Data V5, Prices V2, Print Data V3, Print Prices V3, Stock V2, Combined V5), auto-detect XML/CSV/JSON format, customer-specific feed URLs
 9. **ANDA** - Supplier (Anda Present) - XML/CSV feeds, 9 data sources, Feed ID + IP whitelist auth
 10. **EASYGIFTS** - Supplier (XML feeds with SKU/pricelist URLs)
-11. **PFCONCEPT** - Supplier (data feeds)
+11. **PFCONCEPT** - Supplier (PF Concept B.V.) - Data Feeds Gateway v3, XML format, 4 feeds: Product (CZ), Price (individual), Print Price, Stock (2×/day), credentials auth ✅
 
 ## Key Features
 - **Connection testing**: Test API connectivity from module detail (POST /api/modules/:id/test-connection)
@@ -78,4 +78,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.4.3
+- App version: v1.5.0

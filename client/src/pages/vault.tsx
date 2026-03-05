@@ -26,8 +26,11 @@ const FIELD_LABELS: Record<string, string> = {
   apiBaseUrl: "API Base URL",
   environment: "Prostredie",
   skuFeedUrl: "SKU Feed URL",
-  pricelistFeedUrl: "Cenn\u00edkov\u00fd Feed URL",
+  pricelistFeedUrl: "Cenníkov\u00fd Feed URL",
   stockFeedUrl: "Skladov\u00fd Feed URL",
+  productFeedUrl: "Product Feed URL",
+  priceFeedUrl: "Price Feed URL",
+  printPriceFeedUrl: "Print Price Feed URL",
   swaggerUrl: "Swagger URL",
   accessKey: "Access Key",
   xmlFeedId: "XML Feed ID",
@@ -42,7 +45,7 @@ const FIELD_ORDER = [
   "apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId",
   "username", "password",
   "companyDomain", "companyId", "shopId",
-  "xmlFeedUrl", "skuFeedUrl", "pricelistFeedUrl", "stockFeedUrl",
+  "xmlFeedUrl", "skuFeedUrl", "pricelistFeedUrl", "stockFeedUrl", "productFeedUrl", "priceFeedUrl", "printPriceFeedUrl",
   "note",
 ];
 
