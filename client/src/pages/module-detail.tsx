@@ -519,6 +519,7 @@ export default function ModuleDetailPage() {
   const [rowLimit, setRowLimit] = useState<number>(50);
   const [showImages, setShowImages] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [visibleColumns, setVisibleColumns] = useState<number>(0);
   const rowsPerPage = 50;
 
   useEffect(() => {
@@ -1005,51 +1006,88 @@ export default function ModuleDetailPage() {
                               )}
                             </div>
 
-                            <ScrollArea className="w-full">
-                              <div className="min-w-[800px]">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow>
-                                      <TableHead className="w-12 text-xs">#</TableHead>
-                                      {dataPreview.fields.slice(0, 10).map((field) => (
-                                        <TableHead key={field} className="text-xs whitespace-nowrap">
-                                          {field}
-                                        </TableHead>
-                                      ))}
-                                      {dataPreview.fields.length > 10 && (
-                                        <TableHead className="text-xs">
-                                          +{dataPreview.fields.length - 10} more
-                                        </TableHead>
-                                      )}
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {pageRows.map((row, i) => (
-                                      <TableRow key={startIdx + i} data-testid={`row-preview-${startIdx + i}`}>
-                                        <TableCell className="text-xs text-muted-foreground">{startIdx + i + 1}</TableCell>
-                                        {dataPreview.fields.slice(0, 10).map((field) => {
-                                          const val = row[field];
-                                          const display = val === null || val === undefined ? "" : typeof val === "object" ? JSON.stringify(val) : String(val);
-                                          const isImg = showImages && typeof display === "string" && isImageUrl(display);
-                                          return (
-                                            <TableCell key={field} className="text-xs max-w-[200px]" title={display}>
-                                              {isImg ? (
-                                                <ImageCell url={display} alt={field} />
-                                              ) : (
-                                                <span className="truncate block">{display}</span>
-                                              )}
-                                            </TableCell>
-                                          );
-                                        })}
-                                        {dataPreview.fields.length > 10 && (
-                                          <TableCell className="text-xs text-muted-foreground">...</TableCell>
-                                        )}
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </ScrollArea>
+                            {(() => {
+                              const allFields = dataPreview.fields;
+                              const colLimit = visibleColumns > 0 ? visibleColumns : allFields.length;
+                              const displayFields = allFields.slice(0, colLimit);
+                              const hiddenCount = allFields.length - displayFields.length;
+
+                              return (
+                                <div className="space-y-2">
+                                  {allFields.length > 10 && (
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <span className="text-muted-foreground">Columns:</span>
+                                      <div className="flex gap-1">
+                                        {[10, 20, 30, 50].filter(n => n < allFields.length).map(n => (
+                                          <Button
+                                            key={n}
+                                            variant={colLimit === n ? "default" : "outline"}
+                                            size="sm"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => setVisibleColumns(n)}
+                                            data-testid={`button-cols-${n}`}
+                                          >
+                                            {n}
+                                          </Button>
+                                        ))}
+                                        <Button
+                                          variant={visibleColumns === 0 ? "default" : "outline"}
+                                          size="sm"
+                                          className="h-6 px-2 text-xs"
+                                          onClick={() => setVisibleColumns(0)}
+                                          data-testid="button-cols-all"
+                                        >
+                                          All ({allFields.length})
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="overflow-x-auto border rounded-md">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="w-12 text-xs sticky left-0 bg-background z-10 border-r">#</TableHead>
+                                          {displayFields.map((field) => (
+                                            <TableHead key={field} className="text-xs whitespace-nowrap px-3">
+                                              {field}
+                                            </TableHead>
+                                          ))}
+                                          {hiddenCount > 0 && (
+                                            <TableHead className="text-xs text-muted-foreground whitespace-nowrap px-3">
+                                              +{hiddenCount} more
+                                            </TableHead>
+                                          )}
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {pageRows.map((row, i) => (
+                                          <TableRow key={startIdx + i} data-testid={`row-preview-${startIdx + i}`}>
+                                            <TableCell className="text-xs text-muted-foreground sticky left-0 bg-background z-10 border-r">{startIdx + i + 1}</TableCell>
+                                            {displayFields.map((field) => {
+                                              const val = row[field];
+                                              const display = val === null || val === undefined ? "" : typeof val === "object" ? JSON.stringify(val) : String(val);
+                                              const isImg = showImages && typeof display === "string" && isImageUrl(display);
+                                              return (
+                                                <TableCell key={field} className="text-xs max-w-[250px] px-3" title={display}>
+                                                  {isImg ? (
+                                                    <ImageCell url={display} alt={field} />
+                                                  ) : (
+                                                    <span className="truncate block">{display}</span>
+                                                  )}
+                                                </TableCell>
+                                              );
+                                            })}
+                                            {hiddenCount > 0 && (
+                                              <TableCell className="text-xs text-muted-foreground">...</TableCell>
+                                            )}
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              );
+                            })()}
 
                             {totalPages > 1 && (
                               <div className="flex items-center justify-between pt-1">
