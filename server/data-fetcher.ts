@@ -57,8 +57,8 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
     let testUrl = "";
     const headers: Record<string, string> = { "User-Agent": "SyncHub/1.0" };
 
-    if (mod.code === "EASYGIFTS" && config?.skuFeedUrl) {
-      testUrl = config.skuFeedUrl;
+    if (mod.code === "EASYGIFTS" && config?.stockFeedUrl) {
+      testUrl = config.stockFeedUrl;
     } else if (mod.code === "PROMOTRON") {
       if (config?.apiKey) {
         testUrl = `${mod.baseUrl || "https://api-ts-westeu.promotron.com"}/tronshop-api/products`;
@@ -206,7 +206,7 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
 
   switch (mod.code) {
     case "EASYGIFTS":
-      return fetchXmlFeedData(mod.code, config?.skuFeedUrl, limit);
+      return fetchEasyGiftsData(config, source, limit);
     case "PROMOTRON":
       if (source === "feed") {
         return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
@@ -978,6 +978,79 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
         : `Failed to fetch data: ${err.message}`,
       fetchedAt: new Date().toISOString(),
     };
+  }
+}
+
+async function fetchEasyGiftsData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const sources: Record<string, { label: string; urlKey: string }> = {
+    sku: { label: "SKU (Products)", urlKey: "skuFeedUrl" },
+    pricelist: { label: "Pricelist", urlKey: "pricelistFeedUrl" },
+    stock: { label: "Stock", urlKey: "stockFeedUrl" },
+  };
+
+  const selectedSource = source && source !== "auto" ? source : "sku";
+  const src = sources[selectedSource];
+  if (!src) {
+    return { success: false, source: selectedSource, recordCount: 0, fields: [], preview: [], error: `Unknown source: ${selectedSource}`, fetchedAt: new Date().toISOString() };
+  }
+
+  const feedUrl = config?.[src.urlKey];
+  if (!feedUrl || !isUrlAllowed(feedUrl)) {
+    return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: !feedUrl ? `${src.label} feed URL not configured.` : "URL not in allowed hosts", fetchedAt: new Date().toISOString() };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const res = await fetch(feedUrl, { signal: controller.signal, headers: { "User-Agent": "SyncHub/1.0", "Accept": "application/json" } });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: `HTTP ${res.status}: ${res.statusText}`, fetchedAt: new Date().toISOString() };
+    }
+
+    const json = await res.json();
+    const items: any[] = Array.isArray(json) ? json : (json.items || json.products || json.data || []);
+    const totalCount = items.length;
+
+    const preview = items.slice(0, limit).map((item: any) => {
+      const row: Record<string, any> = {};
+      for (const [key, val] of Object.entries(item)) {
+        if (val === null || val === undefined) {
+          row[key] = "";
+        } else if (key === "img" && Array.isArray(val)) {
+          row["main_image"] = val.length > 0 ? String(val[0]) : "";
+          row["images_count"] = val.length;
+        } else if (key === "color" && typeof val === "object" && !Array.isArray(val)) {
+          const c = val as Record<string, any>;
+          row["color_name"] = c.name || "";
+          row["color_code"] = c.code || "";
+          row["color_rgb"] = c.rgb || "";
+        } else if (key === "future" && Array.isArray(val)) {
+          if (val.length > 0) {
+            row["future_week"] = `${val[0].year}-W${val[0].week}`;
+            row["future_stock"] = val[0].stock;
+          }
+        } else if (key === "print" && typeof val === "object") {
+          const p = val as Record<string, any>;
+          row["print_technologies"] = Array.isArray(p.technology) ? p.technology.map((t: any) => typeof t === "object" ? t.name || t.code || JSON.stringify(t) : String(t)).join(", ") : "";
+        } else if (key === "packing" && typeof val === "object") {
+          const pk = val as Record<string, any>;
+          row["pack_inner"] = pk.inner?.qty || "";
+          row["pack_outer"] = pk.outer?.qty || "";
+        } else if (typeof val === "object") {
+          row[key] = JSON.stringify(val).substring(0, 100);
+        } else {
+          row[key] = val;
+        }
+      }
+      return row;
+    });
+
+    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    return { success: true, source: src.label, recordCount: totalCount, fields, preview, fetchedAt: new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: err.name === "AbortError" ? "Request timed out (30s)" : `Failed: ${err.message}`, fetchedAt: new Date().toISOString() };
   }
 }
 

@@ -284,17 +284,18 @@ const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoi
     ],
   },
   EASYGIFTS: {
-    description: "Dodávateľ reklamných predmetov Easy Gifts (Poľsko). Stredne veľký dodávateľ so zameraním na cenovo dostupné promo produkty — perá, hrnčeky, tašky, USB, kancelárske potreby a outdoorové doplnky.\n\nDáta sú dostupné cez XML feedy (v2) — dva hlavné feedy: SKU feed (kompletný produktový katalóg) a Pricelist feed (cenník s nákupnými cenami). Feedy sú prístupné cez priame URL s API kľúčom.",
-    apiInfo: "XML Data Feeds v2 na easygifts.sk/easygifts.com\n\nDva hlavné feedy:\n1. SKU Feed — kompletný produktový katalóg\n   • Obsahuje: názov, popis, kategória, materiál, rozmery, hmotnosť, farby, obrázky\n   • Formát: XML (štruktúrovaný, UTF-8)\n   • URL vzor: https://easygifts.sk/api/v2/{apiKey}/sku.xml\n\n2. Pricelist Feed — cenník\n   • Obsahuje: kód produktu, nákupná cena, doporučená predajná cena, mena\n   • Formát: XML\n   • URL vzor: https://easygifts.sk/api/v2/{apiKey}/pricelist.xml\n\nDoplnkové feedy (ak sú dostupné):\n• Stock Feed — skladové zásoby\n• Print Feed — potlačové informácie",
+    description: "Dodávateľ reklamných predmetov Easy Gifts (Poľsko). Stredne veľký dodávateľ so zameraním na cenovo dostupné promo produkty — perá, hrnčeky, tašky, USB, kancelárske potreby a outdoorové doplnky. Značky: MoLu (premium), Easy Gifts (štandard).\n\nDáta sú dostupné cez JSON/XML API v2 — tri hlavné feedy: SKU (13 400+ produktov, 25 polí vrátane obrázkov), Pricelist (13 100+ cenníkových položiek), Stock (12 300+ skladových záznamov vrátane budúcich dodávok).\n\nJazyk: SK (slovenčina) — jazyk je súčasťou URL.",
+    apiInfo: "JSON/XML Data Feeds v2 na easygifts.sk\n\nTri hlavné feedy:\n1. SKU Feed — kompletný produktový katalóg (~13 400 produktov)\n   • 25 polí: id, catalogcode, name, description, brand, size, weight, color (object), origin, tariff, newitem, chapter, img (array URL), material, print, packing, video\n   • Formát: JSON alebo XML\n   • URL: /api/v2/{apiKey}/{lang}/sku.json\n\n2. Pricelist Feed — cenník (~13 100 položiek)\n   • 6 polí: id, name, price, pricestr, webprice, webpricestr\n   • Ceny v EUR\n   • URL: /api/v2/{apiKey}/{lang}/pricelist.json\n\n3. Stock Feed — skladové zásoby (~12 300 položiek)\n   • 6+ polí: id, name, local, regional, international, future[]\n   • future[] = budúce dodávky (year, week, stock)\n   • URL: /api/v2/{apiKey}/{lang}/stock.json\n\nFormáty: JSON (.json) a XML (.xml) — oba dostupné na rovnakej URL, len zmena prípony",
     endpoints: [
-      "GET /api/v2/{apiKey}/sku.xml — produktový katalóg (SKU feed)",
-      "GET /api/v2/{apiKey}/pricelist.xml — cenník s nákupnými cenami",
+      "GET /api/v2/{apiKey}/sk/sku.json — produktový katalóg (13 400+ SKU, 25 polí)",
+      "GET /api/v2/{apiKey}/sk/pricelist.json — cenník (ceny EUR)",
+      "GET /api/v2/{apiKey}/sk/stock.json — sklady (local/regional/international + future)",
     ],
-    authInfo: "API kľúč v URL — kľúč je súčasťou feed URL adresy.\n\nZískanie prístupu:\n1. Registrácia na easygifts.sk alebo easygifts.com (B2B účet)\n2. Kontaktovať obchodné oddelenie pre aktiváciu XML feedov\n3. Obdržíte API kľúč, ktorý je súčasťou URL adresy feedu\n\nBez platného API kľúča server vráti 403 Forbidden.\n\nDôležité: Aktuálna feed URL vracia 403 — je potrebné overiť/aktualizovať URL u dodávateľa.",
-    dataFields: "SKU Feed: kód produktu, názov (lokalizovaný), krátky/dlhý popis, kategória, podkategória, materiál, rozmery (cm), hmotnosť (g), farba (názov + hex), veľkosť, kapacita, EAN kód, krajina pôvodu, HS kód (Intrastat), obrázky (URL, viacero uhlov), minimálne objednávacie množstvo, balenie (ks v kartóne)\nPricelist Feed: kód produktu, nákupná cena (net), doporučená predajná cena, mena (EUR), DPH sadzba, cenové stupne podľa množstva",
-    notes: "Stav integrácie: FEED URL NEPLATNÁ (403)\n\nAktuálny problém:\n• Nakonfigurovaná feed URL vracia HTTP 403 (Forbidden)\n• Pravdepodobné príčiny: expirovaný API kľúč, zmenená URL štruktúra, zrušený prístup\n\nKroky na opravu:\n1. Kontaktovať Easy Gifts obchodné oddelenie\n2. Overiť platnosť API kľúča\n3. Získať aktuálne feed URL adresy (SKU + Pricelist)\n4. Aktualizovať URL v SyncHub Settings\n5. Otestovať spojenie cez Test Connection\n\nSynchronizačné scenáre (po oprave):\n• SKU Feed → ONIX skladové karty (import katalógu)\n• Pricelist → ONIX nákupné cenníky\n• Stock Feed → kontrola dostupnosti (ak je dostupný)",
+    authInfo: "API kluc v URL \u2014 kluc je sucastou feed URL adresy.\n\nAktualny kluc: whrM...i_r (nakonfigurovany, aktivny \u2705)\n\nPrihlasenie na web: easygifts.sk\n\u2022 Meno: Hauerland\n\u2022 Heslo: ulozene vo Vault\n\nURL vzor: https://easygifts.sk/api/v2/{apiKey}/{lang}/{feed}.json\n\u2022 apiKey \u2014 Vsetky znacky\n\u2022 lang \u2014 sk (slovencina)\n\u2022 feed \u2014 sku / pricelist / stock",
+    dataFields: "SKU Feed (25 polí):\n• id — unikátny kód produktu (6-miestne číslo)\n• catalogcode — kód katalógu\n• name — názov produktu (SK)\n• description — dlhý popis\n• brand — značka (MoLu, Easy Gifts...)\n• size — rozmery (text)\n• weight — hmotnosť (kg, desatinné)\n• color — objekt: { code, name, rgb } — napr. C_03/Čierna/#000000\n• origin — krajina pôvodu (2-písm. kód, napr. CN)\n• tariff — colný kód (HS/Intrastat)\n• newitem — boolean (nový produkt)\n• chapter — kategória|podkategória (pipe separated)\n• img — pole URL obrázkov (do 18+ fotiek na produkt)\n• mainpic — hlavný obrázok\n• capacity, pagex, pagey, sizes, material\n• print — objekt: { technology[] } — potlačové techniky\n• packing — objekt: { inner: {qty}, outer: {qty}, pallet: {} }\n• video — URL videa\n\nPricelist (6 polí): id, name, price (EUR net), pricestr, webprice, webpricestr\n\nStock (6+ polí): id, name, local (SK sklad), regional (EU), international (celkovo), future[] (rok/týždeň/množstvo)",
+    notes: "STAV: ✅ PRIPOJENÉ — 3 feedy aktívne (SKU, Pricelist, Stock)\n\nŠtatistiky:\n• SKU: 13 400+ produktov (kompletný katalóg)\n• Pricelist: 13 100+ cenníkových položiek\n• Stock: 12 300+ skladových záznamov\n\nObrázky: priame URL v poli img[]\n• Vzor: https://easygifts.sk/products/jpg/E/{brand}/{id}.jpg\n• Viacero uhlov: _1, _2_box, _3, _4... (až 18 fotiek)\n\nSkladové zásoby:\n• local = SK sklad (Hauerland/Easy Gifts SK)\n• regional = EU regionálny sklad\n• international = centrálny sklad (Poľsko)\n• future[] = budúce dodávky (rok + týždeň + množstvo)\n\nSynchronizačné scenáre:\n• SKU Feed → ONIX skladové karty (import katalógu, obrázky, rozmery)\n• Pricelist → ONIX nákupné cenníky\n• Stock → kontrola dostupnosti pred objednávkou\n• Obrázky (img[]) → e-shop Promotron/TronShop",
     links: [
-      { label: "Easy Gifts SK", url: "https://easygifts.sk" },
+      { label: "Easy Gifts SK (B2B)", url: "https://easygifts.sk" },
       { label: "Easy Gifts PL (hlavná stránka)", url: "https://easygifts.com.pl" },
     ],
   },
@@ -384,10 +385,11 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "language", label: "Jazyk dát", type: "text", placeholder: "sk", helpText: "Kód jazyka: sk, cz, en, de, hu, it, fr, nl, pl, ro, no, se, dk, fi, gr, si, bg, es, pt" },
   ],
   EASYGIFTS: [
-    { key: "apiType", label: "API Type", type: "text", placeholder: "XML" },
+    { key: "apiType", label: "API Type", type: "text", placeholder: "JSON" },
     { key: "authType", label: "Auth Type", type: "text", placeholder: "feed_url" },
-    { key: "skuFeedUrl", label: "SKU Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../sku.xml", required: true, helpText: "XML feed URL for product SKU data" },
-    { key: "pricelistFeedUrl", label: "Pricelist Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../pricelist.xml", helpText: "XML feed URL for pricelist data" },
+    { key: "skuFeedUrl", label: "SKU Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../sk/sku.json", required: true, helpText: "JSON feed URL for product SKU data (13 400+ products)" },
+    { key: "pricelistFeedUrl", label: "Pricelist Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../sk/pricelist.json", helpText: "JSON feed URL for pricelist data" },
+    { key: "stockFeedUrl", label: "Stock Feed URL", type: "url", placeholder: "https://easygifts.sk/api/v2/.../sk/stock.json", helpText: "JSON feed URL for stock data (local/regional/international)" },
   ],
   PFCONCEPT: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "data_feed" },
@@ -842,6 +844,11 @@ export default function ModuleDetailPage() {
                         { value: "printprices", label: "Print Prices V3" },
                         { value: "stock", label: "Stock V2" },
                         { value: "combined", label: "Combined Data V5" },
+                      ],
+                      EASYGIFTS: [
+                        { value: "sku", label: "SKU (Products)" },
+                        { value: "pricelist", label: "Pricelist (ceny)" },
+                        { value: "stock", label: "Stock (sklady)" },
                       ],
                       STICKER: [
                         { value: "auto", label: "Auto (Products)" },
