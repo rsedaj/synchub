@@ -45,6 +45,9 @@ import {
   HelpCircle,
   Globe,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  ImageIcon,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -395,6 +398,24 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   ],
 };
 
+function ImageCell({ url, alt }: { url: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <span className="text-xs truncate block">{url.length > 40 ? url.substring(0, 40) + "..." : url}</span>;
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      <img
+        src={url}
+        alt={alt}
+        className="h-10 w-10 object-contain rounded border"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    </a>
+  );
+}
+
 function PasswordField({
   value,
   onChange,
@@ -495,6 +516,10 @@ export default function ModuleDetailPage() {
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [dataPreview, setDataPreview] = useState<DataPreviewResult | null>(null);
   const [dataSource, setDataSource] = useState<string>("");
+  const [rowLimit, setRowLimit] = useState<number>(50);
+  const [showImages, setShowImages] = useState<boolean>(true);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const rowsPerPage = 50;
 
   useEffect(() => {
     if (mod) {
@@ -551,11 +576,12 @@ export default function ModuleDetailPage() {
   const fetchDataMutation = useMutation({
     mutationFn: async () => {
       const sourceParam = dataSource ? `&source=${dataSource}` : "";
-      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=50${sourceParam}`);
+      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=${rowLimit}${sourceParam}`);
       return res.json();
     },
     onSuccess: (data: DataPreviewResult) => {
       setDataPreview(data);
+      setCurrentPage(1);
     },
     onError: (err: any) => {
       setDataPreview({
@@ -842,6 +868,27 @@ export default function ModuleDetailPage() {
                       </Select>
                     );
                   })()}
+                  <Select value={String(rowLimit)} onValueChange={(v) => setRowLimit(Number(v))}>
+                    <SelectTrigger className="h-8 w-[110px] text-xs" data-testid="select-row-limit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="50">50 rows</SelectItem>
+                      <SelectItem value="100">100 rows</SelectItem>
+                      <SelectItem value="200">200 rows</SelectItem>
+                      <SelectItem value="500">500 rows</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant={showImages ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowImages(!showImages)}
+                    data-testid="button-toggle-images"
+                    className="gap-1.5"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    <span className="text-xs">{showImages ? "IMG ON" : "IMG OFF"}</span>
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -890,67 +937,161 @@ export default function ModuleDetailPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Total records:</span>
-                          <span className="font-medium" data-testid="text-record-count">
-                            {dataPreview.recordCount.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Fields:</span>
-                          <span className="font-medium">{dataPreview.fields.length}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Showing:</span>
-                          <span className="font-medium">{dataPreview.preview.length} rows</span>
-                        </div>
-                      </div>
+                      {(() => {
+                        const totalRows = dataPreview.preview.length;
+                        const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+                        const safeCurrentPage = Math.min(currentPage, totalPages);
+                        const startIdx = (safeCurrentPage - 1) * rowsPerPage;
+                        const endIdx = Math.min(startIdx + rowsPerPage, totalRows);
+                        const pageRows = dataPreview.preview.slice(startIdx, endIdx);
 
-                      <ScrollArea className="w-full">
-                        <div className="min-w-[800px]">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="w-12 text-xs">#</TableHead>
-                                {dataPreview.fields.slice(0, 10).map((field) => (
-                                  <TableHead key={field} className="text-xs whitespace-nowrap">
-                                    {field}
-                                  </TableHead>
-                                ))}
-                                {dataPreview.fields.length > 10 && (
-                                  <TableHead className="text-xs">
-                                    +{dataPreview.fields.length - 10} more
-                                  </TableHead>
-                                )}
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {dataPreview.preview.map((row, i) => (
-                                <TableRow key={i} data-testid={`row-preview-${i}`}>
-                                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                                  {dataPreview.fields.slice(0, 10).map((field) => {
-                                    const val = row[field];
-                                    const display = val === null || val === undefined ? "" : typeof val === "object" ? JSON.stringify(val) : String(val);
-                                    return (
-                                      <TableCell key={field} className="text-xs max-w-[200px] truncate" title={display}>
-                                        {display}
-                                      </TableCell>
-                                    );
-                                  })}
-                                  {dataPreview.fields.length > 10 && (
-                                    <TableCell className="text-xs text-muted-foreground">...</TableCell>
-                                  )}
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </ScrollArea>
+                        const isImageUrl = (val: string) => {
+                          if (!val) return false;
+                          const lower = val.toLowerCase();
+                          return (lower.startsWith("http://") || lower.startsWith("https://")) &&
+                            (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|$)/i.test(lower) ||
+                             /\/image\//i.test(lower) ||
+                             /cdn.*\.(com|net|org)/i.test(lower));
+                        };
 
-                      <p className="text-xs text-muted-foreground">
-                        Fetched at {new Date(dataPreview.fetchedAt).toLocaleString()}
-                      </p>
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-sm flex-wrap gap-2">
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground">Total records:</span>
+                                  <span className="font-medium" data-testid="text-record-count">
+                                    {dataPreview.recordCount.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground">Fields:</span>
+                                  <span className="font-medium">{dataPreview.fields.length}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-muted-foreground">Fetched:</span>
+                                  <span className="font-medium">{totalRows} rows</span>
+                                </div>
+                              </div>
+                              {totalPages > 1 && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">
+                                    {startIdx + 1}–{endIdx} z {totalRows}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={safeCurrentPage <= 1}
+                                    onClick={() => setCurrentPage(safeCurrentPage - 1)}
+                                    data-testid="button-prev-page"
+                                  >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <span className="text-xs font-medium min-w-[60px] text-center">
+                                    {safeCurrentPage} / {totalPages}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={safeCurrentPage >= totalPages}
+                                    onClick={() => setCurrentPage(safeCurrentPage + 1)}
+                                    data-testid="button-next-page"
+                                  >
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+
+                            <ScrollArea className="w-full">
+                              <div className="min-w-[800px]">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead className="w-12 text-xs">#</TableHead>
+                                      {dataPreview.fields.slice(0, 10).map((field) => (
+                                        <TableHead key={field} className="text-xs whitespace-nowrap">
+                                          {field}
+                                        </TableHead>
+                                      ))}
+                                      {dataPreview.fields.length > 10 && (
+                                        <TableHead className="text-xs">
+                                          +{dataPreview.fields.length - 10} more
+                                        </TableHead>
+                                      )}
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {pageRows.map((row, i) => (
+                                      <TableRow key={startIdx + i} data-testid={`row-preview-${startIdx + i}`}>
+                                        <TableCell className="text-xs text-muted-foreground">{startIdx + i + 1}</TableCell>
+                                        {dataPreview.fields.slice(0, 10).map((field) => {
+                                          const val = row[field];
+                                          const display = val === null || val === undefined ? "" : typeof val === "object" ? JSON.stringify(val) : String(val);
+                                          const isImg = showImages && typeof display === "string" && isImageUrl(display);
+                                          return (
+                                            <TableCell key={field} className="text-xs max-w-[200px]" title={display}>
+                                              {isImg ? (
+                                                <ImageCell url={display} alt={field} />
+                                              ) : (
+                                                <span className="truncate block">{display}</span>
+                                              )}
+                                            </TableCell>
+                                          );
+                                        })}
+                                        {dataPreview.fields.length > 10 && (
+                                          <TableCell className="text-xs text-muted-foreground">...</TableCell>
+                                        )}
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </ScrollArea>
+
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between pt-1">
+                                <p className="text-xs text-muted-foreground">
+                                  Fetched at {new Date(dataPreview.fetchedAt).toLocaleString()}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">
+                                    Page {safeCurrentPage} / {totalPages}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={safeCurrentPage <= 1}
+                                    onClick={() => setCurrentPage(safeCurrentPage - 1)}
+                                    data-testid="button-prev-page-bottom"
+                                  >
+                                    <ChevronLeft className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={safeCurrentPage >= totalPages}
+                                    onClick={() => setCurrentPage(safeCurrentPage + 1)}
+                                    data-testid="button-next-page-bottom"
+                                  >
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
+                            {totalPages <= 1 && (
+                              <p className="text-xs text-muted-foreground">
+                                Fetched at {new Date(dataPreview.fetchedAt).toLocaleString()}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </>
