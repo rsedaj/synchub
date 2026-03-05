@@ -50,11 +50,11 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 2. **PROMOTRON** - E-shop (shop.hauerland.sk)
 3. **PIPEDRIVE** - CRM system
 4. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
-5. **MID** - Supplier (Midocean)
-6. **STICKER** - Supplier
+5. **MID** - Supplier (Midocean) - REST API v2.0, x-Gateway-APIKey auth, 5 active endpoints (Products/Stock/Pricelist/PrintData/PrintPricelist) + Order v2.1/Proof v1.0 (inactive), API key configured ✅
+6. **STICKER** - Supplier (Stricker Europe) - REST API v2.20, AccessKey session auth
 7. **MACMA** - Supplier (pending docs)
-8. **XDCONNECT** - Supplier (XD Connect)
-9. **ANDA** - Supplier (XML/CSV feeds)
+8. **XDCONNECT** - Supplier (XD Connects) - 6 data feeds on feeds.xindao.com (Product Data V5, Prices V2, Print Data V3, Print Prices V3, Stock V2, Combined V5), auto-detect XML/CSV/JSON format, customer-specific feed URLs
+9. **ANDA** - Supplier (Anda Present) - XML/CSV feeds, 9 data sources, Feed ID + IP whitelist auth
 10. **EASYGIFTS** - Supplier (XML feeds with SKU/pricelist URLs)
 11. **PFCONCEPT** - Supplier (data feeds)
 
