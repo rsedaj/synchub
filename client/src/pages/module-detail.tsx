@@ -520,7 +520,7 @@ export default function ModuleDetailPage() {
   const [showImages, setShowImages] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [visibleColumns, setVisibleColumns] = useState<number>(0);
-  const rowsPerPage = 50;
+  const rowsPerPage = rowLimit;
   const rowLimitRef = useRef(rowLimit);
   const dataSourceRef = useRef(dataSource);
   rowLimitRef.current = rowLimit;

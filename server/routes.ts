@@ -149,8 +149,9 @@ export async function registerRoutes(
     try {
       const mod = await storage.getModule(req.params.id);
       if (!mod) return res.status(404).json({ message: "Module not found" });
-      const limit = parseInt(req.query.limit as string) || 20;
+      const limit = parseInt(req.query.limit as string) || 50;
       const source = (req.query.source as string) || undefined;
+      console.log(`[data-preview] ${mod.code} limit=${limit} (raw=${req.query.limit}) source=${source || "auto"} url=${req.originalUrl}`);
       const result = await fetchModuleData(mod, limit, source);
       return res.json(result);
     } catch (err: any) {
