@@ -24,7 +24,9 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - `client/src/App.tsx` - Main app with routing, auth guard, sidebar layout
 - `client/src/lib/auth.tsx` - AuthProvider context with login/logout
 - `client/src/components/theme-provider.tsx` - Dark/light theme toggle
-- `client/src/components/app-sidebar.tsx` - Navigation sidebar
+- `client/src/components/language-provider.tsx` - SK/EN language switching with localStorage persistence
+- `client/src/lib/i18n.ts` - Translation strings for SK and EN languages
+- `client/src/components/app-sidebar.tsx` - Navigation sidebar with language toggle
 
 ### Pages
 - `client/src/pages/login.tsx` - Login page
@@ -52,7 +54,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 4. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
 5. **MID** - Supplier (Midocean) - REST API v2.0, x-Gateway-APIKey auth, 5 active endpoints (Products/Stock/Pricelist/PrintData/PrintPricelist) + Order v2.1/Proof v1.0 (inactive), API key configured ✅
 6. **STICKER** - Supplier (Stricker Europe) - REST API v2.20, AccessKey session auth
-7. **MACMA** - Supplier (pending docs)
+7. **MACMA** - Supplier (JSON API v2 on macma.sk, same platform as EASYGIFTS) - 3 feeds: SKU (3,169), Pricelist (3,103), Stock (2,806)
 8. **XDCONNECT** - Supplier (XD Connects) - 6 data feeds on feeds.xindao.com (Product Data V5, Prices V2, Print Data V3, Print Prices V3, Stock V2, Combined V5), auto-detect XML/CSV/JSON format, customer-specific feed URLs
 9. **ANDA** - Supplier (Anda Present) - XML/CSV feeds, 9 data sources, Feed ID + IP whitelist auth
 10. **EASYGIFTS** - Supplier (XML feeds with SKU/pricelist URLs)
@@ -74,4 +76,6 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Responsive and modern UI
 - Security-first approach with audit logging
 - Slovak-speaking user
+- SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
+- App version: v1.4.3

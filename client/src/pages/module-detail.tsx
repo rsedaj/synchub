@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/components/language-provider";
 import type { ApiModule, SyncLog } from "@shared/schema";
 import { useState, useEffect, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
@@ -228,14 +229,20 @@ const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoi
     ],
   },
   MACMA: {
-    description: "Dodávateľ reklamných predmetov MACMA Werbeartikel OHG (Nemecko). Tradičný nemecký dodávateľ promo produktov — perá, elektronika, outdoorové potreby, kancelárske doplnky a darčekové sety.\n\nIntegrácia je v prípravnej fáze — čaká sa na API dokumentáciu a prístupové údaje od dodávateľa. Po obdržaní bude modul nakonfigurovaný podľa dostupného rozhrania (REST API, XML/CSV feed, alebo FTP prístup).",
-    apiInfo: "Typ API rozhrania zatiaľ nie je potvrdený. Očakávané možnosti:\n\n1. REST API — podobne ako iní dodávatelia (Giving, Midocean)\n2. XML/CSV feedy — produktové dáta a cenníky (podobne ako Anda, Easy Gifts)\n3. FTP prístup — súbory s produktovými dátami\n\nPo obdržaní dokumentácie bude modul plne implementovaný vrátane:\n• Test Connection\n• Data Preview s dropdown zdrojmi\n• Automatická synchronizácia",
-    authInfo: "Autentifikácia zatiaľ neurčená — závisí od typu rozhrania, ktoré MACMA poskytne.\n\nMožné varianty:\n• API Key / Bearer Token (pri REST API)\n• Username/Password (pri FTP alebo portáli)\n• Feed URL s tokenom (pri XML/CSV feedoch)\n\nKontaktujte obchodného zástupcu MACMA pre získanie prístupových údajov a dokumentácie.",
-    dataFields: "Očakávané dátové polia (na základe štandardov v promo odvetví):\n\nProdukty: artikl, názov, popis, materiál, rozmery, hmotnosť, farby, kategória\nCeny: nákupná cena, doporučená predajná cena, množstevné stupne\nSklady: aktuálny stav, dostupnosť, očakávané dodávky\nPotlač: techniky personalizácie, pozície, plochy, ceny\nObrázky: produktové fotky, lifestyle, hi-res na stiahnutie\nLogistika: krajina pôvodu, colný kód (Intrastat), hmotnosť balenia",
-    notes: "Stav integrácie: ČAKÁ SA NA DOKUMENTÁCIU\n\nKroky na aktiváciu:\n1. Kontaktovať obchodného zástupcu MACMA\n2. Vyžiadať API/feed dokumentáciu a prístupové údaje\n3. Implementovať connector v SyncHub podľa dostupného rozhrania\n4. Otestovať pripojenie a dátový preview\n5. Nastaviť automatickú synchronizáciu s ONIX\n\nMACMA web portál: Produkty je možné prehliadať na www.macma.de. Portál ponúka aj B2B sekciu s prihlásením.",
+    description: "Dod\u00e1vate\u013e reklamn\u00fdch predmetov MACMA Werbeartikel OHG (Nemecko). Tradi\u010dn\u00fd nemeck\u00fd dod\u00e1vate\u013e promo produktov \u2014 per\u00e1, elektronika, outdoorov\u00e9 potreby, kancel\u00e1rske doplnky a dar\u010dekov\u00e9 sety. Zna\u010dky: M-Collection (premium), Macma (\u0161tandard).\n\nD\u00e1ta s\u00fa dostupn\u00e9 cez JSON API v2 na macma.sk \u2014 tri hlavn\u00e9 feedy: SKU (3 169 produktov, 25 pol\u00ed vr\u00e1tane obr\u00e1zkov), Pricelist (3 103 cenn\u00edkov\u00fdch polo\u017eiek), Stock (2 806 skladov\u00fdch z\u00e1znamov).\n\nJazyk: SK (sloven\u010dina) \u2014 jazyk je s\u00fa\u010das\u0165ou URL. Rovnak\u00e1 platforma ako Easy Gifts (easygifts.sk).",
+    apiInfo: "JSON Data Feeds v2 na macma.sk\n\nTri hlavn\u00e9 feedy:\n1. SKU Feed \u2014 kompletn\u00fd produktov\u00fd katal\u00f3g (~3 169 produktov)\n   \u2022 25 pol\u00ed: id, catalogcode, name, description, brand, size, weight, color (object), origin, tariff, newitem, chapter, img (array URL), material, print, packing, video\n   \u2022 Form\u00e1t: JSON\n   \u2022 URL: /api/v2/{apiKey}/{lang}/sku.json\n\n2. Pricelist Feed \u2014 cenn\u00edk (~3 103 polo\u017eiek)\n   \u2022 6 pol\u00ed: id, name, price, pricestr, webprice, webpricestr\n   \u2022 Ceny v EUR\n   \u2022 URL: /api/v2/{apiKey}/{lang}/pricelist.json\n\n3. Stock Feed \u2014 skladov\u00e9 z\u00e1soby (~2 806 polo\u017eiek)\n   \u2022 5 pol\u00ed: id, name, local, regional, international\n   \u2022 URL: /api/v2/{apiKey}/{lang}/stock.json",
+    endpoints: [
+      "GET /api/v2/{apiKey}/sk/sku.json \u2014 produktov\u00fd katal\u00f3g (3 169 SKU, 25 pol\u00ed)",
+      "GET /api/v2/{apiKey}/sk/pricelist.json \u2014 cenn\u00edk (ceny EUR)",
+      "GET /api/v2/{apiKey}/sk/stock.json \u2014 sklady (local/regional/international)",
+    ],
+    authInfo: "API k\u013e\u00fa\u010d v URL \u2014 k\u013e\u00fa\u010d je s\u00fa\u010das\u0165ou feed URL adresy.\n\nAktu\u00e1lny k\u013e\u00fa\u010d: KssO...f3 (nakonfigurovan\u00fd, akt\u00edvny \u2705)\n\nPrihl\u00e1senie na web: macma.sk\n\u2022 Meno: hauerland\n\u2022 Heslo: ulo\u017een\u00e9 vo Vault\n\nURL vzor: https://macma.sk/api/v2/{apiKey}/{lang}/{feed}.json\n\u2022 apiKey \u2014 V\u0161etky zna\u010dky\n\u2022 lang \u2014 sk (sloven\u010dina)\n\u2022 feed \u2014 sku / pricelist / stock",
+    dataFields: "SKU Feed (25 pol\u00ed):\n\u2022 id \u2014 unik\u00e1tny k\u00f3d produktu\n\u2022 catalogcode \u2014 k\u00f3d katal\u00f3gu\n\u2022 name \u2014 n\u00e1zov produktu (SK)\n\u2022 description \u2014 dlh\u00fd popis\n\u2022 brand \u2014 zna\u010dka (M-Collection, Macma)\n\u2022 size \u2014 rozmery (text)\n\u2022 weight \u2014 hmotnos\u0165 (kg)\n\u2022 color \u2014 objekt: { code, name, rgb }\n\u2022 origin \u2014 krajina p\u00f4vodu\n\u2022 tariff \u2014 coln\u00fd k\u00f3d (HS/Intrastat)\n\u2022 newitem \u2014 boolean\n\u2022 chapter \u2014 kateg\u00f3ria|podkateg\u00f3ria\n\u2022 img \u2014 pole URL obr\u00e1zkov\n\u2022 mainpic \u2014 hlavn\u00fd obr\u00e1zok\n\u2022 material, print, packing, video\n\nPricelist (6 pol\u00ed): id, name, price (EUR net), pricestr, webprice, webpricestr\n\nStock (5 pol\u00ed): id, name, local (SK sklad), regional (EU), international (centr\u00e1lny)",
+    notes: "STAV: \u2705 PRIPOJEN\u00c9 \u2014 3 feedy akt\u00edvne (SKU, Pricelist, Stock)\n\n\u0160tatistiky:\n\u2022 SKU: 3 169 produktov (kompletn\u00fd katal\u00f3g)\n\u2022 Pricelist: 3 103 cenn\u00edkov\u00fdch polo\u017eiek\n\u2022 Stock: 2 806 skladov\u00fdch z\u00e1znamov\n\nObr\u00e1zky: priame URL v poli img[]\n\u2022 Vzor: https://macma.sk/products/jpg/...\n\u2022 Viacero uhlov na produkt\n\nSkladov\u00e9 z\u00e1soby:\n\u2022 local = SK sklad\n\u2022 regional = EU region\u00e1lny sklad\n\u2022 international = centr\u00e1lny sklad\n\nSynchroniza\u010dn\u00e9 scen\u00e1re:\n\u2022 SKU Feed \u2192 ONIX skladov\u00e9 karty\n\u2022 Pricelist \u2192 ONIX n\u00e1kupn\u00e9 cenn\u00edky\n\u2022 Stock \u2192 kontrola dostupnosti pred objedn\u00e1vkou\n\u2022 Obr\u00e1zky (img[]) \u2192 e-shop Promotron/TronShop\n\nPlatforma: rovnak\u00e1 ako Easy Gifts (easygifts.sk) \u2014 rovnak\u00e9 API, rovnak\u00e1 \u0161trukt\u00fara d\u00e1t.",
     links: [
-      { label: "MACMA Web", url: "https://www.macma.de" },
-      { label: "MACMA Katalóg", url: "https://www.macma.de/en/catalogue" },
+      { label: "Macma SK (B2B)", url: "https://macma.sk" },
+      { label: "MACMA DE (hlavn\u00e1 str\u00e1nka)", url: "https://www.macma.de" },
+      { label: "MACMA Katal\u00f3g", url: "https://www.macma.de/en/catalogue" },
     ],
   },
   XDCONNECT: {
@@ -363,9 +370,11 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "language", label: "Jazyk dát", type: "text", placeholder: "SK", helpText: "Kód jazyka: SK, CZ, EN, DE, FR, IT, ES, PT, PL, NL, HU, RO, RU, BG, HR, DK, FI, GR, NO, RS, SE, UA" },
   ],
   MACMA: [
-    { key: "apiType", label: "API Type", type: "text", placeholder: "TBD" },
-    { key: "authType", label: "Auth Type", type: "text", placeholder: "TBD" },
-    { key: "note", label: "Note", type: "text", placeholder: "Waiting for documentation" },
+    { key: "apiType", label: "API Type", type: "text", placeholder: "JSON" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "feed_url" },
+    { key: "skuFeedUrl", label: "SKU Feed URL", type: "url", placeholder: "https://macma.sk/api/v2/.../sk/sku.json", required: true, helpText: "JSON feed URL for product SKU data (3 169 products)" },
+    { key: "pricelistFeedUrl", label: "Pricelist Feed URL", type: "url", placeholder: "https://macma.sk/api/v2/.../sk/pricelist.json", helpText: "JSON feed URL for pricelist data" },
+    { key: "stockFeedUrl", label: "Stock Feed URL", type: "url", placeholder: "https://macma.sk/api/v2/.../sk/stock.json", helpText: "JSON feed URL for stock data (local/regional/international)" },
   ],
   XDCONNECT: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "data_feed" },
@@ -498,6 +507,7 @@ export default function ModuleDetailPage() {
   const [, params] = useRoute("/modules/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const moduleId = params?.id;
 
   const { data: mod, isLoading } = useQuery<ApiModule>({
@@ -552,10 +562,10 @@ export default function ModuleDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/modules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/modules", moduleId] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      toast({ title: "Module updated", description: "Changes saved successfully." });
+      toast({ title: t("moduleDetail.saved"), description: t("moduleDetail.savedDesc") });
     },
     onError: (err: any) => {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+      toast({ title: t("moduleDetail.saveFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -625,7 +635,7 @@ export default function ModuleDetailPage() {
   if (!mod) {
     return (
       <div className="p-6">
-        <p className="text-muted-foreground">Module not found</p>
+        <p className="text-muted-foreground">{t("moduleDetail.moduleNotFound")}</p>
       </div>
     );
   }
@@ -660,11 +670,11 @@ export default function ModuleDetailPage() {
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-          <TabsTrigger value="data" data-testid="tab-data">Data Preview</TabsTrigger>
-          <TabsTrigger value="config" data-testid="tab-config">Configuration</TabsTrigger>
-          <TabsTrigger value="history" data-testid="tab-history">Sync History</TabsTrigger>
-          <TabsTrigger value="help" data-testid="tab-help">Help</TabsTrigger>
+          <TabsTrigger value="overview" data-testid="tab-overview">{t("moduleDetail.overview")}</TabsTrigger>
+          <TabsTrigger value="data" data-testid="tab-data">{t("moduleDetail.dataPreview")}</TabsTrigger>
+          <TabsTrigger value="config" data-testid="tab-config">{t("moduleDetail.configuration")}</TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">{t("moduleDetail.syncHistory")}</TabsTrigger>
+          <TabsTrigger value="help" data-testid="tab-help">{t("moduleDetail.help")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -673,35 +683,35 @@ export default function ModuleDetailPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <Plug className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-medium">Connection</h2>
+                  <h2 className="text-sm font-medium">{t("moduleDetail.connection")}</h2>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Status</span>
+                    <span className="text-sm text-muted-foreground">{t("moduleDetail.status")}</span>
                     <div className="flex items-center gap-2">
                       <StatusDot status={mod.status} />
                       <span className="text-sm capitalize">{mod.status}</span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">API Type</span>
+                    <span className="text-sm text-muted-foreground">{t("moduleDetail.apiType")}</span>
                     <span className="text-sm">{config?.apiType || "N/A"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Auth Type</span>
+                    <span className="text-sm text-muted-foreground">{t("moduleDetail.authType")}</span>
                     <span className="text-sm">{config?.authType || "N/A"}</span>
                   </div>
                   {mod.baseUrl && (
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-muted-foreground">Base URL</span>
+                      <span className="text-sm text-muted-foreground">{t("moduleDetail.baseUrl")}</span>
                       <span className="text-xs text-muted-foreground truncate max-w-[200px]">{mod.baseUrl}</span>
                     </div>
                   )}
                   {mod.docsUrl && (
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-muted-foreground">Documentation</span>
+                      <span className="text-sm text-muted-foreground">{t("moduleDetail.documentation")}</span>
                       <a
                         href={mod.docsUrl}
                         target="_blank"
@@ -709,7 +719,7 @@ export default function ModuleDetailPage() {
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                         data-testid="link-docs"
                       >
-                        Open
+                        {t("moduleDetail.open")}
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     </div>
@@ -729,7 +739,7 @@ export default function ModuleDetailPage() {
                     ) : (
                       <Zap className="h-4 w-4 mr-2" />
                     )}
-                    Test Connection
+                    {t("moduleDetail.testConnection")}
                   </Button>
 
                   {connectionResult && (
@@ -746,7 +756,7 @@ export default function ModuleDetailPage() {
                       <div>
                         <p className="font-medium">{connectionResult.message}</p>
                         <p className="text-xs mt-0.5 opacity-75">
-                          Response time: {connectionResult.responseTime}ms
+                          {t("moduleDetail.responseTime")}: {connectionResult.responseTime}ms
                           {connectionResult.statusCode ? ` | HTTP ${connectionResult.statusCode}` : ""}
                         </p>
                       </div>
@@ -760,16 +770,16 @@ export default function ModuleDetailPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-medium">Data Fields</h2>
+                  <h2 className="text-sm font-medium">{t("moduleDetail.dataFields")}</h2>
                 </div>
               </CardHeader>
               <CardContent>
                 {dataFields.length === 0 ? (
                   <div className="flex flex-col items-center py-6 text-center">
                     <Database className="h-6 w-6 text-muted-foreground/40 mb-2" />
-                    <p className="text-xs text-muted-foreground">No data fields defined yet</p>
+                    <p className="text-xs text-muted-foreground">{t("moduleDetail.noDataFields")}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {config?.note || "Waiting for documentation"}
+                      {config?.note || t("moduleDetail.waitingDocs")}
                     </p>
                   </div>
                 ) : (
@@ -797,7 +807,7 @@ export default function ModuleDetailPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-medium">Live Data Preview</h2>
+                  <h2 className="text-sm font-medium">{t("moduleDetail.liveDataPreview")}</h2>
                 </div>
                 <div className="flex items-center gap-2">
                   {(() => {
@@ -850,6 +860,11 @@ export default function ModuleDetailPage() {
                         { value: "pricelist", label: "Pricelist (ceny)" },
                         { value: "stock", label: "Stock (sklady)" },
                       ],
+                      MACMA: [
+                        { value: "sku", label: "SKU (Products)" },
+                        { value: "pricelist", label: "Pricelist (ceny)" },
+                        { value: "stock", label: "Stock (sklady)" },
+                      ],
                       STICKER: [
                         { value: "auto", label: "Auto (Products)" },
                         { value: "products", label: "Products" },
@@ -870,7 +885,7 @@ export default function ModuleDetailPage() {
                     return (
                       <Select value={dataSource || "auto"} onValueChange={(v) => setDataSource(v === "auto" ? "" : v)}>
                         <SelectTrigger className="h-8 w-[180px] text-xs" data-testid="select-data-source">
-                          <SelectValue placeholder="Data source" />
+                          <SelectValue placeholder={t("moduleDetail.dataSource")} />
                         </SelectTrigger>
                         <SelectContent>
                           {options.map((opt) => (
@@ -915,7 +930,7 @@ export default function ModuleDetailPage() {
                     ) : (
                       <ArrowDownToLine className="h-3.5 w-3.5 mr-2" />
                     )}
-                    Fetch Data
+                    {t("moduleDetail.fetchData")}
                   </Button>
                 </div>
               </div>
@@ -924,9 +939,9 @@ export default function ModuleDetailPage() {
               {!dataPreview && !fetchDataMutation.isPending && (
                 <div className="flex flex-col items-center py-16 text-center">
                   <Database className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No data loaded</p>
+                  <p className="text-sm text-muted-foreground">{t("moduleDetail.noDataLoaded")}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Click "Fetch Data" to load a live preview from the API
+                    {t("moduleDetail.clickFetch")}
                   </p>
                 </div>
               )}
@@ -934,8 +949,8 @@ export default function ModuleDetailPage() {
               {fetchDataMutation.isPending && (
                 <div className="flex flex-col items-center py-16 text-center">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">Fetching data from API...</p>
-                  <p className="text-xs text-muted-foreground mt-1">This may take a moment</p>
+                  <p className="text-sm text-muted-foreground">{t("moduleDetail.fetchingData")}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t("moduleDetail.mayTakeMoment")}</p>
                 </div>
               )}
 
@@ -945,7 +960,7 @@ export default function ModuleDetailPage() {
                     <div className="flex items-start gap-3 p-4 rounded-md bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300">
                       <XCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="font-medium text-sm">Failed to fetch data</p>
+                        <p className="font-medium text-sm">{t("moduleDetail.failedFetch")}</p>
                         <p className="text-xs mt-1">{dataPreview.error}</p>
                       </div>
                     </div>
@@ -973,18 +988,18 @@ export default function ModuleDetailPage() {
                             <div className="flex items-center justify-between text-sm flex-wrap gap-2">
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-muted-foreground">Total records:</span>
+                                  <span className="text-muted-foreground">{t("moduleDetail.totalRecords")}</span>
                                   <span className="font-medium" data-testid="text-record-count">
                                     {dataPreview.recordCount.toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-muted-foreground">Fields:</span>
+                                  <span className="text-muted-foreground">{t("moduleDetail.fields")}</span>
                                   <span className="font-medium">{dataPreview.fields.length}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-muted-foreground">Fetched:</span>
-                                  <span className="font-medium">{totalRows} rows</span>
+                                  <span className="text-muted-foreground">{t("moduleDetail.fetched")}</span>
+                                  <span className="font-medium">{totalRows} {t("moduleDetail.rows")}</span>
                                 </div>
                               </div>
                               {totalPages > 1 && (
@@ -1029,7 +1044,7 @@ export default function ModuleDetailPage() {
                                 <div className="space-y-2">
                                   {allFields.length > 10 && (
                                     <div className="flex items-center gap-2 text-xs">
-                                      <span className="text-muted-foreground">Columns:</span>
+                                      <span className="text-muted-foreground">{t("moduleDetail.columns")}</span>
                                       <div className="flex gap-1">
                                         {[10, 20, 30, 50].filter(n => n < allFields.length).map(n => (
                                           <Button
@@ -1067,7 +1082,7 @@ export default function ModuleDetailPage() {
                                           ))}
                                           {hiddenCount > 0 && (
                                             <TableHead className="text-xs text-muted-foreground whitespace-nowrap px-3">
-                                              +{hiddenCount} more
+                                              +{hiddenCount} {t("moduleDetail.more")}
                                             </TableHead>
                                           )}
                                         </TableRow>
@@ -1154,12 +1169,12 @@ export default function ModuleDetailPage() {
         <TabsContent value="config" className="space-y-6">
           <Card>
             <CardHeader className="pb-3">
-              <h2 className="text-sm font-medium">General Settings</h2>
+              <h2 className="text-sm font-medium">{t("moduleDetail.generalSettings")}</h2>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="mod-name">Name</Label>
+                  <Label htmlFor="mod-name">{t("moduleDetail.name")}</Label>
                   <Input
                     id="mod-name"
                     data-testid="input-module-name"
@@ -1168,23 +1183,23 @@ export default function ModuleDetailPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="mod-status">Status</Label>
+                  <Label htmlFor="mod-status">{t("moduleDetail.status")}</Label>
                   <Select value={status} onValueChange={setStatus}>
                     <SelectTrigger data-testid="select-module-status">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="connected">Connected</SelectItem>
-                      <SelectItem value="disconnected">Disconnected</SelectItem>
-                      <SelectItem value="configuring">Configuring</SelectItem>
-                      <SelectItem value="error">Error</SelectItem>
+                      <SelectItem value="connected">{t("moduleDetail.statusConnected")}</SelectItem>
+                      <SelectItem value="disconnected">{t("moduleDetail.statusDisconnected")}</SelectItem>
+                      <SelectItem value="configuring">{t("moduleDetail.statusConfiguring")}</SelectItem>
+                      <SelectItem value="error">{t("moduleDetail.statusError")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="mod-url">Base URL</Label>
+                <Label htmlFor="mod-url">{t("moduleDetail.baseUrl")}</Label>
                 <Input
                   id="mod-url"
                   data-testid="input-module-url"
@@ -1195,7 +1210,7 @@ export default function ModuleDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="mod-desc">Description</Label>
+                <Label htmlFor="mod-desc">{t("moduleDetail.description")}</Label>
                 <Textarea
                   id="mod-desc"
                   data-testid="input-module-description"
@@ -1212,10 +1227,10 @@ export default function ModuleDetailPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Key className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-medium">API Credentials & Connection</h2>
+                <h2 className="text-sm font-medium">{t("moduleDetail.apiCredentials")}</h2>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                API keys and tokens are stored encrypted in the database. Fill in the required fields and save to connect.
+                {t("moduleDetail.apiCredentialsDesc")}
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1225,7 +1240,7 @@ export default function ModuleDetailPage() {
                   return (
                     <div className="flex flex-col items-center py-8 text-center">
                       <Key className="h-6 w-6 text-muted-foreground/40 mb-2" />
-                      <p className="text-sm text-muted-foreground">No configuration schema defined for this module</p>
+                      <p className="text-sm text-muted-foreground">{t("moduleDetail.noConfigSchema")}</p>
                     </div>
                   );
                 }
@@ -1278,7 +1293,7 @@ export default function ModuleDetailPage() {
               ) : (
                 <Save className="h-4 w-4 mr-2" />
               )}
-              Save Changes
+              {t("moduleDetail.saveChanges")}
             </Button>
           </div>
         </TabsContent>
@@ -1288,16 +1303,16 @@ export default function ModuleDetailPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-medium">Sync History</h2>
+                <h2 className="text-sm font-medium">{t("moduleDetail.syncHistory")}</h2>
               </div>
             </CardHeader>
             <CardContent>
               {!syncLogs || syncLogs.length === 0 ? (
                 <div className="flex flex-col items-center py-12 text-center">
                   <ArrowLeftRight className="h-8 w-8 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No sync history yet</p>
+                  <p className="text-sm text-muted-foreground">{t("moduleDetail.noSyncHistory")}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Sync activity will appear here once configured
+                    {t("moduleDetail.syncWillAppear")}
                   </p>
                 </div>
               ) : (
@@ -1349,7 +1364,7 @@ export default function ModuleDetailPage() {
                 <Card>
                   <CardContent className="py-12 text-center">
                     <HelpCircle className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">No help information available for this module yet.</p>
+                    <p className="text-sm text-muted-foreground">{t("moduleDetail.noHelp")}</p>
                   </CardContent>
                 </Card>
               );
@@ -1360,7 +1375,7 @@ export default function ModuleDetailPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-center gap-2">
                       <BookOpen className="h-4 w-4 text-muted-foreground" />
-                      <h2 className="text-sm font-medium">About this module</h2>
+                      <h2 className="text-sm font-medium">{t("moduleDetail.aboutModule")}</h2>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -1373,14 +1388,14 @@ export default function ModuleDetailPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-2">
                         <Database className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-sm font-medium">API Information</h2>
+                        <h2 className="text-sm font-medium">{t("moduleDetail.apiInfo")}</h2>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <p className="text-sm" data-testid="text-help-api">{help.apiInfo}</p>
                       {help.endpoints && help.endpoints.length > 0 && (
                         <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Endpoints:</p>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">{t("moduleDetail.endpoints")}</p>
                           <div className="flex flex-wrap gap-1.5">
                             {help.endpoints.map((ep) => (
                               <Badge key={ep} variant="outline" className="text-xs font-mono">{ep}</Badge>
@@ -1395,7 +1410,7 @@ export default function ModuleDetailPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-2">
                         <Key className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-sm font-medium">Authentication</h2>
+                        <h2 className="text-sm font-medium">{t("moduleDetail.authentication")}</h2>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -1421,7 +1436,7 @@ export default function ModuleDetailPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-2">
                         <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-sm font-medium">Notes</h2>
+                        <h2 className="text-sm font-medium">{t("moduleDetail.notes")}</h2>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -1435,7 +1450,7 @@ export default function ModuleDetailPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-2">
                         <Globe className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-sm font-medium">Useful Links</h2>
+                        <h2 className="text-sm font-medium">{t("moduleDetail.usefulLinks")}</h2>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -1463,7 +1478,7 @@ export default function ModuleDetailPage() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-2">
                         <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-sm font-medium">Official Documentation</h2>
+                        <h2 className="text-sm font-medium">{t("moduleDetail.officialDocs")}</h2>
                       </div>
                     </CardHeader>
                     <CardContent>

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { AuditLog } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
+import { useLanguage } from "@/components/language-provider";
 
 function ActionIcon({ action }: { action: string }) {
   const icons: Record<string, any> = {
@@ -30,6 +31,7 @@ function ActionIcon({ action }: { action: string }) {
 }
 
 export default function AuditLogPage() {
+  const { t } = useLanguage();
   const { data: logs, isLoading } = useQuery<AuditLog[]>({
     queryKey: ["/api/audit-logs"],
   });
@@ -54,10 +56,10 @@ export default function AuditLogPage() {
     <div className="p-6 space-y-6 max-w-[1000px]">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" data-testid="text-audit-title">
-          Audit Log
+          {t("auditLog.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Track all user actions and system events
+          {t("auditLog.subtitle")}
         </p>
       </div>
 
@@ -66,7 +68,7 @@ export default function AuditLogPage() {
           {!logs || logs.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-center">
               <Shield className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No audit entries</p>
+              <p className="text-sm text-muted-foreground">{t("auditLog.noEntries")}</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -93,7 +95,7 @@ export default function AuditLogPage() {
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {log.createdAt
                       ? formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })
-                      : "—"}
+                      : "\u2014"}
                   </span>
                 </div>
               ))}

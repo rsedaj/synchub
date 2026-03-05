@@ -7,16 +7,17 @@ import { Button } from "@/components/ui/button";
 import type { ApiModule } from "@shared/schema";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/components/language-provider";
 
 const SENSITIVE_KEYS = new Set(["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "password"]);
 
 const FIELD_LABELS: Record<string, string> = {
   apiType: "Typ API",
-  authType: "Autentifikácia",
+  authType: "Autentifik\u00e1cia",
   apiToken: "API Token",
   apiTokenProd: "API Token (Production)",
   apiKey: "API Key",
-  username: "Používateľ",
+  username: "Pou\u017e\u00edvate\u013e",
   password: "Heslo",
   shopId: "Shop ID",
   companyId: "Company ID",
@@ -32,7 +33,7 @@ const FIELD_LABELS: Record<string, string> = {
   xmlFeedId: "XML Feed ID",
   csvFeedId: "CSV Feed ID",
   language: "Jazyk",
-  note: "Poznámka",
+  note: "Pozn\u00e1mka",
 };
 
 const FIELD_ORDER = [
@@ -46,14 +47,15 @@ const FIELD_ORDER = [
 ];
 
 function maskValue(val: string): string {
-  if (val.length <= 8) return "••••••••";
-  return val.substring(0, 4) + "••••••••" + val.substring(val.length - 4);
+  if (val.length <= 8) return "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+  return val.substring(0, 4) + "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" + val.substring(val.length - 4);
 }
 
 function VaultField({ label, value, sensitive, fieldKey }: { label: string; value: string; sensitive: boolean; fieldKey: string }) {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
+  const { t } = useLanguage();
 
   const isUrl = value.startsWith("http://") || value.startsWith("https://");
   const displayValue = sensitive && !revealed ? maskValue(value) : value;
@@ -62,10 +64,10 @@ function VaultField({ label, value, sensitive, fieldKey }: { label: string; valu
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
-      toast({ title: "Skopírované", description: `${label} skopírované do schránky` });
+      toast({ title: t("vault.copied"), description: t("vault.copiedDesc", { label }) });
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast({ title: "Chyba", description: "Nepodarilo sa skopírovať", variant: "destructive" });
+      toast({ title: t("vault.copyError"), description: t("vault.copyErrorDesc"), variant: "destructive" });
     }
   };
 
@@ -106,6 +108,7 @@ function VaultField({ label, value, sensitive, fieldKey }: { label: string; valu
 }
 
 function ModuleVaultCard({ mod }: { mod: ApiModule }) {
+  const { t } = useLanguage();
   const config = (mod.config || {}) as Record<string, any>;
   const entries = FIELD_ORDER
     .filter((k) => config[k] !== undefined && config[k] !== null && config[k] !== "")
@@ -131,7 +134,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
             {sensitiveCount > 0 && (
               <Badge variant="outline" className="text-[10px] h-5">
                 <Lock className="h-2.5 w-2.5 mr-1" />
-                {sensitiveCount} {sensitiveCount === 1 ? "kľúč" : sensitiveCount < 5 ? "kľúče" : "kľúčov"}
+                {sensitiveCount} {sensitiveCount === 1 ? t("vault.key") : sensitiveCount < 5 ? t("vault.keys") : t("vault.keysMany")}
               </Badge>
             )}
             <Badge
@@ -167,7 +170,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
           </div>
         ) : !hasBaseUrl ? (
           <p className="text-xs text-muted-foreground py-3 text-center">
-            Žiadne prihlasovacie údaje nie sú nakonfigurované
+            {t("vault.noCredentials")}
           </p>
         ) : null}
       </CardContent>
@@ -176,6 +179,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
 }
 
 export default function VaultPage() {
+  const { t } = useLanguage();
   const { data: modules, isLoading } = useQuery<ApiModule[]>({
     queryKey: ["/api/modules"],
   });
@@ -205,19 +209,19 @@ export default function VaultPage() {
             <KeyRound className="h-5 w-5 text-background" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold" data-testid="text-vault-title">Trezor</h1>
+            <h1 className="text-lg font-semibold" data-testid="text-vault-title">{t("vault.title")}</h1>
             <p className="text-xs text-muted-foreground">
-              Prihlasovacie údaje a API kľúče všetkých modulov
+              {t("vault.subtitle")}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="text-xs" data-testid="badge-total-secrets">
             <Lock className="h-3 w-3 mr-1" />
-            {totalSecrets} tajných kľúčov
+            {totalSecrets} {t("vault.secretKeys")}
           </Badge>
           <Badge variant="outline" className="text-xs" data-testid="badge-total-modules">
-            {modules?.length || 0} modulov
+            {modules?.length || 0} {t("vault.modules")}
           </Badge>
         </div>
       </div>
@@ -234,7 +238,7 @@ export default function VaultPage() {
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Lock className="h-3.5 w-3.5" />
-                Nakonfigurované moduly ({configuredModules.length})
+                {t("vault.configuredModules")} ({configuredModules.length})
               </h2>
               <div className="grid gap-3">
                 {configuredModules.map((mod) => (
@@ -247,7 +251,7 @@ export default function VaultPage() {
           {unconfiguredModules.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground">
-                Čakajúce na konfiguráciu ({unconfiguredModules.length})
+                {t("vault.waitingConfig")} ({unconfiguredModules.length})
               </h2>
               <div className="grid gap-3">
                 {unconfiguredModules.map((mod) => (

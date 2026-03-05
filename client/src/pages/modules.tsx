@@ -12,16 +12,18 @@ import {
 } from "lucide-react";
 import type { ApiModule } from "@shared/schema";
 import { Link as WouterLink } from "wouter";
+import { useLanguage } from "@/components/language-provider";
 
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-    connected: { label: "Connected", variant: "default" },
-    disconnected: { label: "Disconnected", variant: "secondary" },
-    error: { label: "Error", variant: "destructive" },
-    configuring: { label: "Configuring", variant: "outline" },
+  const { t } = useLanguage();
+  const config: Record<string, { key: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+    connected: { key: "status.connected", variant: "default" },
+    disconnected: { key: "status.disconnected", variant: "secondary" },
+    error: { key: "status.error", variant: "destructive" },
+    configuring: { key: "status.configuring", variant: "outline" },
   };
   const c = config[status] || config.disconnected;
-  return <Badge variant={c.variant}>{c.label}</Badge>;
+  return <Badge variant={c.variant}>{t(c.key)}</Badge>;
 }
 
 function StatusDot({ status }: { status: string }) {
@@ -37,6 +39,7 @@ function StatusDot({ status }: { status: string }) {
 }
 
 export default function ModulesPage() {
+  const { t } = useLanguage();
   const { data: modules, isLoading } = useQuery<ApiModule[]>({
     queryKey: ["/api/modules"],
   });
@@ -61,10 +64,10 @@ export default function ModulesPage() {
     <div className="p-6 space-y-6 max-w-[1400px]">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" data-testid="text-modules-title">
-          Modules
+          {t("modules.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Manage API integrations and module connections
+          {t("modules.subtitle")}
         </p>
       </div>
 
@@ -108,12 +111,12 @@ export default function ModulesPage() {
               <div className="flex items-center justify-between gap-2 pt-3 border-t">
                 <span className="text-xs text-muted-foreground">
                   {mod.lastSyncAt
-                    ? `Last sync: ${new Date(mod.lastSyncAt).toLocaleDateString()}`
-                    : "Never synced"}
+                    ? t("modules.lastSync", { date: new Date(mod.lastSyncAt).toLocaleDateString() })
+                    : t("modules.neverSynced")}
                 </span>
                 <WouterLink href={`/modules/${mod.id}`}>
                   <Button variant="ghost" size="sm" data-testid={`button-view-${mod.code}`}>
-                    Details
+                    {t("modules.details")}
                     <ArrowRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </WouterLink>

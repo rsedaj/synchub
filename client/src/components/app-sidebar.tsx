@@ -21,10 +21,12 @@ import {
   LogOut,
   Sun,
   Moon,
+  Languages,
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
+import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -35,20 +37,22 @@ import {
 } from "@/components/ui/tooltip";
 import { useState, useEffect } from "react";
 
-const mainNav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Modules", url: "/modules", icon: Puzzle },
-  { title: "Sync Logs", url: "/sync-logs", icon: ArrowLeftRight },
+const mainNavKeys = [
+  { key: "sidebar.dashboard", url: "/", icon: LayoutDashboard, testId: "dashboard" },
+  { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
+  { key: "sidebar.syncLogs", url: "/sync-logs", icon: ArrowLeftRight, testId: "sync-logs" },
 ];
 
-const adminNav = [
-  { title: "Trezor", url: "/vault", icon: KeyRound },
-  { title: "Users", url: "/users", icon: Users },
-  { title: "Audit Log", url: "/audit-log", icon: Shield },
+const adminNavKeys = [
+  { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor" },
+  { key: "sidebar.users", url: "/users", icon: Users, testId: "users" },
+  { key: "sidebar.auditLog", url: "/audit-log", icon: Shield, testId: "audit-log" },
 ];
 
 function LiveClock() {
   const [time, setTime] = useState(new Date());
+  const { language } = useLanguage();
+  const locale = language === "sk" ? "sk-SK" : "en-US";
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -58,10 +62,10 @@ function LiveClock() {
   return (
     <div className="flex flex-col items-start" data-testid="text-live-clock">
       <span className="text-[10px] text-muted-foreground">
-        {time.toLocaleDateString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric" })}
+        {time.toLocaleDateString(locale, { day: "2-digit", month: "2-digit", year: "numeric" })}
       </span>
       <span className="text-xs font-mono text-muted-foreground">
-        {time.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        {time.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
       </span>
     </div>
   );
@@ -71,6 +75,7 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { t, language, toggleLanguage } = useLanguage();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
 
@@ -104,7 +109,7 @@ export function AppSidebar() {
                   SyncHub
                 </span>
                 <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-app-version">
-                  v1.4.2
+                  v1.4.3
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">
@@ -119,11 +124,11 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarGroup>
-          <SidebarGroupLabel>{collapsed ? "" : "Navigation"}</SidebarGroupLabel>
+          <SidebarGroupLabel>{collapsed ? "" : t("sidebar.navigation")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
+              {mainNavKeys.map((item) => (
+                <SidebarMenuItem key={item.key}>
                   {collapsed ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -131,21 +136,21 @@ export function AppSidebar() {
                           asChild
                           data-active={location === item.url}
                         >
-                          <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
+                          <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
                             <item.icon className="h-4 w-4" />
                           </Link>
                         </SidebarMenuButton>
                       </TooltipTrigger>
-                      <TooltipContent side="right">{item.title}</TooltipContent>
+                      <TooltipContent side="right">{t(item.key)}</TooltipContent>
                     </Tooltip>
                   ) : (
                     <SidebarMenuButton
                       asChild
                       data-active={location === item.url}
                     >
-                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
+                      <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
                         <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <span>{t(item.key)}</span>
                       </Link>
                     </SidebarMenuButton>
                   )}
@@ -157,11 +162,11 @@ export function AppSidebar() {
 
         {user?.role === "admin" && (
           <SidebarGroup>
-            <SidebarGroupLabel>{collapsed ? "" : "Administration"}</SidebarGroupLabel>
+            <SidebarGroupLabel>{collapsed ? "" : t("sidebar.administration")}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {adminNav.map((item) => (
-                  <SidebarMenuItem key={item.title}>
+                {adminNavKeys.map((item) => (
+                  <SidebarMenuItem key={item.key}>
                     {collapsed ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -169,21 +174,21 @@ export function AppSidebar() {
                             asChild
                             data-active={location === item.url}
                           >
-                            <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                            <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
                               <item.icon className="h-4 w-4" />
                             </Link>
                           </SidebarMenuButton>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{item.title}</TooltipContent>
+                        <TooltipContent side="right">{t(item.key)}</TooltipContent>
                       </Tooltip>
                     ) : (
                       <SidebarMenuButton
                         asChild
                         data-active={location === item.url}
                       >
-                        <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                        <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
                           <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
+                          <span>{t(item.key)}</span>
                         </Link>
                       </SidebarMenuButton>
                     )}
@@ -218,6 +223,20 @@ export function AppSidebar() {
                 <Button
                   size="icon"
                   variant="ghost"
+                  onClick={toggleLanguage}
+                  className="h-8 w-8"
+                  data-testid="button-language-toggle"
+                >
+                  <span className="text-xs font-semibold">{language.toUpperCase()}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{language === "sk" ? "English" : "Slovensky"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
                   onClick={toggleTheme}
                   className="h-8 w-8"
                   data-testid="button-theme-toggle"
@@ -225,7 +244,7 @@ export function AppSidebar() {
                   {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Toggle theme</TooltipContent>
+              <TooltipContent side="right">{t("sidebar.toggleTheme")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -239,7 +258,7 @@ export function AppSidebar() {
                   <LogOut className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Logout</TooltipContent>
+              <TooltipContent side="right">{t("sidebar.logout")}</TooltipContent>
             </Tooltip>
           </div>
         ) : (
@@ -259,6 +278,15 @@ export function AppSidebar() {
                 </span>
               </div>
               <div className="flex items-center gap-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={toggleLanguage}
+                  data-testid="button-language-toggle"
+                  title={language === "sk" ? "Switch to English" : "Prepnúť na slovenčinu"}
+                >
+                  <span className="text-xs font-semibold">{language.toUpperCase()}</span>
+                </Button>
                 <Button
                   size="icon"
                   variant="ghost"

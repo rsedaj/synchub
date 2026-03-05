@@ -22,6 +22,7 @@ import type { ApiModule, SyncLog } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useCallback } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useLanguage } from "@/components/language-provider";
 
 interface DashboardData {
   totalModules: number;
@@ -77,14 +78,15 @@ function StatCard({
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-    connected: { label: "Connected", variant: "default" },
-    disconnected: { label: "Disconnected", variant: "secondary" },
-    error: { label: "Error", variant: "destructive" },
-    configuring: { label: "Configuring", variant: "outline" },
+  const { t } = useLanguage();
+  const config: Record<string, { key: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+    connected: { key: "status.connected", variant: "default" },
+    disconnected: { key: "status.disconnected", variant: "secondary" },
+    error: { key: "status.error", variant: "destructive" },
+    configuring: { key: "status.configuring", variant: "outline" },
   };
   const c = config[status] || config.disconnected;
-  return <Badge variant={c.variant} data-testid={`badge-status-${status}`}>{c.label}</Badge>;
+  return <Badge variant={c.variant} data-testid={`badge-status-${status}`}>{t(c.key)}</Badge>;
 }
 
 function SyncStatusIcon({ status }: { status: string }) {
@@ -116,6 +118,7 @@ function TestResultIcon({ status }: { status: TestResult["status"] }) {
 }
 
 function TestAllPanel({ modules }: { modules: ApiModule[] }) {
+  const { t } = useLanguage();
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
@@ -184,7 +187,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">Test Connection — ALL</h2>
+            <h2 className="text-sm font-medium">{t("dashboard.testAll")}</h2>
           </div>
           <Button
             size="sm"
@@ -196,17 +199,17 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
             {isRunning ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Testing {currentIndex + 1}/{total}...
+                {t("dashboard.testing")} {currentIndex + 1}/{total}...
               </>
             ) : isDone ? (
               <>
                 <Zap className="h-3.5 w-3.5" />
-                Re-test All
+                {t("dashboard.retestAll")}
               </>
             ) : (
               <>
                 <Zap className="h-3.5 w-3.5" />
-                Test All Modules
+                {t("dashboard.testAllModules")}
               </>
             )}
           </Button>
@@ -217,10 +220,10 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <Zap className="h-8 w-8 text-muted-foreground/30 mb-3" />
             <p className="text-sm text-muted-foreground">
-              Test connectivity of all {total} modules at once
+              {t("dashboard.testAllDesc", { count: total })}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Each module will be tested sequentially with live progress
+              {t("dashboard.testAllProgress")}
             </p>
           </div>
         ) : (
@@ -229,10 +232,10 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-medium">
                   {isRunning
-                    ? `Testing ${sorted[currentIndex]?.name || ""}...`
+                    ? `${t("dashboard.testing")} ${sorted[currentIndex]?.name || ""}...`
                     : isDone
-                      ? "Test complete"
-                      : "Ready"
+                      ? t("dashboard.testComplete")
+                      : t("dashboard.ready")
                   }
                 </span>
                 <div className="flex items-center gap-3">
@@ -350,12 +353,12 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                 {errorCount === 0 ? (
                   <>
                     <CheckCircle2 className="h-4 w-4" />
-                    All {total} modules connected successfully
+                    {t("dashboard.allConnected", { count: total })}
                   </>
                 ) : (
                   <>
                     <AlertTriangle className="h-4 w-4" />
-                    {successCount} connected, {errorCount} failed of {total} modules
+                    {t("dashboard.someConnected", { success: successCount, error: errorCount, total })}
                   </>
                 )}
               </div>
@@ -368,6 +371,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
 }
 
 export default function DashboardPage() {
+  const { t } = useLanguage();
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard"],
   });
@@ -398,38 +402,38 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6 max-w-[1400px]">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" data-testid="text-dashboard-title">
-          Dashboard
+          {t("dashboard.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          System overview and integration status
+          {t("dashboard.subtitle")}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Total Modules"
+          title={t("dashboard.totalModules")}
           value={data.totalModules}
           icon={Puzzle}
           testId="stat-total-modules"
         />
         <StatCard
-          title="Connected"
+          title={t("dashboard.connected")}
           value={data.connectedModules}
           icon={Link2}
-          subtitle={`${data.totalModules - data.connectedModules} disconnected`}
+          subtitle={`${data.totalModules - data.connectedModules} ${t("dashboard.disconnected")}`}
           testId="stat-connected-modules"
         />
         <StatCard
-          title="Today's Syncs"
+          title={t("dashboard.todaySyncs")}
           value={data.todaySyncs}
           icon={ArrowLeftRight}
           testId="stat-today-syncs"
         />
         <StatCard
-          title="Errors Today"
+          title={t("dashboard.errorsToday")}
           value={data.errorSyncs}
           icon={AlertTriangle}
-          subtitle={data.errorSyncs > 0 ? "Requires attention" : "All clear"}
+          subtitle={data.errorSyncs > 0 ? t("dashboard.requiresAttention") : t("dashboard.allClear")}
           testId="stat-error-syncs"
         />
       </div>
@@ -441,7 +445,7 @@ export default function DashboardPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <Puzzle className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-medium">Module Status</h2>
+              <h2 className="text-sm font-medium">{t("dashboard.moduleStatus")}</h2>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
@@ -478,16 +482,16 @@ export default function DashboardPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-medium">Recent Sync Activity</h2>
+              <h2 className="text-sm font-medium">{t("dashboard.recentSync")}</h2>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
             {data.recentSyncs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <ArrowLeftRight className="h-8 w-8 text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">No sync activity yet</p>
+                <p className="text-sm text-muted-foreground">{t("dashboard.noSyncActivity")}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Activity will appear here once modules start syncing
+                  {t("dashboard.syncWillAppear")}
                 </p>
               </div>
             ) : (
@@ -517,8 +521,8 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {log.recordsProcessed} records
-                            {log.recordsFailed ? ` (${log.recordsFailed} failed)` : ""}
+                            {log.recordsProcessed} {t("dashboard.records")}
+                            {log.recordsFailed ? ` (${log.recordsFailed} ${t("dashboard.failed")})` : ""}
                           </p>
                         </div>
                       </div>

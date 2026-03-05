@@ -30,11 +30,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/schema";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 
 type SafeUser = Omit<User, "password">;
 
 export default function UsersPage() {
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -59,10 +61,10 @@ export default function UsersPage() {
       setNewFullName("");
       setNewEmail("");
       setNewRole("operator");
-      toast({ title: "User created", description: "New user has been created successfully." });
+      toast({ title: t("users.created"), description: t("users.createdDesc") });
     },
     onError: (err: any) => {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
+      toast({ title: t("users.createFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -73,7 +75,7 @@ export default function UsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({ title: "User updated" });
+      toast({ title: t("users.updated") });
     },
   });
 
@@ -109,27 +111,27 @@ export default function UsersPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-users-title">
-            Users
+            {t("users.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Manage user accounts and permissions
+            {t("users.subtitle")}
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-user">
               <Plus className="h-4 w-4 mr-2" />
-              Add User
+              {t("users.addUser")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
+              <DialogTitle>{t("users.createNew")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Username</Label>
+                  <Label>{t("users.username")}</Label>
                   <Input
                     data-testid="input-new-username"
                     value={newUsername}
@@ -138,7 +140,7 @@ export default function UsersPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Password</Label>
+                  <Label>{t("users.password")}</Label>
                   <Input
                     data-testid="input-new-password"
                     type="password"
@@ -149,7 +151,7 @@ export default function UsersPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Full Name</Label>
+                <Label>{t("users.fullName")}</Label>
                 <Input
                   data-testid="input-new-fullname"
                   value={newFullName}
@@ -159,7 +161,7 @@ export default function UsersPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Email</Label>
+                  <Label>{t("users.email")}</Label>
                   <Input
                     data-testid="input-new-email"
                     type="email"
@@ -169,15 +171,15 @@ export default function UsersPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Role</Label>
+                  <Label>{t("users.role")}</Label>
                   <Select value={newRole} onValueChange={setNewRole}>
                     <SelectTrigger data-testid="select-new-role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="operator">Operator</SelectItem>
-                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="admin">{t("users.admin")}</SelectItem>
+                      <SelectItem value="operator">{t("users.operator")}</SelectItem>
+                      <SelectItem value="viewer">{t("users.viewer")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -191,7 +193,7 @@ export default function UsersPage() {
                   {createMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : null}
-                  Create User
+                  {t("users.createUser")}
                 </Button>
               </div>
             </div>
@@ -204,7 +206,7 @@ export default function UsersPage() {
           {!users || users.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-center">
               <Users className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No users yet</p>
+              <p className="text-sm text-muted-foreground">{t("users.noUsers")}</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -238,7 +240,7 @@ export default function UsersPage() {
                       {user.role}
                     </Badge>
                     <Badge variant={user.isActive ? "default" : "secondary"}>
-                      {user.isActive ? "Active" : "Inactive"}
+                      {user.isActive ? t("users.active") : t("users.inactive")}
                     </Badge>
                     <Button
                       variant="ghost"
@@ -246,7 +248,7 @@ export default function UsersPage() {
                       onClick={() => toggleMutation.mutate({ id: user.id, isActive: !user.isActive })}
                       data-testid={`button-toggle-${user.id}`}
                     >
-                      {user.isActive ? "Deactivate" : "Activate"}
+                      {user.isActive ? t("users.deactivate") : t("users.activate")}
                     </Button>
                   </div>
                 </div>

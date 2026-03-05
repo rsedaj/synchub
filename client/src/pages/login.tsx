@@ -6,10 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/components/language-provider";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -22,8 +24,8 @@ export default function LoginPage() {
       await login(username, password);
     } catch (err: any) {
       toast({
-        title: "Login failed",
-        description: err.message || "Invalid credentials",
+        title: t("login.failed"),
+        description: err.message || t("login.invalidCredentials"),
         variant: "destructive",
       });
     } finally {
@@ -43,44 +45,44 @@ export default function LoginPage() {
               SyncHub
             </h1>
             <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-login-version">
-              v1.4.2
+              v1.4.3
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            SEDAJ s.r.o. | Hauerland Integration Platform
+            {t("login.subtitle")}
           </p>
         </div>
 
         <Card>
           <CardHeader className="pb-4">
             <p className="text-sm text-muted-foreground text-center">
-              Sign in to your account
+              {t("login.signIn")}
             </p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">{t("login.username")}</Label>
                 <Input
                   id="username"
                   data-testid="input-username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter username"
+                  placeholder={t("login.enterUsername")}
                   autoComplete="username"
                   disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("login.password")}</Label>
                 <Input
                   id="password"
                   data-testid="input-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
+                  placeholder={t("login.enterPassword")}
                   autoComplete="current-password"
                   disabled={isLoading}
                 />
@@ -94,7 +96,7 @@ export default function LoginPage() {
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  "Sign In"
+                  t("login.signInButton")
                 )}
               </Button>
             </form>

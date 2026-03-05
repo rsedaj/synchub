@@ -15,6 +15,7 @@ const ALLOWED_HOSTS = new Set([
   "api.midocean.com",
   "apitest.midocean.com",
   "easygifts.sk",
+  "macma.sk",
   "www.pfconcept.com",
   "ws.stricker-europe.com",
   "www.stricker-europe.com",
@@ -57,7 +58,7 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
     let testUrl = "";
     const headers: Record<string, string> = { "User-Agent": "SyncHub/1.0" };
 
-    if (mod.code === "EASYGIFTS" && config?.stockFeedUrl) {
+    if ((mod.code === "EASYGIFTS" || mod.code === "MACMA") && config?.stockFeedUrl) {
       testUrl = config.stockFeedUrl;
     } else if (mod.code === "PROMOTRON") {
       if (config?.apiKey) {
@@ -206,6 +207,7 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
 
   switch (mod.code) {
     case "EASYGIFTS":
+    case "MACMA":
       return fetchEasyGiftsData(config, source, limit);
     case "PROMOTRON":
       if (source === "feed") {

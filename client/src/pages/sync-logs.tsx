@@ -23,6 +23,7 @@ import {
 import type { ApiModule, SyncLog } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 
 function SyncStatusIcon({ status }: { status: string }) {
   switch (status) {
@@ -52,6 +53,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SyncLogsPage() {
+  const { t } = useLanguage();
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
@@ -74,7 +76,7 @@ export default function SyncLogsPage() {
   };
 
   const getModuleCode = (moduleId: string) => {
-    return modules?.find(m => m.id === moduleId)?.code || "—";
+    return modules?.find(m => m.id === moduleId)?.code || "\u2014";
   };
 
   if (isLoading) {
@@ -98,24 +100,24 @@ export default function SyncLogsPage() {
     <div className="p-6 space-y-6 max-w-[1400px]">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" data-testid="text-sync-logs-title">
-          Sync Logs
+          {t("syncLogs.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Import and export synchronization history
+          {t("syncLogs.subtitle")}
         </p>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Filter:</span>
+          <span className="text-sm text-muted-foreground">{t("syncLogs.filter")}</span>
         </div>
         <Select value={filterModule} onValueChange={setFilterModule}>
           <SelectTrigger className="w-48" data-testid="select-filter-module">
-            <SelectValue placeholder="All modules" />
+            <SelectValue placeholder={t("syncLogs.allModules")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All modules</SelectItem>
+            <SelectItem value="all">{t("syncLogs.allModules")}</SelectItem>
             {modules?.map((mod) => (
               <SelectItem key={mod.id} value={mod.id}>
                 {mod.name}
@@ -125,14 +127,14 @@ export default function SyncLogsPage() {
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
           <SelectTrigger className="w-40" data-testid="select-filter-status">
-            <SelectValue placeholder="All statuses" />
+            <SelectValue placeholder={t("syncLogs.allStatuses")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="success">Success</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-            <SelectItem value="running">Running</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="all">{t("syncLogs.allStatuses")}</SelectItem>
+            <SelectItem value="success">{t("syncLogs.success")}</SelectItem>
+            <SelectItem value="error">{t("syncLogs.error")}</SelectItem>
+            <SelectItem value="running">{t("syncLogs.running")}</SelectItem>
+            <SelectItem value="pending">{t("syncLogs.pending")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -142,11 +144,11 @@ export default function SyncLogsPage() {
           {!filteredLogs || filteredLogs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <ArrowLeftRight className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No sync logs found</p>
+              <p className="text-sm text-muted-foreground">{t("syncLogs.noLogs")}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {filterModule !== "all" || filterStatus !== "all"
-                  ? "Try adjusting your filters"
-                  : "Logs will appear here when modules start syncing"}
+                  ? t("syncLogs.adjustFilters")
+                  : t("syncLogs.logsWillAppear")}
               </p>
             </div>
           ) : (
@@ -188,11 +190,11 @@ export default function SyncLogsPage() {
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <div className="text-right">
                       <p className="text-sm tabular-nums">
-                        {log.recordsProcessed?.toLocaleString()} records
+                        {log.recordsProcessed?.toLocaleString()} {t("syncLogs.records")}
                       </p>
                       {(log.recordsFailed ?? 0) > 0 && (
                         <p className="text-xs text-red-600 dark:text-red-400">
-                          {log.recordsFailed} failed
+                          {log.recordsFailed} {t("syncLogs.failed")}
                         </p>
                       )}
                     </div>
@@ -200,7 +202,7 @@ export default function SyncLogsPage() {
                     <span className="text-xs text-muted-foreground w-24 text-right">
                       {log.startedAt
                         ? formatDistanceToNow(new Date(log.startedAt), { addSuffix: true })
-                        : "—"}
+                        : "\u2014"}
                     </span>
                   </div>
                 </div>
