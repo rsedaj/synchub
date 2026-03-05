@@ -574,9 +574,9 @@ export default function ModuleDetailPage() {
   });
 
   const fetchDataMutation = useMutation({
-    mutationFn: async () => {
-      const sourceParam = dataSource ? `&source=${dataSource}` : "";
-      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=${rowLimit}${sourceParam}`);
+    mutationFn: async ({ limit, source }: { limit: number; source: string }) => {
+      const sourceParam = source ? `&source=${source}` : "";
+      const res = await apiRequest("GET", `/api/modules/${moduleId}/data-preview?limit=${limit}${sourceParam}`);
       return res.json();
     },
     onSuccess: (data: DataPreviewResult) => {
@@ -892,7 +892,7 @@ export default function ModuleDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => fetchDataMutation.mutate()}
+                    onClick={() => fetchDataMutation.mutate({ limit: rowLimit, source: dataSource })}
                     disabled={fetchDataMutation.isPending}
                     data-testid="button-fetch-data"
                   >
