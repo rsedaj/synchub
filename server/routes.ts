@@ -97,6 +97,51 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/modules/test-all", requireAuth, async (_req, res) => {
+    try {
+      const modules = await storage.getAllModules();
+      const sorted = modules.sort((a, b) => a.sortOrder - b.sortOrder);
+      const results: Array<{ id: string; code: string; name: string; success: boolean; message: string; responseTime: number }> = [];
+
+      for (const mod of sorted) {
+        try {
+          const result = await testModuleConnection(mod);
+          if (result.success && mod.status !== "connected") {
+            await storage.updateModule(mod.id, { status: "connected" });
+          } else if (!result.success && mod.status === "connected") {
+            await storage.updateModule(mod.id, { status: "error" });
+          }
+          results.push({
+            id: mod.id,
+            code: mod.code,
+            name: mod.name,
+            success: result.success,
+            message: result.message,
+            responseTime: result.responseTime,
+          });
+        } catch (err: any) {
+          results.push({
+            id: mod.id,
+            code: mod.code,
+            name: mod.name,
+            success: false,
+            message: err.message || "Connection test failed",
+            responseTime: 0,
+          });
+        }
+      }
+
+      return res.json({
+        total: results.length,
+        connected: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length,
+        results,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Test all failed" });
+    }
+  });
+
   app.get("/api/modules/:id", requireAuth, async (req, res) => {
     try {
       const mod = await storage.getModule(req.params.id);

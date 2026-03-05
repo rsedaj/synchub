@@ -104,7 +104,7 @@ export function AppSidebar() {
                   SyncHub
                 </span>
                 <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-app-version">
-                  v1.4.1
+                  v1.4.2
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">
