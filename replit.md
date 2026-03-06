@@ -92,4 +92,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.6.0
+- App version: v1.6.1
