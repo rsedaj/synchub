@@ -69,6 +69,7 @@ export const syncConfigs = pgTable("sync_configs", {
   name: text("name").notNull(),
   targetModuleId: varchar("target_module_id").notNull().references(() => apiModules.id),
   sourceModuleId: varchar("source_module_id").notNull().references(() => apiModules.id),
+  targetDataSource: text("target_data_source"),
   sourceDataSource: text("source_data_source"),
   fieldMappings: jsonb("field_mappings").$type<Array<{ sourceField: string; targetField: string; transform?: string }>>().default([]),
   schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string }>().default({ enabled: false, frequency: "daily" }),

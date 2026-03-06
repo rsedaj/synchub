@@ -149,6 +149,7 @@ interface EditorState {
   id?: string;
   name: string;
   targetModuleId: string;
+  targetDataSource: string;
   sourceModuleId: string;
   sourceDataSource: string;
   fieldMappings: FieldMapping[];
@@ -160,6 +161,7 @@ interface EditorState {
 const emptyEditor: EditorState = {
   name: "",
   targetModuleId: "",
+  targetDataSource: "",
   sourceModuleId: "",
   sourceDataSource: "",
   fieldMappings: [],
@@ -237,6 +239,11 @@ export default function SyncConfigPage() {
     return SOURCE_OPTIONS[selectedSourceModule.code] || [{ value: "auto", label: "Auto" }];
   }, [selectedSourceModule]);
 
+  const targetDataSourceOptions = useMemo(() => {
+    if (!selectedTargetModule) return [];
+    return SOURCE_OPTIONS[selectedTargetModule.code] || [{ value: "auto", label: "Auto" }];
+  }, [selectedTargetModule]);
+
   const { data: sourceFieldsData, isLoading: sourceFieldsLoading } = useQuery<{ fields: string[]; sample: any[]; error?: string }>({
     queryKey: ["/api/modules", editor.sourceModuleId, "source-fields", editor.sourceDataSource],
     enabled: !!editor.sourceModuleId && !!editor.sourceDataSource && editorOpen,
@@ -248,14 +255,10 @@ export default function SyncConfigPage() {
   });
 
   const { data: targetFieldsData, isLoading: targetFieldsLoading } = useQuery<{ fields: string[]; sample: any[]; error?: string }>({
-    queryKey: ["/api/modules", editor.targetModuleId, "source-fields", "auto"],
-    enabled: !!editor.targetModuleId && editorOpen,
+    queryKey: ["/api/modules", editor.targetModuleId, "source-fields", editor.targetDataSource],
+    enabled: !!editor.targetModuleId && !!editor.targetDataSource && editorOpen,
     queryFn: async () => {
-      const mod = modules?.find(m => m.id === editor.targetModuleId);
-      if (mod?.dataFields && mod.dataFields.length > 0) {
-        return { fields: mod.dataFields as string[], sample: [] };
-      }
-      const res = await fetch(`/api/modules/${editor.targetModuleId}/source-fields?source=auto`, { credentials: "include" });
+      const res = await fetch(`/api/modules/${editor.targetModuleId}/source-fields?source=${editor.targetDataSource}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch fields");
       return res.json();
     },
@@ -321,10 +324,14 @@ export default function SyncConfigPage() {
 
   function openEditEditor(config: EnrichedSyncConfig) {
     const schedule = (config.schedule || { enabled: false, frequency: "daily" }) as Schedule & { backupBeforeSync?: boolean };
+    const targetMod = modules?.find(m => m.id === config.targetModuleId);
+    const targetOpts = targetMod ? (SOURCE_OPTIONS[targetMod.code] || []) : [];
+    const defaultTargetDs = targetOpts.length > 0 ? targetOpts[0].value : "auto";
     setEditor({
       id: config.id,
       name: config.name,
       targetModuleId: config.targetModuleId,
+      targetDataSource: config.targetDataSource || defaultTargetDs,
       sourceModuleId: config.sourceModuleId,
       sourceDataSource: config.sourceDataSource || "",
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
@@ -358,6 +365,7 @@ export default function SyncConfigPage() {
       name: editor.name.trim(),
       targetModuleId: editor.targetModuleId,
       sourceModuleId: editor.sourceModuleId,
+      targetDataSource: editor.targetDataSource || null,
       sourceDataSource: editor.sourceDataSource || null,
       fieldMappings: validMappings,
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
@@ -474,14 +482,11 @@ export default function SyncConfigPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div>
-                    <Label className="text-xs mb-1">{language === "sk" ? "Najprv vyberte cieľ →" : "First select target →"}</Label>
-                    {!editor.targetModuleId && (
-                      <p className="text-xs text-muted-foreground italic mt-1">
-                        {language === "sk" ? "Vyberte cieľový modul vpravo pre zobrazenie zdrojov" : "Select target module on the right first"}
-                      </p>
-                    )}
-                  </div>
+                  {!editor.targetModuleId && (
+                    <p className="text-xs text-muted-foreground italic">
+                      {language === "sk" ? "Najprv vyberte cieľový modul vpravo →" : "First select a target module on the right →"}
+                    </p>
+                  )}
                   {editor.targetModuleId && (
                     <>
                       <Select
@@ -572,7 +577,12 @@ export default function SyncConfigPage() {
                 <CardContent>
                   <Select
                     value={editor.targetModuleId}
-                    onValueChange={val => setEditor(prev => ({ ...prev, targetModuleId: val, sourceModuleId: "", sourceDataSource: "", fieldMappings: [] }))}
+                    onValueChange={val => {
+                      const mod = modules?.find(m => m.id === val);
+                      const opts = mod ? (SOURCE_OPTIONS[mod.code] || []) : [];
+                      const defaultTarget = opts.length > 0 ? opts[0].value : "auto";
+                      setEditor(prev => ({ ...prev, targetModuleId: val, targetDataSource: defaultTarget, sourceModuleId: "", sourceDataSource: "", fieldMappings: [] }));
+                    }}
                   >
                     <SelectTrigger data-testid="select-target-module">
                       <SelectValue placeholder={language === "sk" ? "Vyberte cieľový modul..." : "Select target module..."} />
@@ -591,24 +601,57 @@ export default function SyncConfigPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {!selectedTargetModule && (
+                    <p className="text-xs text-muted-foreground italic mt-3" data-testid="text-target-hint">
+                      {language === "sk" ? "Vyberte cieľový modul pre začatie konfigurácie" : "Select a target module to start configuring"}
+                    </p>
+                  )}
                   {selectedTargetModule && (
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="text-xs text-muted-foreground" data-testid="text-target-info">
-                        <span className="font-mono">{selectedTargetModule.code}</span>
-                        {" — "}
-                        {targetFields.length > 0 ? `${targetFields.length} ${language === "sk" ? "polí" : "fields"}` : (language === "sk" ? "načítavam polia..." : "loading fields...")}
+                    <div className="space-y-3 mt-3">
+                      {targetDataSourceOptions.length > 1 && (
+                        <div>
+                          <Label className="text-xs">{language === "sk" ? "Cieľové dáta" : "Target Data"}</Label>
+                          <Select
+                            value={editor.targetDataSource}
+                            onValueChange={val => setEditor(prev => ({ ...prev, targetDataSource: val, fieldMappings: [] }))}
+                          >
+                            <SelectTrigger className="mt-1" data-testid="select-target-data-source">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {targetDataSourceOptions.map(opt => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-muted-foreground" data-testid="text-target-info">
+                          <span className="font-mono">{selectedTargetModule.code}</span>
+                          {editor.targetDataSource && editor.targetDataSource !== "auto" && ` → ${editor.targetDataSource}`}
+                          {" — "}
+                          {targetFieldsLoading ? (language === "sk" ? "načítavam..." : "loading...") :
+                            targetFields.length > 0 ? `${targetFields.length} ${language === "sk" ? "polí" : "fields"}` :
+                              (targetFieldsData?.error || (language === "sk" ? "žiadne polia" : "no fields"))}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => openPreview("target")}
+                          disabled={targetFieldsLoading}
+                          data-testid="button-preview-target"
+                        >
+                          {targetFieldsLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
+                          {language === "sk" ? "Náhľad" : "Preview"}
+                        </Button>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        onClick={() => openPreview("target")}
-                        disabled={targetFieldsLoading}
-                        data-testid="button-preview-target"
-                      >
-                        {targetFieldsLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
-                        {language === "sk" ? "Náhľad" : "Preview"}
-                      </Button>
+                      {!editor.sourceModuleId && (
+                        <p className="text-xs text-muted-foreground italic" data-testid="text-target-next-step">
+                          {language === "sk" ? "Teraz vyberte zdrojový modul vľavo ←" : "Now select a source module on the left ←"}
+                        </p>
+                      )}
                     </div>
                   )}
                 </CardContent>

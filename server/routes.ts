@@ -21,6 +21,7 @@ const createSyncConfigSchema = z.object({
   name: z.string().min(1),
   targetModuleId: z.string().min(1),
   sourceModuleId: z.string().min(1),
+  targetDataSource: z.string().nullable().optional(),
   sourceDataSource: z.string().nullable().optional(),
   fieldMappings: z.array(z.object({
     sourceField: z.string().min(1),
@@ -41,6 +42,7 @@ const updateSyncConfigSchema = z.object({
   name: z.string().min(1).optional(),
   targetModuleId: z.string().min(1).optional(),
   sourceModuleId: z.string().min(1).optional(),
+  targetDataSource: z.string().nullable().optional(),
   sourceDataSource: z.string().nullable().optional(),
   fieldMappings: z.array(z.object({
     sourceField: z.string().min(1),
@@ -472,7 +474,7 @@ export async function registerRoutes(
       const mod = await storage.getModule(req.params.id);
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const source = (req.query.source as string) || undefined;
-      const result = await fetchModuleData(mod, 5, source);
+      const result = await fetchModuleData(mod, 20, source);
       if (!result.success) {
         return res.json({ fields: mod.dataFields || [], sample: [], error: result.error });
       }
