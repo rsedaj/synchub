@@ -64,6 +64,36 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const syncConfigs = pgTable("sync_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  targetModuleId: varchar("target_module_id").notNull().references(() => apiModules.id),
+  sourceModuleId: varchar("source_module_id").notNull().references(() => apiModules.id),
+  sourceDataSource: text("source_data_source"),
+  fieldMappings: jsonb("field_mappings").$type<Array<{ sourceField: string; targetField: string; transform?: string }>>().default([]),
+  schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string }>().default({ enabled: false, frequency: "daily" }),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const syncRuns = pgTable("sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncConfigId: varchar("sync_config_id").notNull().references(() => syncConfigs.id),
+  status: syncStatusEnum("status").notNull().default("pending"),
+  recordsProcessed: integer("records_processed").default(0),
+  recordsFailed: integer("records_failed").default(0),
+  recordsTotal: integer("records_total").default(0),
+  progress: integer("progress").default(0),
+  backupData: jsonb("backup_data").$type<Record<string, any>>(),
+  errorMessage: text("error_message"),
+  details: jsonb("details").$type<Record<string, any>>(),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  triggeredBy: varchar("triggered_by").references(() => users.id),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -117,3 +147,32 @@ export type InsertSyncLog = z.infer<typeof insertSyncLogSchema>;
 export type SyncLog = typeof syncLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+export const insertSyncConfigSchema = createInsertSchema(syncConfigs).pick({
+  name: true,
+  targetModuleId: true,
+  sourceModuleId: true,
+  sourceDataSource: true,
+  fieldMappings: true,
+  schedule: true,
+  isEnabled: true,
+  createdBy: true,
+});
+
+export const insertSyncRunSchema = createInsertSchema(syncRuns).pick({
+  syncConfigId: true,
+  status: true,
+  recordsProcessed: true,
+  recordsFailed: true,
+  recordsTotal: true,
+  progress: true,
+  backupData: true,
+  errorMessage: true,
+  details: true,
+  triggeredBy: true,
+});
+
+export type InsertSyncConfig = z.infer<typeof insertSyncConfigSchema>;
+export type SyncConfig = typeof syncConfigs.$inferSelect;
+export type InsertSyncRun = z.infer<typeof insertSyncRunSchema>;
+export type SyncRun = typeof syncRuns.$inferSelect;

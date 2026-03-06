@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   Puzzle,
   ArrowLeftRight,
+  GitBranch,
   Users,
   Shield,
   KeyRound,
@@ -40,6 +41,7 @@ import { useState, useEffect } from "react";
 const mainNavKeys = [
   { key: "sidebar.dashboard", url: "/", icon: LayoutDashboard, testId: "dashboard" },
   { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
+  { key: "sidebar.syncConfig", url: "/sync", icon: GitBranch, testId: "sync-config" },
   { key: "sidebar.syncLogs", url: "/sync-logs", icon: ArrowLeftRight, testId: "sync-logs" },
 ];
 
@@ -109,7 +111,7 @@ export function AppSidebar() {
                   SyncHub
                 </span>
                 <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-app-version">
-                  v1.5.0
+                  v1.6.0
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">

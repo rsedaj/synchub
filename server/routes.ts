@@ -6,7 +6,7 @@ import { seedData } from "./seed";
 import { testModuleConnection, fetchModuleData } from "./data-fetcher";
 import passport from "passport";
 import bcrypt from "bcryptjs";
-import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema } from "@shared/schema";
+import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
 
 const updateModuleSchema = z.object({
@@ -15,6 +15,44 @@ const updateModuleSchema = z.object({
   baseUrl: z.string().optional(),
   status: z.enum(["connected", "disconnected", "error", "configuring"]).optional(),
   config: z.record(z.any()).optional(),
+});
+
+const createSyncConfigSchema = z.object({
+  name: z.string().min(1),
+  targetModuleId: z.string().min(1),
+  sourceModuleId: z.string().min(1),
+  sourceDataSource: z.string().nullable().optional(),
+  fieldMappings: z.array(z.object({
+    sourceField: z.string().min(1),
+    targetField: z.string().min(1),
+    transform: z.string().optional(),
+  })).min(1),
+  schedule: z.object({
+    enabled: z.boolean(),
+    frequency: z.string(),
+    timeOfDay: z.string().optional(),
+    dayOfWeek: z.string().optional(),
+  }).optional(),
+  isEnabled: z.boolean().optional(),
+});
+
+const updateSyncConfigSchema = z.object({
+  name: z.string().min(1).optional(),
+  targetModuleId: z.string().min(1).optional(),
+  sourceModuleId: z.string().min(1).optional(),
+  sourceDataSource: z.string().nullable().optional(),
+  fieldMappings: z.array(z.object({
+    sourceField: z.string().min(1),
+    targetField: z.string().min(1),
+    transform: z.string().optional(),
+  })).optional(),
+  schedule: z.object({
+    enabled: z.boolean(),
+    frequency: z.string(),
+    timeOfDay: z.string().optional(),
+    dayOfWeek: z.string().optional(),
+  }).optional(),
+  isEnabled: z.boolean().optional(),
 });
 
 const updateUserSchema = z.object({
@@ -319,6 +357,126 @@ export async function registerRoutes(
       return res.json(logs);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load audit logs" });
+    }
+  });
+
+  app.get("/api/sync-configs", requireAuth, async (req, res) => {
+    try {
+      const configs = await storage.getAllSyncConfigs();
+      const modules = await storage.getAllModules();
+      const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
+      const enriched = configs.map(c => ({
+        ...c,
+        targetModule: moduleMap[c.targetModuleId] || null,
+        sourceModule: moduleMap[c.sourceModuleId] || null,
+      }));
+      return res.json(enriched);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load sync configs" });
+    }
+  });
+
+  app.get("/api/sync-configs/:id", requireAuth, async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(req.params.id);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const modules = await storage.getAllModules();
+      const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
+      return res.json({
+        ...config,
+        targetModule: moduleMap[config.targetModuleId] || null,
+        sourceModule: moduleMap[config.sourceModuleId] || null,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load sync config" });
+    }
+  });
+
+  app.post("/api/sync-configs", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const parsed = createSyncConfigSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
+      }
+      const data = {
+        ...parsed.data,
+        createdBy: req.user!.id,
+      };
+      const config = await storage.createSyncConfig(data);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "create",
+        entity: "sync_config",
+        entityId: config.id,
+        details: { name: config.name },
+        ipAddress: req.ip || null,
+      });
+      return res.status(201).json(config);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to create sync config" });
+    }
+  });
+
+  app.patch("/api/sync-configs/:id", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const parsed = updateSyncConfigSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
+      }
+      const config = await storage.updateSyncConfig(req.params.id, parsed.data);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entity: "sync_config",
+        entityId: config.id,
+        details: { name: config.name },
+        ipAddress: req.ip || null,
+      });
+      return res.json(config);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to update sync config" });
+    }
+  });
+
+  app.delete("/api/sync-configs/:id", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      await storage.deleteSyncConfig(req.params.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete",
+        entity: "sync_config",
+        entityId: req.params.id,
+        ipAddress: req.ip || null,
+      });
+      return res.json({ message: "Sync config deleted" });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to delete sync config" });
+    }
+  });
+
+  app.get("/api/sync-configs/:id/runs", requireAuth, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const runs = await storage.getSyncRuns(req.params.id, limit);
+      return res.json(runs);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load sync runs" });
+    }
+  });
+
+  app.get("/api/modules/:id/source-fields", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const source = (req.query.source as string) || undefined;
+      const result = await fetchModuleData(mod, 5, source);
+      if (!result.success) {
+        return res.json({ fields: mod.dataFields || [], sample: [], error: result.error });
+      }
+      return res.json({ fields: result.fields, sample: result.preview.slice(0, 3) });
+    } catch (err: any) {
+      return res.json({ fields: [], sample: [], error: err.message });
     }
   });
 

@@ -1,11 +1,13 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
   type AuditLog, type InsertAuditLog,
+  type SyncConfig, type InsertSyncConfig,
+  type SyncRun, type InsertSyncRun,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -39,6 +41,15 @@ export interface IStorage {
     recentSyncs: SyncLog[];
     moduleStatuses: ApiModule[];
   }>;
+
+  getAllSyncConfigs(): Promise<SyncConfig[]>;
+  getSyncConfig(id: string): Promise<SyncConfig | undefined>;
+  createSyncConfig(data: InsertSyncConfig): Promise<SyncConfig>;
+  updateSyncConfig(id: string, data: Partial<SyncConfig>): Promise<SyncConfig | undefined>;
+  deleteSyncConfig(id: string): Promise<void>;
+  getSyncRuns(configId?: string, limit?: number): Promise<SyncRun[]>;
+  createSyncRun(data: InsertSyncRun): Promise<SyncRun>;
+  updateSyncRun(id: string, data: Partial<SyncRun>): Promise<SyncRun | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -157,6 +168,50 @@ export class DatabaseStorage implements IStorage {
       recentSyncs,
       moduleStatuses: allModules,
     };
+  }
+
+  async getAllSyncConfigs(): Promise<SyncConfig[]> {
+    return db.select().from(syncConfigs).orderBy(desc(syncConfigs.createdAt));
+  }
+
+  async getSyncConfig(id: string): Promise<SyncConfig | undefined> {
+    const [config] = await db.select().from(syncConfigs).where(eq(syncConfigs.id, id));
+    return config;
+  }
+
+  async createSyncConfig(data: InsertSyncConfig): Promise<SyncConfig> {
+    const [created] = await db.insert(syncConfigs).values(data).returning();
+    return created;
+  }
+
+  async updateSyncConfig(id: string, data: Partial<SyncConfig>): Promise<SyncConfig | undefined> {
+    const [updated] = await db.update(syncConfigs).set({ ...data, updatedAt: new Date() }).where(eq(syncConfigs.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSyncConfig(id: string): Promise<void> {
+    await db.delete(syncRuns).where(eq(syncRuns.syncConfigId, id));
+    await db.delete(syncConfigs).where(eq(syncConfigs.id, id));
+  }
+
+  async getSyncRuns(configId?: string, limit = 50): Promise<SyncRun[]> {
+    if (configId) {
+      return db.select().from(syncRuns)
+        .where(eq(syncRuns.syncConfigId, configId))
+        .orderBy(desc(syncRuns.startedAt))
+        .limit(limit);
+    }
+    return db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)).limit(limit);
+  }
+
+  async createSyncRun(data: InsertSyncRun): Promise<SyncRun> {
+    const [created] = await db.insert(syncRuns).values(data).returning();
+    return created;
+  }
+
+  async updateSyncRun(id: string, data: Partial<SyncRun>): Promise<SyncRun | undefined> {
+    const [updated] = await db.update(syncRuns).set(data).where(eq(syncRuns.id, id)).returning();
+    return updated;
   }
 }
 
