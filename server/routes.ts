@@ -32,6 +32,7 @@ const createSyncConfigSchema = z.object({
     frequency: z.string(),
     timeOfDay: z.string().optional(),
     dayOfWeek: z.string().optional(),
+    backupBeforeSync: z.boolean().optional(),
   }).optional(),
   isEnabled: z.boolean().optional(),
 });
@@ -51,6 +52,7 @@ const updateSyncConfigSchema = z.object({
     frequency: z.string(),
     timeOfDay: z.string().optional(),
     dayOfWeek: z.string().optional(),
+    backupBeforeSync: z.boolean().optional(),
   }).optional(),
   isEnabled: z.boolean().optional(),
 });

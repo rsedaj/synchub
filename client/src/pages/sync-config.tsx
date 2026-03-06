@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   GitBranch,
   Plus,
@@ -35,8 +42,11 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowDownToLine,
+  ArrowUpFromLine,
   Loader2,
-  AlertCircle,
+  Eye,
+  Database,
+  Shield,
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -144,6 +154,7 @@ interface EditorState {
   fieldMappings: FieldMapping[];
   schedule: Schedule;
   isEnabled: boolean;
+  backupBeforeSync: boolean;
 }
 
 const emptyEditor: EditorState = {
@@ -154,6 +165,7 @@ const emptyEditor: EditorState = {
   fieldMappings: [],
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
+  backupBeforeSync: true,
 };
 
 function autoMapFields(sourceFields: string[], targetFields: string[]): FieldMapping[] {
@@ -194,6 +206,8 @@ export default function SyncConfigPage() {
   const [editor, setEditor] = useState<EditorState>({ ...emptyEditor });
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expandedConfig, setExpandedConfig] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewSide, setPreviewSide] = useState<"source" | "target">("source");
 
   const { data: modules } = useQuery<ApiModule[]>({ queryKey: ["/api/modules"] });
   const { data: configs, isLoading: configsLoading } = useQuery<EnrichedSyncConfig[]>({ queryKey: ["/api/sync-configs"] });
@@ -306,6 +320,7 @@ export default function SyncConfigPage() {
   }
 
   function openEditEditor(config: EnrichedSyncConfig) {
+    const schedule = (config.schedule || { enabled: false, frequency: "daily" }) as Schedule & { backupBeforeSync?: boolean };
     setEditor({
       id: config.id,
       name: config.name,
@@ -313,8 +328,9 @@ export default function SyncConfigPage() {
       sourceModuleId: config.sourceModuleId,
       sourceDataSource: config.sourceDataSource || "",
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
-      schedule: (config.schedule || { enabled: false, frequency: "daily" }) as Schedule,
+      schedule,
       isEnabled: config.isEnabled,
+      backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
     });
     setEditorOpen(true);
   }
@@ -344,7 +360,7 @@ export default function SyncConfigPage() {
       sourceModuleId: editor.sourceModuleId,
       sourceDataSource: editor.sourceDataSource || null,
       fieldMappings: validMappings,
-      schedule: editor.schedule,
+      schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
     };
 
@@ -386,6 +402,15 @@ export default function SyncConfigPage() {
     setEditor(prev => ({ ...prev, fieldMappings: mapped }));
     toast({ title: language === "sk" ? `Auto-mapovaných ${mapped.length} polí` : `Auto-mapped ${mapped.length} fields` });
   }
+
+  function openPreview(side: "source" | "target") {
+    setPreviewSide(side);
+    setPreviewOpen(true);
+  }
+
+  const previewData = previewSide === "source" ? sourceFieldsData : targetFieldsData;
+  const previewFields = previewSide === "source" ? sourceFields : targetFields;
+  const previewModule = previewSide === "source" ? selectedSourceModule : selectedTargetModule;
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -433,25 +458,122 @@ export default function SyncConfigPage() {
                 data-testid="input-config-name"
                 value={editor.name}
                 onChange={e => setEditor(prev => ({ ...prev, name: e.target.value }))}
-                placeholder={language === "sk" ? "napr. Pipedrive ← MidOcean Produkty" : "e.g. Pipedrive ← MidOcean Products"}
+                placeholder={language === "sk" ? "napr. MidOcean Produkty → ONIX" : "e.g. MidOcean Products → ONIX"}
                 className="mt-1"
               />
             </div>
 
             <Separator />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+              <Card className="bg-muted/30 border-2" data-testid="card-source-module">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <ArrowUpFromLine className="h-4 w-4 text-orange-500" />
+                    {language === "sk" ? "ZDROJ (export z)" : "SOURCE (export from)"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <Label className="text-xs mb-1">{language === "sk" ? "Najprv vyberte cieľ →" : "First select target →"}</Label>
+                    {!editor.targetModuleId && (
+                      <p className="text-xs text-muted-foreground italic mt-1">
+                        {language === "sk" ? "Vyberte cieľový modul vpravo pre zobrazenie zdrojov" : "Select target module on the right first"}
+                      </p>
+                    )}
+                  </div>
+                  {editor.targetModuleId && (
+                    <>
+                      <Select
+                        value={editor.sourceModuleId}
+                        onValueChange={val => {
+                          const mod = modules?.find(m => m.id === val);
+                          const opts = mod ? (SOURCE_OPTIONS[mod.code] || []) : [];
+                          const defaultSource = opts.length > 0 ? opts[0].value : "auto";
+                          setEditor(prev => ({ ...prev, sourceModuleId: val, sourceDataSource: defaultSource, fieldMappings: [] }));
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-source-module">
+                          <SelectValue placeholder={language === "sk" ? "Vyberte zdrojový modul..." : "Select source module..."} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sourceModules.map(m => (
+                            <SelectItem key={m.id} value={m.id} data-testid={`option-source-${m.code}`}>
+                              <span className="flex items-center gap-2">
+                                <span className="font-mono text-xs text-muted-foreground">{String(m.sortOrder).padStart(2, "0")}.</span>
+                                {m.name}
+                                <Badge variant={m.status === "connected" ? "default" : "secondary"} className="ml-1 text-[10px] h-4">
+                                  {m.status === "connected" ? "●" : "○"}
+                                </Badge>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {selectedSourceModule && sourceDataSourceOptions.length > 0 && (
+                        <div>
+                          <Label className="text-xs">{language === "sk" ? "Zdroj dát" : "Data Source"}</Label>
+                          <Select
+                            value={editor.sourceDataSource}
+                            onValueChange={val => setEditor(prev => ({ ...prev, sourceDataSource: val, fieldMappings: [] }))}
+                          >
+                            <SelectTrigger className="mt-1" data-testid="select-data-source">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sourceDataSourceOptions.map(opt => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedSourceModule && (
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-muted-foreground" data-testid="text-source-info">
+                            <span className="font-mono">{selectedSourceModule.code}</span>
+                            {editor.sourceDataSource && ` → ${editor.sourceDataSource}`}
+                            {" — "}
+                            {sourceFieldsLoading ? (language === "sk" ? "načítavam..." : "loading...") :
+                              sourceFields.length > 0 ? `${sourceFields.length} ${language === "sk" ? "polí" : "fields"}` :
+                                (sourceFieldsData?.error || (language === "sk" ? "žiadne polia" : "no fields"))}
+                          </div>
+                          {sourceFields.length > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-xs px-2"
+                              onClick={() => openPreview("source")}
+                              data-testid="button-preview-source"
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              {language === "sk" ? "Náhľad" : "Preview"}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="hidden lg:flex items-center justify-center pt-16">
+                <ArrowRight className="h-6 w-6 text-muted-foreground" />
+              </div>
+
               <Card className="bg-muted/30 border-2" data-testid="card-target-module">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <ArrowDownToLine className="h-4 w-4 text-primary" />
-                    {language === "sk" ? "CIEĽOVÝ MODUL (import do)" : "TARGET MODULE (import to)"}
+                    {language === "sk" ? "CIEĽ (import do)" : "TARGET (import to)"}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Select
                     value={editor.targetModuleId}
-                    onValueChange={val => setEditor(prev => ({ ...prev, targetModuleId: val, fieldMappings: [] }))}
+                    onValueChange={val => setEditor(prev => ({ ...prev, targetModuleId: val, sourceModuleId: "", sourceDataSource: "", fieldMappings: [] }))}
                   >
                     <SelectTrigger data-testid="select-target-module">
                       <SelectValue placeholder={language === "sk" ? "Vyberte cieľový modul..." : "Select target module..."} />
@@ -471,77 +593,24 @@ export default function SyncConfigPage() {
                     </SelectContent>
                   </Select>
                   {selectedTargetModule && (
-                    <div className="mt-3 text-xs text-muted-foreground" data-testid="text-target-info">
-                      <span className="font-mono">{selectedTargetModule.code}</span>
-                      {" — "}
-                      {targetFields.length > 0 ? `${targetFields.length} ${language === "sk" ? "polí" : "fields"}` : (language === "sk" ? "načítavam polia..." : "loading fields...")}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="bg-muted/30 border-2" data-testid="card-source-module">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <ArrowRight className="h-4 w-4 text-orange-500" />
-                    {language === "sk" ? "ZDROJOVÝ MODUL (synchronizovať z)" : "SOURCE MODULE (sync from)"}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Select
-                    value={editor.sourceModuleId}
-                    onValueChange={val => {
-                      const mod = modules?.find(m => m.id === val);
-                      const opts = mod ? (SOURCE_OPTIONS[mod.code] || []) : [];
-                      const defaultSource = opts.length > 0 ? opts[0].value : "auto";
-                      setEditor(prev => ({ ...prev, sourceModuleId: val, sourceDataSource: defaultSource, fieldMappings: [] }));
-                    }}
-                  >
-                    <SelectTrigger data-testid="select-source-module">
-                      <SelectValue placeholder={language === "sk" ? "Vyberte zdrojový modul..." : "Select source module..."} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sourceModules.map(m => (
-                        <SelectItem key={m.id} value={m.id} data-testid={`option-source-${m.code}`}>
-                          <span className="flex items-center gap-2">
-                            <span className="font-mono text-xs text-muted-foreground">{String(m.sortOrder).padStart(2, "0")}.</span>
-                            {m.name}
-                            <Badge variant={m.status === "connected" ? "default" : "secondary"} className="ml-1 text-[10px] h-4">
-                              {m.status === "connected" ? "●" : "○"}
-                            </Badge>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {selectedSourceModule && sourceDataSourceOptions.length > 0 && (
-                    <div>
-                      <Label className="text-xs">{language === "sk" ? "Zdroj dát" : "Data Source"}</Label>
-                      <Select
-                        value={editor.sourceDataSource}
-                        onValueChange={val => setEditor(prev => ({ ...prev, sourceDataSource: val, fieldMappings: [] }))}
-                      >
-                        <SelectTrigger className="mt-1" data-testid="select-data-source">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sourceDataSourceOptions.map(opt => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {selectedSourceModule && (
-                    <div className="text-xs text-muted-foreground" data-testid="text-source-info">
-                      <span className="font-mono">{selectedSourceModule.code}</span>
-                      {editor.sourceDataSource && ` → ${editor.sourceDataSource}`}
-                      {" — "}
-                      {sourceFieldsLoading ? (language === "sk" ? "načítavam..." : "loading...") :
-                        sourceFields.length > 0 ? `${sourceFields.length} ${language === "sk" ? "polí" : "fields"}` :
-                          (sourceFieldsData?.error || (language === "sk" ? "žiadne polia" : "no fields"))}
+                    <div className="flex items-center justify-between mt-3">
+                      <div className="text-xs text-muted-foreground" data-testid="text-target-info">
+                        <span className="font-mono">{selectedTargetModule.code}</span>
+                        {" — "}
+                        {targetFields.length > 0 ? `${targetFields.length} ${language === "sk" ? "polí" : "fields"}` : (language === "sk" ? "načítavam polia..." : "loading fields...")}
+                      </div>
+                      {targetFields.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => openPreview("target")}
+                          data-testid="button-preview-target"
+                        >
+                          <Eye className="h-3 w-3 mr-1" />
+                          {language === "sk" ? "Náhľad" : "Preview"}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -746,6 +815,33 @@ export default function SyncConfigPage() {
                     )}
                   </div>
                 </div>
+
+                <Separator />
+
+                <div data-testid="section-backup">
+                  <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    {language === "sk" ? "Zálohovanie" : "Backup"}
+                  </h3>
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="backup-before-sync"
+                      checked={editor.backupBeforeSync}
+                      onCheckedChange={(val) => setEditor(prev => ({ ...prev, backupBeforeSync: !!val }))}
+                      data-testid="checkbox-backup-before-sync"
+                    />
+                    <div>
+                      <Label htmlFor="backup-before-sync" className="text-sm cursor-pointer">
+                        {language === "sk" ? "Zálohovať cieľové dáta pred synchronizáciou" : "Backup target data before synchronization"}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {language === "sk"
+                          ? "Pred každým spustením synchronizácie sa vytvorí záloha existujúcich dát v cieľovom module. Zálohy umožňujú obnoviť pôvodné dáta v prípade problémov."
+                          : "A backup of existing data in the target module will be created before each sync run. Backups allow restoring original data if issues arise."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
 
@@ -809,7 +905,7 @@ export default function SyncConfigPage() {
             {configs.map(config => {
               const isExpanded = expandedConfig === config.id;
               const mappingCount = (config.fieldMappings as FieldMapping[] || []).length;
-              const schedule = config.schedule as Schedule;
+              const schedule = config.schedule as Schedule & { backupBeforeSync?: boolean };
               const freqLabel = FREQUENCY_OPTIONS.find(f => f.value === schedule?.frequency);
 
               return (
@@ -829,11 +925,17 @@ export default function SyncConfigPage() {
                               {language === "sk" ? "Neaktívna" : "Disabled"}
                             </Badge>
                           )}
+                          {schedule?.backupBeforeSync !== false && (
+                            <Badge variant="outline" className="text-[10px] gap-1">
+                              <Shield className="h-2.5 w-2.5" />
+                              {language === "sk" ? "Záloha" : "Backup"}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                          <span className="font-mono">{config.targetModule?.code || "?"}</span>
-                          <ArrowRight className="h-3 w-3" />
                           <span className="font-mono">{config.sourceModule?.code || "?"}</span>
+                          <ArrowRight className="h-3 w-3" />
+                          <span className="font-mono">{config.targetModule?.code || "?"}</span>
                           {config.sourceDataSource && (
                             <span className="text-muted-foreground">({config.sourceDataSource})</span>
                           )}
@@ -912,6 +1014,13 @@ export default function SyncConfigPage() {
                           </p>
                         </div>
                       )}
+
+                      {schedule?.backupBeforeSync !== false && (
+                        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                          <Shield className="h-3 w-3" />
+                          {language === "sk" ? "Zálohovanie pred synchronizáciou: aktívne" : "Backup before sync: active"}
+                        </div>
+                      )}
                     </div>
                   )}
                 </Card>
@@ -947,6 +1056,105 @@ export default function SyncConfigPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-data-preview">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5" />
+              {language === "sk" ? "Náhľad dát" : "Data Preview"} — {previewModule?.name || ""}
+              {previewSide === "source" && editor.sourceDataSource && (
+                <Badge variant="outline" className="ml-2 text-xs">{editor.sourceDataSource}</Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-auto flex-1 -mx-6 px-6">
+            {previewFields.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Database className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">
+                  {language === "sk" ? "Žiadne dáta k dispozícii" : "No data available"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                    {language === "sk" ? `Dostupné polia (${previewFields.length})` : `Available fields (${previewFields.length})`}
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {previewFields.map(f => (
+                      <Badge key={f} variant="secondary" className="font-mono text-xs" data-testid={`badge-field-${f}`}>
+                        {f}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {previewData?.sample && previewData.sample.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                      {language === "sk"
+                        ? `Ukážka dát (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "záznam" : "záznamov"})`
+                        : `Sample data (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "record" : "records"})`}
+                    </h4>
+                    <div className="border rounded-lg overflow-auto">
+                      <table className="w-full text-xs" data-testid="table-sample-data">
+                        <thead>
+                          <tr className="bg-muted/50 border-b">
+                            {previewFields.slice(0, 10).map(f => (
+                              <th key={f} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">{f}</th>
+                            ))}
+                            {previewFields.length > 10 && (
+                              <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                                +{previewFields.length - 10}
+                              </th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewData.sample.slice(0, 5).map((row: any, rowIdx: number) => (
+                            <tr key={rowIdx} className={rowIdx % 2 === 0 ? "bg-background" : "bg-muted/10"}>
+                              {previewFields.slice(0, 10).map(f => (
+                                <td key={f} className="px-3 py-1.5 whitespace-nowrap max-w-[200px] truncate border-t">
+                                  {row[f] !== undefined && row[f] !== null
+                                    ? (typeof row[f] === "object" ? JSON.stringify(row[f]).slice(0, 50) : String(row[f]).slice(0, 80))
+                                    : <span className="text-muted-foreground italic">null</span>}
+                                </td>
+                              ))}
+                              {previewFields.length > 10 && (
+                                <td className="px-3 py-1.5 text-muted-foreground border-t">...</td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {previewData.sample.length > 5 && (
+                      <p className="text-xs text-muted-foreground mt-1 text-right">
+                        {language === "sk"
+                          ? `Zobrazených 5 z ${previewData.sample.length} záznamov`
+                          : `Showing 5 of ${previewData.sample.length} records`}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {(!previewData?.sample || previewData.sample.length === 0) && (
+                  <div className="border border-dashed rounded-lg py-6 text-center text-muted-foreground">
+                    <Eye className="h-6 w-6 mx-auto mb-2 opacity-40" />
+                    <p className="text-xs">
+                      {language === "sk"
+                        ? "Polia sú známe, ale vzorové dáta nie sú k dispozícii. Modul nemusí byť pripojený alebo nemá dáta."
+                        : "Fields are known, but sample data is not available. The module may not be connected or has no data."}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
