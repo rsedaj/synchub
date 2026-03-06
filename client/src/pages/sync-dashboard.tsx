@@ -36,6 +36,11 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  Shield,
+  Database,
+  Upload,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 
@@ -84,6 +89,47 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8 }: { progress: num
         className="text-foreground transition-all duration-500"
       />
     </svg>
+  );
+}
+
+const PHASE_CONFIG: Record<string, { labelKey: string; icon: any; step: number }> = {
+  preflight: { labelKey: "syncDash.phasePreflight", icon: Shield, step: 1 },
+  backup: { labelKey: "syncDash.phaseBackup", icon: HardDrive, step: 2 },
+  fetch: { labelKey: "syncDash.phaseFetch", icon: Database, step: 3 },
+  sync: { labelKey: "syncDash.phaseSync", icon: Upload, step: 4 },
+  complete: { labelKey: "syncDash.phaseComplete", icon: CheckCircle2, step: 4 },
+  error: { labelKey: "syncDash.phaseError", icon: XCircle, step: 0 },
+  cancelled: { labelKey: "syncDash.phaseCancelled", icon: Square, step: 0 },
+};
+
+function PhaseIndicator({ phase, t }: { phase: string; t: (key: string) => string }) {
+  const config = PHASE_CONFIG[phase];
+  if (!config) return null;
+  const Icon = config.icon;
+  const isError = phase === "error" || phase === "cancelled";
+  const isComplete = phase === "complete";
+  const isBackup = phase === "backup";
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium ${
+        isError ? "bg-destructive/10 text-destructive" :
+        isComplete ? "bg-green-500/10 text-green-700 dark:text-green-400" :
+        isBackup ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+        "bg-muted"
+      }`}
+      data-testid={`phase-indicator-${phase}`}
+    >
+      {(phase === "backup" || phase === "fetch" || phase === "preflight" || phase === "sync") ? (
+        <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+      ) : (
+        <Icon className="h-4 w-4 flex-shrink-0" />
+      )}
+      <span>
+        {t("syncDash.phaseLabel")} {config.step > 0 ? `${config.step}/4` : ""}: {t(config.labelKey)}
+      </span>
+      {isBackup && <span className="text-xs opacity-70">...</span>}
+    </div>
   );
 }
 
@@ -185,6 +231,7 @@ export default function SyncDashboardPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "backups">("overview");
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   const { data: configs = [] } = useQuery<(SyncConfig & { sourceModule?: any; targetModule?: any })[]>({
     queryKey: ["/api/sync-configs"],
@@ -375,11 +422,17 @@ export default function SyncDashboardPage() {
             </Card>
           </div>
 
-          {(trackedRun && (trackedRun.status === "running" || trackedRun.status === "pending")) && (
-            <Card className="border-foreground/20">
+          {trackedRun && (
+            <Card className={`border-foreground/20 ${trackedRun.status === "error" ? "border-destructive/40" : ""}`}>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {trackedRun.status === "running" || trackedRun.status === "pending" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : trackedRun.status === "success" ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  )}
                   {t("syncDash.liveProgress")}
                 </CardTitle>
               </CardHeader>
@@ -396,47 +449,68 @@ export default function SyncDashboardPage() {
                       <span className="text-muted-foreground">{t("syncDash.config")}:</span>
                       <span className="font-medium">{configMap[trackedRun.syncConfigId]?.name || trackedRun.syncConfigId}</span>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">{t("syncDash.records")}:</span>
-                        <p className="font-medium" data-testid="text-progress-records">
-                          {trackedRun.recordsProcessed || 0} z {trackedRun.recordsTotal || 0}
-                        </p>
+
+                    {(trackedRun.details as any)?.phase && (
+                      <PhaseIndicator phase={(trackedRun.details as any).phase} t={t} />
+                    )}
+
+                    {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">{t("syncDash.records")}:</span>
+                          <p className="font-medium" data-testid="text-progress-records">
+                            {trackedRun.recordsProcessed || 0} z {trackedRun.recordsTotal || 0}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">{t("syncDash.batch")}:</span>
+                          <p className="font-medium" data-testid="text-progress-batch">
+                            {t("syncDash.batchOf").replace("{current}", String(trackedRun.currentBatch || 0)).replace("{total}", String(trackedRun.totalBatches || 0))}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">{t("syncDash.speed")}:</span>
+                          <p className="font-medium" data-testid="text-progress-speed">
+                            {trackedRun.speedPerSec || 0} {t("syncDash.recPerSec")}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">{t("syncDash.eta")}:</span>
+                          <p className="font-medium" data-testid="text-progress-eta">
+                            {trackedRun.estimatedEndAt ? formatDuration(Math.max(0, new Date(trackedRun.estimatedEndAt).getTime() - Date.now())) : "—"}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("syncDash.batch")}:</span>
-                        <p className="font-medium" data-testid="text-progress-batch">
-                          {t("syncDash.batchOf").replace("{current}", String(trackedRun.currentBatch || 0)).replace("{total}", String(trackedRun.totalBatches || 0))}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("syncDash.speed")}:</span>
-                        <p className="font-medium" data-testid="text-progress-speed">
-                          {trackedRun.speedPerSec || 0} {t("syncDash.recPerSec")}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("syncDash.eta")}:</span>
-                        <p className="font-medium" data-testid="text-progress-eta">
-                          {trackedRun.estimatedEndAt ? formatDuration(Math.max(0, new Date(trackedRun.estimatedEndAt).getTime() - Date.now())) : "—"}
-                        </p>
-                      </div>
-                    </div>
+                    )}
+
                     {(trackedRun.recordsFailed || 0) > 0 && (
                       <div className="flex items-center gap-1.5 text-destructive text-sm">
                         <AlertTriangle className="h-3.5 w-3.5" />
                         {trackedRun.recordsFailed} {t("syncDash.recordsFailed")}
                       </div>
                     )}
-                    <Button
-                      variant="destructive" size="sm"
-                      onClick={() => cancelSyncMutation.mutate(trackedRun.id)}
-                      disabled={cancelSyncMutation.isPending}
-                      data-testid="button-cancel-sync"
-                    >
-                      <Square className="h-3.5 w-3.5 mr-1.5" />
-                      {t("syncDash.cancel")}
-                    </Button>
+
+                    {trackedRun.status === "error" && trackedRun.errorMessage && (
+                      <div className="px-3 py-2 rounded-lg bg-destructive/10 text-destructive text-sm" data-testid="text-sync-error-message">
+                        <div className="flex items-center gap-2 font-medium mb-1">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {t("syncDash.errorDetails")}
+                        </div>
+                        <p className="text-xs">{trackedRun.errorMessage}</p>
+                      </div>
+                    )}
+
+                    {(trackedRun.status === "running" || trackedRun.status === "pending") && (
+                      <Button
+                        variant="destructive" size="sm"
+                        onClick={() => cancelSyncMutation.mutate(trackedRun.id)}
+                        disabled={cancelSyncMutation.isPending}
+                        data-testid="button-cancel-sync"
+                      >
+                        <Square className="h-3.5 w-3.5 mr-1.5" />
+                        {t("syncDash.cancel")}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -462,7 +536,7 @@ export default function SyncDashboardPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium truncate">{config.name}</span>
-                              {schedule?.backupBeforeSync && (
+                              {schedule?.backupBeforeSync !== false && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                                   <HardDrive className="h-3 w-3 mr-0.5" />
                                   {t("syncDash.backup")}
@@ -562,20 +636,59 @@ export default function SyncDashboardPage() {
                     const duration = run.completedAt
                       ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
                       : Date.now() - new Date(run.startedAt).getTime();
+                    const details = run.details as any;
+                    const hasError = run.status === "error" && (run.errorMessage || details?.batchErrors?.length > 0);
+                    const isExpanded = expandedRunId === run.id;
                     return (
-                      <div key={run.id} className="flex items-center justify-between p-3 rounded-lg border text-sm" data-testid={`row-run-${run.id}`}>
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <StatusBadge status={run.status} t={t} />
-                          <span className="font-medium truncate">{config?.name || run.syncConfigId}</span>
+                      <div key={run.id} className="rounded-lg border" data-testid={`row-run-${run.id}`}>
+                        <div
+                          className={`flex items-center justify-between p-3 text-sm ${hasError ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                          onClick={() => hasError && setExpandedRunId(isExpanded ? null : run.id)}
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <StatusBadge status={run.status} t={t} />
+                            <span className="font-medium truncate">{config?.name || run.syncConfigId}</span>
+                            {details?.phase && (
+                              <span className="text-xs text-muted-foreground">
+                                ({t(`syncDash.phase${details.phase.charAt(0).toUpperCase() + details.phase.slice(1)}`) || details.phase})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span>{run.recordsProcessed || 0} / {run.recordsTotal || 0}</span>
+                            {(run.recordsFailed || 0) > 0 && (
+                              <span className="text-destructive">{run.recordsFailed} {t("syncDash.failed")}</span>
+                            )}
+                            <span>{formatDuration(duration)}</span>
+                            <span>{formatTimeAgo(run.startedAt)}</span>
+                            {hasError && (
+                              isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span>{run.recordsProcessed || 0} / {run.recordsTotal || 0}</span>
-                          {(run.recordsFailed || 0) > 0 && (
-                            <span className="text-destructive">{run.recordsFailed} {t("syncDash.failed")}</span>
-                          )}
-                          <span>{formatDuration(duration)}</span>
-                          <span>{formatTimeAgo(run.startedAt)}</span>
-                        </div>
+                        {isExpanded && hasError && (
+                          <div className="px-3 pb-3 border-t">
+                            <div className="mt-2 p-2.5 rounded bg-destructive/5 text-sm">
+                              <p className="font-medium text-destructive text-xs mb-1">{t("syncDash.errorDetails")}:</p>
+                              {run.errorMessage && (
+                                <p className="text-xs text-destructive/80 mb-2">{run.errorMessage}</p>
+                              )}
+                              {details?.batchErrors && details.batchErrors.length > 0 && (
+                                <div className="space-y-1 max-h-32 overflow-y-auto">
+                                  {details.batchErrors.slice(0, 10).map((err: any, i: number) => (
+                                    <div key={i} className="text-[11px] text-muted-foreground flex gap-2">
+                                      <span className="text-destructive/60 flex-shrink-0">#{err.index || err.batch}</span>
+                                      <span>{err.message}</span>
+                                    </div>
+                                  ))}
+                                  {details.batchErrors.length > 10 && (
+                                    <p className="text-[11px] text-muted-foreground">...+{details.batchErrors.length - 10}</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

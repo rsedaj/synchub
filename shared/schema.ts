@@ -51,7 +51,7 @@ export const syncLogs = pgTable("sync_logs", {
   triggeredBy: varchar("triggered_by").references(() => users.id),
 });
 
-export const auditActionEnum = pgEnum("audit_action", ["login", "logout", "create", "update", "delete", "sync", "config_change"]);
+export const auditActionEnum = pgEnum("audit_action", ["login", "logout", "create", "update", "delete", "sync", "config_change", "sync_run", "restore_backup", "delete_backup"]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -72,7 +72,7 @@ export const syncConfigs = pgTable("sync_configs", {
   targetDataSource: text("target_data_source"),
   sourceDataSource: text("source_data_source"),
   fieldMappings: jsonb("field_mappings").$type<Array<{ sourceField: string; targetField: string; transform?: string }>>().default([]),
-  schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string }>().default({ enabled: false, frequency: "daily" }),
+  schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string; backupBeforeSync?: boolean }>().default({ enabled: false, frequency: "daily", backupBeforeSync: true }),
   isEnabled: boolean("is_enabled").notNull().default(true),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -20,8 +20,9 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - `server/db.ts` - PostgreSQL connection pool + Drizzle instance
 - `server/seed.ts` - Database seed data (admin user + all 11 modules with sortOrder)
 - `server/data-fetcher.ts` - Real API data fetching service (XML feeds, REST APIs) with SSRF protection
-- `server/sync-engine.ts` - Sync execution engine with adaptive batch processing, progress tracking, cancellation support
-- `server/google-drive.ts` - Google Drive backup management (upload, download, delete, rotate, storage stats)
+- `server/sync-engine.ts` - 4-phase sync execution engine (preflight→backup→fetch→sync), real push, cancellation
+- `server/target-push.ts` - Target API push (Pipedrive REST create/update, ONIX placeholder)
+- `server/google-drive.ts` - Google Drive backup management on shared drive (upload, download, delete, rotate, stats)
 
 ### Frontend
 - `client/src/App.tsx` - Main app with routing, auth guard, sidebar layout
@@ -76,19 +77,26 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Scheduling**: Per-config schedule (15min/hourly/6hours/daily/weekly) with time/day selectors
 - **Backup before sync**: Checkbox persisted in schedule.backupBeforeSync
 
-## Sync Execution Engine (v1.7.0)
-- **Adaptive batch processing**: Starts at 100, scales up to 500 if smooth, reduces to 50 on errors
-- **Real-time progress**: Progress %, records processed, batch indicator, speed (rec/s), ETA
-- **Google Drive backups**: Automatic backup before sync (if enabled), stored in SyncHub_Backups/{configId}/ folder
+## Sync Execution Engine (v1.7.1)
+- **4-phase pipeline**: preflight → backup → fetch → sync (tracked in run details.phase)
+- **Backup default ON**: backupBeforeSync defaults to true; user must explicitly disable
+- **Google Drive backups**: Stored in shared drive folder `0AJCiYKbj09exUk9PVA` → SyncHub_Backups/{configId}/
 - **Backup rotation**: Max 10 backups per config, auto-delete oldest when exceeded
+- **Real Pipedrive push**: `server/target-push.ts` — POST/PUT to Pipedrive API (deals, persons, organizations, products, activities, leads)
+- **Real-time progress**: Progress %, records processed, batch indicator, speed (rec/s), ETA
+- **Batch processing**: 50 records per batch, rate limit delays, per-record error tracking
 - **Cancellation**: Cancel running sync between batches
 - **Undo/Restore**: Restore from any backup with one click
-- **Resilience**: Try/catch per batch, continue on failure, store error details per batch
+- **Resilience**: 3x retry on fetch, backup failure stops sync, per-batch error details stored
+- **Audit enum**: sync_run, restore_backup, delete_backup actions supported
 
 ## Sync Dashboard Features
 - **Stats cards**: Today's syncs, total records, avg duration, success rate
 - **Live progress ring**: SVG-based animated circular progress with ETA countdown
-- **Quick sync**: Run any config with one click, shows running state
+- **Phase indicator**: Real-time phase display (Fáza 1/4: Kontrola pripojenia, etc.) with colored background and spinning icon
+- **Backup phase visible**: "Zálohovanie na Google Drive..." shown prominently with amber background during backup
+- **Quick sync**: Run any config with one click, shows running state; backup badge on all configs with backup enabled (default)
+- **Error visibility**: Error details shown directly in progress card; expandable error details in run history with batch-level errors
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count
@@ -116,4 +124,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.7.0
+- App version: v1.7.1
