@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/components/language-provider";
 
-const SENSITIVE_KEYS = new Set(["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "password"]);
+const SENSITIVE_KEYS = new Set(["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "password", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "combinedFeedUrl"]);
 
 const FIELD_LABELS: Record<string, string> = {
   apiType: "Typ API",
@@ -31,6 +31,11 @@ const FIELD_LABELS: Record<string, string> = {
   productFeedUrl: "Product Feed URL",
   priceFeedUrl: "Price Feed URL",
   printPriceFeedUrl: "Print Price Feed URL",
+  pricesFeedUrl: "Prices Feed URL",
+  printDataFeedUrl: "Print Data Feed URL",
+  printPricesFeedUrl: "Print Prices Feed URL",
+  combinedFeedUrl: "Combined Feed URL",
+  feedFormat: "Formát feedov",
   swaggerUrl: "Swagger URL",
   accessKey: "Access Key",
   xmlFeedId: "XML Feed ID",
@@ -46,6 +51,7 @@ const FIELD_ORDER = [
   "username", "password",
   "companyDomain", "companyId", "shopId",
   "xmlFeedUrl", "skuFeedUrl", "pricelistFeedUrl", "stockFeedUrl", "productFeedUrl", "priceFeedUrl", "printPriceFeedUrl",
+  "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "combinedFeedUrl", "feedFormat",
   "note",
 ];
 
