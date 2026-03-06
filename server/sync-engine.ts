@@ -3,6 +3,7 @@ import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, rotateBackups, downloadBackup } from "./google-drive";
 import { pushToTarget } from "./target-push";
 import type { SyncConfig, SyncRun } from "@shared/schema";
+import type { PushRecordResult } from "./target-push";
 
 const activeRuns = new Map<string, { cancelled: boolean }>();
 
@@ -84,6 +85,9 @@ export async function executeSyncRun(
   return run.id;
 }
 
+const MAX_CONSECUTIVE_FAIL_BATCHES = 3;
+const MAX_SYNCED_RECORDS_STORED = 200;
+
 async function executeAsync(
   runId: string,
   config: SyncConfig,
@@ -112,7 +116,7 @@ async function executeAsync(
 
     log(`Source: ${sourceModule.code}, Target: ${targetModule.code}, Mappings: ${mappings.length}`);
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0);
+    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
 
     const schedule = config.schedule as any;
     const doBackup = schedule?.backupBeforeSync !== false;
@@ -178,7 +182,7 @@ async function executeAsync(
       log("Backup skipped (disabled by user)");
     }
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0);
+    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
 
     log("=== PHASE 3/4: FETCH SOURCE DATA ===");
     await updatePhase(runId, "fetch");
@@ -212,17 +216,20 @@ async function executeAsync(
 
     await storage.updateSyncRun(runId, { recordsTotal: totalRecords, progress: 0 });
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, totalRecords);
+    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, totalRecords);
 
     log("=== PHASE 4/4: SYNC TO TARGET ===");
     await updatePhase(runId, "sync");
 
     const BATCH_SIZE = 50;
     const totalBatches = Math.ceil(totalRecords / BATCH_SIZE);
-    let processedOk = 0;
-    let processedFail = 0;
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalFailed = 0;
     let currentBatch = 0;
+    let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = [];
+    const syncedRecords: PushRecordResult[] = [];
 
     await storage.updateSyncRun(runId, {
       batchSize: BATCH_SIZE,
@@ -232,7 +239,7 @@ async function executeAsync(
 
     for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
-        return await markCancelled(runId, processedOk, processedFail, totalRecords, allErrors, currentBatch);
+        return await markCancelled(runId, totalCreated, totalUpdated, totalFailed, 0, totalRecords, allErrors, syncedRecords, currentBatch);
       }
 
       currentBatch++;
@@ -243,67 +250,120 @@ async function executeAsync(
         try {
           mappedBatch.push(applyFieldMappings(record, mappings));
         } catch (err: any) {
-          processedFail++;
+          totalFailed++;
           allErrors.push({ batch: currentBatch, index: i + mappedBatch.length, message: `Mapping error: ${err.message}` });
+          if (syncedRecords.length < MAX_SYNCED_RECORDS_STORED) {
+            syncedRecords.push({ sourceIndex: i + mappedBatch.length, pipedrive_id: null, status: "error", errorMsg: `Mapping: ${err.message}` });
+          }
         }
       }
+
+      let batchErrorCount = 0;
 
       if (mappedBatch.length > 0) {
         try {
           const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1);
-          processedOk += pushResult.createdCount + pushResult.updatedCount;
-          processedFail += pushResult.errorCount;
+          totalCreated += pushResult.createdCount;
+          totalUpdated += pushResult.updatedCount;
+          totalFailed += pushResult.errorCount;
+          batchErrorCount = pushResult.errorCount;
           for (const e of pushResult.errors) {
             allErrors.push({ batch: currentBatch, ...e });
           }
+          for (const r of pushResult.records) {
+            if (syncedRecords.length < MAX_SYNCED_RECORDS_STORED) {
+              syncedRecords.push(r);
+            }
+          }
         } catch (err: any) {
-          processedFail += mappedBatch.length;
+          totalFailed += mappedBatch.length;
+          batchErrorCount = mappedBatch.length;
           allErrors.push({ batch: currentBatch, index: i, message: `Batch push failed: ${err.message}` });
           log(`Batch ${currentBatch} push error: ${err.message}`);
         }
       }
 
-      const totalProcessed = processedOk + processedFail;
+      if (batchErrorCount === mappedBatch.length && mappedBatch.length > 0) {
+        consecutiveFailBatches++;
+      } else {
+        consecutiveFailBatches = 0;
+      }
+
+      if (consecutiveFailBatches >= MAX_CONSECUTIVE_FAIL_BATCHES) {
+        const lastError = allErrors.length > 0 ? allErrors[allErrors.length - 1].message : "Unknown error";
+        const totalProcessed = totalCreated + totalUpdated + totalFailed;
+        log(`EARLY STOP: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`);
+        await storage.updateSyncRun(runId, {
+          status: "error",
+          recordsProcessed: totalCreated + totalUpdated,
+          recordsFailed: totalFailed,
+          progress: Math.round((totalProcessed / totalRecords) * 100),
+          completedAt: new Date(),
+          errorMessage: `Sync stopped: ${consecutiveFailBatches} consecutive batches failed (${totalFailed} records). Last error: ${lastError}`,
+          details: {
+            phase: "error",
+            earlyStopReason: `${consecutiveFailBatches} consecutive 100% error batches`,
+            totalCreated,
+            totalUpdated,
+            totalFailed,
+            batchErrors: allErrors.slice(-50),
+            syncedRecords,
+          },
+        });
+        activeRuns.delete(runId);
+        return;
+      }
+
+      const totalProcessed = totalCreated + totalUpdated + totalFailed;
       const elapsed = Date.now() - startTime;
       const speedPerSec = elapsed > 0 ? Math.round((totalProcessed / elapsed) * 1000) : 0;
       const remaining = totalRecords - totalProcessed;
       const estimatedMs = speedPerSec > 0 ? (remaining / speedPerSec) * 1000 : 0;
 
       await storage.updateSyncRun(runId, {
-        recordsProcessed: processedOk,
-        recordsFailed: processedFail,
+        recordsProcessed: totalCreated + totalUpdated,
+        recordsFailed: totalFailed,
         progress: Math.round((totalProcessed / totalRecords) * 100),
         currentBatch,
         totalBatches,
         batchSize: BATCH_SIZE,
         speedPerSec,
         estimatedEndAt: new Date(Date.now() + estimatedMs),
-        details: { phase: "sync", batchErrors: allErrors.slice(-20) },
+        details: {
+          phase: "sync",
+          totalCreated,
+          totalUpdated,
+          totalFailed,
+          batchErrors: allErrors.slice(-20),
+        },
       });
 
-      log(`Batch ${currentBatch}/${totalBatches}: ok=${processedOk} fail=${processedFail} speed=${speedPerSec}/s`);
+      log(`Batch ${currentBatch}/${totalBatches}: created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} speed=${speedPerSec}/s`);
     }
 
-    const finalStatus = processedFail === 0 ? "success" : "error";
+    const processedOk = totalCreated + totalUpdated;
+    const finalStatus = totalFailed === 0 ? "success" : "error";
     const duration = Date.now() - startTime;
 
     await storage.updateSyncRun(runId, {
       status: finalStatus,
       recordsProcessed: processedOk,
-      recordsFailed: processedFail,
+      recordsFailed: totalFailed,
       progress: 100,
       completedAt: new Date(),
-      errorMessage: processedFail > 0 ? `${processedFail} records failed` : null,
+      errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
       details: {
         phase: "complete",
         duration,
+        totalCreated,
+        totalUpdated,
+        totalFailed,
         batchErrors: allErrors.slice(-50),
-        totalCreated: processedOk,
-        totalFailed: processedFail,
+        syncedRecords,
       },
     });
 
-    log(`=== COMPLETE === ok=${processedOk} fail=${processedFail} duration=${duration}ms`);
+    log(`=== COMPLETE === created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} duration=${duration}ms`);
 
     try {
       await storage.createSyncLog({
@@ -311,8 +371,8 @@ async function executeAsync(
         direction: "import",
         status: finalStatus === "success" ? "success" : "error",
         recordsProcessed: processedOk,
-        recordsFailed: processedFail,
-        errorMessage: processedFail > 0 ? `${processedFail} records failed` : null,
+        recordsFailed: totalFailed,
+        errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
         triggeredBy: null,
       });
     } catch {}
@@ -331,20 +391,33 @@ async function executeAsync(
 
 async function markCancelled(
   runId: string,
-  processedOk: number,
-  processedFail: number,
+  created: number,
+  updated: number,
+  failed: number,
+  _unused: number,
   totalRecords: number,
   errors?: any[],
+  syncedRecords?: PushRecordResult[],
   batch?: number
 ) {
+  const processedOk = created + updated;
+  const totalProcessed = processedOk + failed;
   await storage.updateSyncRun(runId, {
     status: "error",
     errorMessage: "cancelled",
     recordsProcessed: processedOk,
-    recordsFailed: processedFail,
-    progress: totalRecords > 0 ? Math.round(((processedOk + processedFail) / totalRecords) * 100) : 0,
+    recordsFailed: failed,
+    progress: totalRecords > 0 ? Math.round((totalProcessed / totalRecords) * 100) : 0,
     completedAt: new Date(),
-    details: { phase: "cancelled", cancelledAtBatch: batch, batchErrors: errors?.slice(-20) },
+    details: {
+      phase: "cancelled",
+      cancelledAtBatch: batch,
+      totalCreated: created,
+      totalUpdated: updated,
+      totalFailed: failed,
+      batchErrors: errors?.slice(-20),
+      syncedRecords: syncedRecords || [],
+    },
   });
   activeRuns.delete(runId);
 }

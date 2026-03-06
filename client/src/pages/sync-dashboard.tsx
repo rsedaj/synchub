@@ -232,6 +232,9 @@ export default function SyncDashboardPage() {
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [recordsViewRunId, setRecordsViewRunId] = useState<string | null>(null);
+  const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "error">("all");
+  const [recordsPage, setRecordsPage] = useState(0);
 
   const { data: configs = [] } = useQuery<(SyncConfig & { sourceModule?: any; targetModule?: any })[]>({
     queryKey: ["/api/sync-configs"],
@@ -455,35 +458,54 @@ export default function SyncDashboardPage() {
                     )}
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">{t("syncDash.records")}:</span>
-                          <p className="font-medium" data-testid="text-progress-records">
-                            {trackedRun.recordsProcessed || 0} z {trackedRun.recordsTotal || 0}
-                          </p>
+                      <>
+                        <div className="flex items-center gap-3 text-xs">
+                          {((trackedRun.details as any)?.totalCreated || 0) > 0 && (
+                            <span className="text-green-600 dark:text-green-400 font-medium" data-testid="text-live-created">
+                              +{(trackedRun.details as any).totalCreated} {t("syncDash.created")}
+                            </span>
+                          )}
+                          {((trackedRun.details as any)?.totalUpdated || 0) > 0 && (
+                            <span className="text-blue-600 dark:text-blue-400 font-medium" data-testid="text-live-updated">
+                              ↻{(trackedRun.details as any).totalUpdated} {t("syncDash.updated")}
+                            </span>
+                          )}
+                          {(trackedRun.recordsFailed || 0) > 0 && (
+                            <span className="text-destructive font-medium" data-testid="text-live-failed">
+                              ✗{trackedRun.recordsFailed} {t("syncDash.errors")}
+                            </span>
+                          )}
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">{t("syncDash.batch")}:</span>
-                          <p className="font-medium" data-testid="text-progress-batch">
-                            {t("syncDash.batchOf").replace("{current}", String(trackedRun.currentBatch || 0)).replace("{total}", String(trackedRun.totalBatches || 0))}
-                          </p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">{t("syncDash.records")}:</span>
+                            <p className="font-medium" data-testid="text-progress-records">
+                              {trackedRun.recordsProcessed || 0} z {trackedRun.recordsTotal || 0}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">{t("syncDash.batch")}:</span>
+                            <p className="font-medium" data-testid="text-progress-batch">
+                              {t("syncDash.batchOf").replace("{current}", String(trackedRun.currentBatch || 0)).replace("{total}", String(trackedRun.totalBatches || 0))}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">{t("syncDash.speed")}:</span>
+                            <p className="font-medium" data-testid="text-progress-speed">
+                              {trackedRun.speedPerSec || 0} {t("syncDash.recPerSec")}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">{t("syncDash.eta")}:</span>
+                            <p className="font-medium" data-testid="text-progress-eta">
+                              {trackedRun.estimatedEndAt ? formatDuration(Math.max(0, new Date(trackedRun.estimatedEndAt).getTime() - Date.now())) : "—"}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">{t("syncDash.speed")}:</span>
-                          <p className="font-medium" data-testid="text-progress-speed">
-                            {trackedRun.speedPerSec || 0} {t("syncDash.recPerSec")}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">{t("syncDash.eta")}:</span>
-                          <p className="font-medium" data-testid="text-progress-eta">
-                            {trackedRun.estimatedEndAt ? formatDuration(Math.max(0, new Date(trackedRun.estimatedEndAt).getTime() - Date.now())) : "—"}
-                          </p>
-                        </div>
-                      </div>
+                      </>
                     )}
 
-                    {(trackedRun.recordsFailed || 0) > 0 && (
+                    {(trackedRun.status !== "running" && trackedRun.status !== "pending") && (trackedRun.recordsFailed || 0) > 0 && (
                       <div className="flex items-center gap-1.5 text-destructive text-sm">
                         <AlertTriangle className="h-3.5 w-3.5" />
                         {trackedRun.recordsFailed} {t("syncDash.recordsFailed")}
@@ -630,63 +652,231 @@ export default function SyncDashboardPage() {
               {runs.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4">{t("syncDash.noRuns")}</p>
               ) : (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
                   {runs.slice(0, 20).map(run => {
                     const config = configMap[run.syncConfigId];
                     const duration = run.completedAt
                       ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
                       : Date.now() - new Date(run.startedAt).getTime();
                     const details = run.details as any;
+                    const hasDetails = run.status !== "running" && run.status !== "pending";
                     const hasError = run.status === "error" && (run.errorMessage || details?.batchErrors?.length > 0);
                     const isExpanded = expandedRunId === run.id;
+                    const showRecords = recordsViewRunId === run.id;
+                    const created = details?.totalCreated || 0;
+                    const updated = details?.totalUpdated || 0;
+                    const failed = details?.totalFailed || (run.recordsFailed || 0);
+                    const hasSyncedRecords = details?.syncedRecords?.length > 0;
+
+                    const groupedErrors: { message: string; count: number }[] = [];
+                    if (details?.batchErrors) {
+                      const errMap: Record<string, number> = {};
+                      for (const e of details.batchErrors) {
+                        errMap[e.message] = (errMap[e.message] || 0) + 1;
+                      }
+                      for (const [message, count] of Object.entries(errMap)) {
+                        groupedErrors.push({ message, count });
+                      }
+                      groupedErrors.sort((a, b) => b.count - a.count);
+                    }
+
                     return (
                       <div key={run.id} className="rounded-lg border" data-testid={`row-run-${run.id}`}>
                         <div
-                          className={`flex items-center justify-between p-3 text-sm ${hasError ? "cursor-pointer hover:bg-muted/50" : ""}`}
-                          onClick={() => hasError && setExpandedRunId(isExpanded ? null : run.id)}
+                          className={`flex items-center justify-between p-3 text-sm ${hasDetails ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                          onClick={() => {
+                            if (!hasDetails) return;
+                            if (isExpanded) {
+                              setExpandedRunId(null);
+                              setRecordsViewRunId(null);
+                            } else {
+                              setExpandedRunId(run.id);
+                            }
+                          }}
                         >
                           <div className="flex items-center gap-3 flex-1 min-w-0">
                             <StatusBadge status={run.status} t={t} />
                             <span className="font-medium truncate">{config?.name || run.syncConfigId}</span>
-                            {details?.phase && (
-                              <span className="text-xs text-muted-foreground">
-                                ({t(`syncDash.phase${details.phase.charAt(0).toUpperCase() + details.phase.slice(1)}`) || details.phase})
-                              </span>
-                            )}
                           </div>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span>{run.recordsProcessed || 0} / {run.recordsTotal || 0}</span>
-                            {(run.recordsFailed || 0) > 0 && (
-                              <span className="text-destructive">{run.recordsFailed} {t("syncDash.failed")}</span>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                            {(created > 0 || updated > 0 || failed > 0) ? (
+                              <span className="flex items-center gap-1.5">
+                                {created > 0 && <span className="text-green-600 dark:text-green-400">+{created} {t("syncDash.created")}</span>}
+                                {updated > 0 && <span className="text-blue-600 dark:text-blue-400">↻{updated} {t("syncDash.updated")}</span>}
+                                {failed > 0 && <span className="text-destructive">✗{failed} {t("syncDash.errors")}</span>}
+                              </span>
+                            ) : (
+                              <span>{run.recordsProcessed || 0} / {run.recordsTotal || 0}</span>
                             )}
                             <span>{formatDuration(duration)}</span>
                             <span>{formatTimeAgo(run.startedAt)}</span>
-                            {hasError && (
+                            {hasDetails && (
                               isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
                             )}
                           </div>
                         </div>
-                        {isExpanded && hasError && (
-                          <div className="px-3 pb-3 border-t">
-                            <div className="mt-2 p-2.5 rounded bg-destructive/5 text-sm">
-                              <p className="font-medium text-destructive text-xs mb-1">{t("syncDash.errorDetails")}:</p>
-                              {run.errorMessage && (
-                                <p className="text-xs text-destructive/80 mb-2">{run.errorMessage}</p>
-                              )}
-                              {details?.batchErrors && details.batchErrors.length > 0 && (
-                                <div className="space-y-1 max-h-32 overflow-y-auto">
-                                  {details.batchErrors.slice(0, 10).map((err: any, i: number) => (
-                                    <div key={i} className="text-[11px] text-muted-foreground flex gap-2">
-                                      <span className="text-destructive/60 flex-shrink-0">#{err.index || err.batch}</span>
-                                      <span>{err.message}</span>
-                                    </div>
-                                  ))}
-                                  {details.batchErrors.length > 10 && (
-                                    <p className="text-[11px] text-muted-foreground">...+{details.batchErrors.length - 10}</p>
-                                  )}
+
+                        {isExpanded && (
+                          <div className="px-3 pb-3 border-t space-y-2">
+                            {(created > 0 || updated > 0 || failed > 0) && (
+                              <div className="mt-2 flex items-center gap-3 text-xs">
+                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-700 dark:text-green-400">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  <span data-testid="text-created-count">{created} {t("syncDash.created")}</span>
                                 </div>
-                              )}
-                            </div>
+                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                                  <RotateCcw className="h-3 w-3" />
+                                  <span data-testid="text-updated-count">{updated} {t("syncDash.updated")}</span>
+                                </div>
+                                {failed > 0 && (
+                                  <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-destructive/10 text-destructive">
+                                    <XCircle className="h-3 w-3" />
+                                    <span data-testid="text-failed-count">{failed} {t("syncDash.errors")}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasError && (
+                              <div className="p-2.5 rounded bg-destructive/5 text-sm">
+                                <p className="font-medium text-destructive text-xs mb-1">{t("syncDash.errorDetails")}:</p>
+                                {run.errorMessage && (
+                                  <p className="text-xs text-destructive/80 mb-2">{run.errorMessage}</p>
+                                )}
+                                {groupedErrors.length > 0 && (
+                                  <div className="space-y-1">
+                                    {groupedErrors.slice(0, 5).map((eg, i) => (
+                                      <div key={i} className="text-[11px] text-muted-foreground flex justify-between gap-2">
+                                        <span className="truncate">{eg.message}</span>
+                                        <span className="text-destructive/60 flex-shrink-0">(×{eg.count})</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasSyncedRecords && (
+                              <div>
+                                <Button
+                                  variant="outline" size="sm" className="text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRecordsViewRunId(showRecords ? null : run.id);
+                                    setRecordsFilter("all");
+                                    setRecordsPage(0);
+                                  }}
+                                  data-testid={`button-view-records-${run.id}`}
+                                >
+                                  <Database className="h-3 w-3 mr-1" />
+                                  {t("syncDash.viewRecords")} ({details.syncedRecords.length})
+                                </Button>
+
+                                {showRecords && (
+                                  <div className="mt-2 border rounded-lg overflow-hidden" data-testid="synced-records-table">
+                                    <div className="flex items-center gap-1 p-2 bg-muted/30 border-b">
+                                      {(["all", "created", "updated", "error"] as const).map(f => (
+                                        <Button
+                                          key={f}
+                                          variant={recordsFilter === f ? "default" : "ghost"}
+                                          size="sm" className="h-6 text-[11px] px-2"
+                                          onClick={(e) => { e.stopPropagation(); setRecordsFilter(f); setRecordsPage(0); }}
+                                          data-testid={`button-filter-${f}`}
+                                        >
+                                          {f === "all" ? t("syncDash.showAll")
+                                            : f === "created" ? t("syncDash.showCreated")
+                                            : f === "updated" ? t("syncDash.updated")
+                                            : t("syncDash.showErrors")}
+                                        </Button>
+                                      ))}
+                                    </div>
+                                    {(() => {
+                                      const filtered = (details.syncedRecords as any[]).filter(r =>
+                                        recordsFilter === "all" ? true : r.status === recordsFilter
+                                      );
+                                      const pageSize = 20;
+                                      const totalPages = Math.ceil(filtered.length / pageSize);
+                                      const pageRecords = filtered.slice(recordsPage * pageSize, (recordsPage + 1) * pageSize);
+                                      return (
+                                        <>
+                                          <table className="w-full text-xs">
+                                            <thead>
+                                              <tr className="border-b text-muted-foreground bg-muted/20">
+                                                <th className="p-1.5 text-left w-12">{t("syncDash.recordIndex")}</th>
+                                                <th className="p-1.5 text-left">{t("syncDash.pipedrive_id")}</th>
+                                                <th className="p-1.5 text-left">{t("syncDash.recordStatus")}</th>
+                                                <th className="p-1.5 text-left">Info</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {pageRecords.map((rec: any, i: number) => (
+                                                <tr key={i} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-record-${rec.sourceIndex}`}>
+                                                  <td className="p-1.5 text-muted-foreground">{rec.sourceIndex + 1}</td>
+                                                  <td className="p-1.5">
+                                                    {rec.pipedrive_id ? (
+                                                      <a
+                                                        href={`https://app.pipedrive.com`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-foreground hover:underline font-mono"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                      >
+                                                        {rec.pipedrive_id}
+                                                      </a>
+                                                    ) : (
+                                                      <span className="text-muted-foreground">—</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="p-1.5">
+                                                    <Badge
+                                                      variant={rec.status === "created" ? "default" : rec.status === "updated" ? "secondary" : "destructive"}
+                                                      className="text-[10px] px-1.5"
+                                                    >
+                                                      {rec.status === "created" ? t("syncDash.statusCreated")
+                                                        : rec.status === "updated" ? t("syncDash.statusUpdated")
+                                                        : t("syncDash.statusFailed")}
+                                                    </Badge>
+                                                  </td>
+                                                  <td className="p-1.5 text-muted-foreground truncate max-w-[200px]">
+                                                    {rec.errorMsg || ""}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                          {totalPages > 1 && (
+                                            <div className="flex items-center justify-between p-2 border-t bg-muted/20">
+                                              <span className="text-[11px] text-muted-foreground">
+                                                {filtered.length} {t("syncDash.records")}
+                                              </span>
+                                              <div className="flex items-center gap-1">
+                                                <Button
+                                                  variant="ghost" size="sm" className="h-6 px-2 text-[11px]"
+                                                  disabled={recordsPage === 0}
+                                                  onClick={(e) => { e.stopPropagation(); setRecordsPage(p => p - 1); }}
+                                                >
+                                                  ←
+                                                </Button>
+                                                <span className="text-[11px] text-muted-foreground">
+                                                  {recordsPage + 1} / {totalPages}
+                                                </span>
+                                                <Button
+                                                  variant="ghost" size="sm" className="h-6 px-2 text-[11px]"
+                                                  disabled={recordsPage >= totalPages - 1}
+                                                  onClick={(e) => { e.stopPropagation(); setRecordsPage(p => p + 1); }}
+                                                >
+                                                  →
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

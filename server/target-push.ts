@@ -9,12 +9,20 @@ const PIPEDRIVE_SOURCES: Record<string, string> = {
   products: "/v1/products",
 };
 
+export interface PushRecordResult {
+  sourceIndex: number;
+  pipedrive_id: number | null;
+  status: "created" | "updated" | "error";
+  errorMsg?: string;
+}
+
 export interface PushResult {
   success: boolean;
   createdCount: number;
   updatedCount: number;
   errorCount: number;
   errors: Array<{ index: number; message: string }>;
+  records: PushRecordResult[];
 }
 
 async function sleep(ms: number) {
@@ -41,6 +49,11 @@ export async function pushToTarget(
       updatedCount: 0,
       errorCount: 0,
       errors: [],
+      records: records.map((_, i) => ({
+        sourceIndex: batchIndex * 50 + i,
+        pipedrive_id: null,
+        status: "created" as const,
+      })),
     };
   }
 
@@ -50,6 +63,7 @@ export async function pushToTarget(
     updatedCount: 0,
     errorCount: records.length,
     errors: [{ index: 0, message: `Target module '${code}' does not support write operations` }],
+    records: [],
   };
 }
 
@@ -69,6 +83,7 @@ async function pushToPipedrive(
       updatedCount: 0,
       errorCount: records.length,
       errors: [{ index: 0, message: "Pipedrive API token not configured" }],
+      records: [],
     };
   }
 
@@ -81,6 +96,7 @@ async function pushToPipedrive(
       updatedCount: 0,
       errorCount: records.length,
       errors: [{ index: 0, message: `Unknown Pipedrive data source: '${source}'` }],
+      records: [],
     };
   }
 
@@ -89,19 +105,29 @@ async function pushToPipedrive(
   let updated = 0;
   let errorCount = 0;
   const errors: Array<{ index: number; message: string }> = [];
+  const recordResults: PushRecordResult[] = [];
 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
+    const globalIndex = batchIndex * 50 + i;
 
     try {
-      const hasId = record.id && typeof record.id !== "undefined";
-      const method = hasId ? "PUT" : "POST";
-      const url = hasId
-        ? `${baseUrl}${endpoint}/${record.id}?api_token=${apiToken}`
+      const pipedriveId = record._pipedrive_id;
+      const isUpdate = pipedriveId && !isNaN(Number(pipedriveId));
+
+      const method = isUpdate ? "PUT" : "POST";
+      const url = isUpdate
+        ? `${baseUrl}${endpoint}/${pipedriveId}?api_token=${apiToken}`
         : `${baseUrl}${endpoint}?api_token=${apiToken}`;
 
       const body = { ...record };
-      if (!hasId) delete body.id;
+      delete body.id;
+      delete body._pipedrive_id;
+
+      if (i < 3 && batchIndex === 0) {
+        console.log(`[target-push] DEBUG record ${i}: ${method} ${url.replace(apiToken, '***')}`);
+        console.log(`[target-push] DEBUG body:`, JSON.stringify(body).slice(0, 500));
+      }
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
@@ -120,19 +146,36 @@ async function pushToPipedrive(
 
       const data = await res.json();
 
+      if (i < 3 && batchIndex === 0) {
+        console.log(`[target-push] DEBUG response ${i}: success=${data.success}, id=${data.data?.id}, error=${data.error}`);
+      }
+
       if (data.success) {
-        if (hasId) updated++;
-        else created++;
+        const newId = data.data?.id || null;
+        if (isUpdate) {
+          updated++;
+          recordResults.push({ sourceIndex: globalIndex, pipedrive_id: newId, status: "updated" });
+        } else {
+          created++;
+          recordResults.push({ sourceIndex: globalIndex, pipedrive_id: newId, status: "created" });
+        }
       } else {
         errorCount++;
         const errMsg = data.error || data.error_info || `HTTP ${res.status}`;
-        errors.push({ index: batchIndex * 50 + i, message: errMsg });
-        console.error(`[target-push] Pipedrive ${method} ${source} record ${i} failed:`, errMsg);
+        errors.push({ index: globalIndex, message: errMsg });
+        recordResults.push({ sourceIndex: globalIndex, pipedrive_id: null, status: "error", errorMsg: errMsg });
+        if (i < 5 || errorCount <= 3) {
+          console.error(`[target-push] Pipedrive ${method} ${source} record ${i} failed:`, errMsg);
+        }
       }
     } catch (err: any) {
       errorCount++;
-      errors.push({ index: batchIndex * 50 + i, message: err.message || "Unknown error" });
-      console.error(`[target-push] Pipedrive record ${i} exception:`, err.message);
+      const errMsg = err.message || "Unknown error";
+      errors.push({ index: globalIndex, message: errMsg });
+      recordResults.push({ sourceIndex: globalIndex, pipedrive_id: null, status: "error", errorMsg: errMsg });
+      if (errorCount <= 3) {
+        console.error(`[target-push] Pipedrive record ${i} exception:`, errMsg);
+      }
     }
 
     if ((i + 1) % 10 === 0) {
@@ -148,5 +191,6 @@ async function pushToPipedrive(
     updatedCount: updated,
     errorCount,
     errors: errors.slice(0, 20),
+    records: recordResults,
   };
 }
