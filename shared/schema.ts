@@ -87,12 +87,31 @@ export const syncRuns = pgTable("sync_runs", {
   recordsFailed: integer("records_failed").default(0),
   recordsTotal: integer("records_total").default(0),
   progress: integer("progress").default(0),
-  backupData: jsonb("backup_data").$type<Record<string, any>>(),
+  batchSize: integer("batch_size").default(100),
+  currentBatch: integer("current_batch").default(0),
+  totalBatches: integer("total_batches").default(0),
+  speedPerSec: integer("speed_per_sec").default(0),
+  estimatedEndAt: timestamp("estimated_end_at"),
+  backupId: varchar("backup_id"),
+  cancelled: boolean("cancelled").default(false),
   errorMessage: text("error_message"),
   details: jsonb("details").$type<Record<string, any>>(),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
   triggeredBy: varchar("triggered_by").references(() => users.id),
+});
+
+export const syncBackups = pgTable("sync_backups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncConfigId: varchar("sync_config_id").notNull().references(() => syncConfigs.id),
+  syncRunId: varchar("sync_run_id"),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size").default(0),
+  googleDriveFileId: text("google_drive_file_id"),
+  googleDriveUrl: text("google_drive_url"),
+  backupRecordCount: integer("backup_record_count").default(0),
+  configSnapshot: jsonb("config_snapshot").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -167,13 +186,25 @@ export const insertSyncRunSchema = createInsertSchema(syncRuns).pick({
   recordsFailed: true,
   recordsTotal: true,
   progress: true,
-  backupData: true,
   errorMessage: true,
   details: true,
   triggeredBy: true,
+});
+
+export const insertSyncBackupSchema = createInsertSchema(syncBackups).pick({
+  syncConfigId: true,
+  syncRunId: true,
+  fileName: true,
+  fileSize: true,
+  googleDriveFileId: true,
+  googleDriveUrl: true,
+  backupRecordCount: true,
+  configSnapshot: true,
 });
 
 export type InsertSyncConfig = z.infer<typeof insertSyncConfigSchema>;
 export type SyncConfig = typeof syncConfigs.$inferSelect;
 export type InsertSyncRun = z.infer<typeof insertSyncRunSchema>;
 export type SyncRun = typeof syncRuns.$inferSelect;
+export type InsertSyncBackup = z.infer<typeof insertSyncBackupSchema>;
+export type SyncBackup = typeof syncBackups.$inferSelect;

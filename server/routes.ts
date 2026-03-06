@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
 import { testModuleConnection, fetchModuleData } from "./data-fetcher";
+import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
+import { deleteBackupFile, getStorageStats } from "./google-drive";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
@@ -481,6 +483,195 @@ export async function registerRoutes(
       return res.json({ fields: result.fields, sample: result.preview.slice(0, 3) });
     } catch (err: any) {
       return res.json({ fields: [], sample: [], error: err.message });
+    }
+  });
+
+  app.post("/api/sync-configs/:id/run", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(req.params.id);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const runId = await executeSyncRun(req.params.id, req.user!.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "sync_run",
+        entity: "sync_config",
+        entityId: config.id,
+        details: { name: config.name, runId },
+        ipAddress: req.ip || null,
+      });
+      return res.json({ runId, message: "Sync started" });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message || "Failed to start sync" });
+    }
+  });
+
+  app.get("/api/sync-runs", requireAuth, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const configId = req.query.configId as string | undefined;
+      const runs = await storage.getSyncRuns(configId, limit);
+      return res.json(runs);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load sync runs" });
+    }
+  });
+
+  app.get("/api/sync-runs/active", requireAuth, async (_req, res) => {
+    try {
+      const activeIds = getActiveRuns();
+      const runs = [];
+      for (const id of activeIds) {
+        const run = await storage.getSyncRun(id);
+        if (run) runs.push(run);
+      }
+      return res.json(runs);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load active runs" });
+    }
+  });
+
+  app.get("/api/sync-runs/:id", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(req.params.id);
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      return res.json(run);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load sync run" });
+    }
+  });
+
+  app.get("/api/sync-runs/:id/progress", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(req.params.id);
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      return res.json({
+        id: run.id,
+        status: run.status,
+        progress: run.progress,
+        recordsProcessed: run.recordsProcessed,
+        recordsFailed: run.recordsFailed,
+        recordsTotal: run.recordsTotal,
+        currentBatch: run.currentBatch,
+        totalBatches: run.totalBatches,
+        batchSize: run.batchSize,
+        speedPerSec: run.speedPerSec,
+        estimatedEndAt: run.estimatedEndAt,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load progress" });
+    }
+  });
+
+  app.post("/api/sync-runs/:id/cancel", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const success = cancelSyncRun(req.params.id);
+      if (!success) return res.status(404).json({ message: "No active run found" });
+      return res.json({ message: "Cancellation requested" });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to cancel sync" });
+    }
+  });
+
+  app.get("/api/sync-backups", requireAuth, async (_req, res) => {
+    try {
+      const backups = await storage.getAllSyncBackups();
+      return res.json(backups);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load backups" });
+    }
+  });
+
+  app.get("/api/sync-backups/stats", requireAuth, async (_req, res) => {
+    try {
+      const backups = await storage.getAllSyncBackups();
+      const totalSize = backups.reduce((sum, b) => sum + (b.fileSize || 0), 0);
+      const configGroups: Record<string, { count: number; size: number }> = {};
+      for (const b of backups) {
+        if (!configGroups[b.syncConfigId]) configGroups[b.syncConfigId] = { count: 0, size: 0 };
+        configGroups[b.syncConfigId].count++;
+        configGroups[b.syncConfigId].size += b.fileSize || 0;
+      }
+      let driveStats = { totalFiles: 0, totalSize: 0, perConfig: {} as any };
+      try {
+        driveStats = await getStorageStats();
+      } catch {}
+      return res.json({
+        totalBackups: backups.length,
+        totalSize,
+        perConfig: configGroups,
+        driveStats,
+        maxPerConfig: 10,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load backup stats" });
+    }
+  });
+
+  app.get("/api/sync-backups/config/:configId", requireAuth, async (req, res) => {
+    try {
+      const backups = await storage.getSyncBackupsByConfig(req.params.configId);
+      return res.json(backups);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load backups" });
+    }
+  });
+
+  app.post("/api/sync-backups/:id/restore", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const result = await restoreFromBackup(req.params.id);
+      if (result.success) {
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "restore_backup",
+          entity: "sync_backup",
+          entityId: req.params.id,
+          details: { recordCount: result.recordCount },
+          ipAddress: req.ip || null,
+        });
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message || "Restore failed" });
+    }
+  });
+
+  app.delete("/api/sync-backups/:id", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const backup = await storage.getSyncBackup(req.params.id);
+      if (!backup) return res.status(404).json({ message: "Backup not found" });
+      if (backup.googleDriveFileId) {
+        try {
+          await deleteBackupFile(backup.googleDriveFileId);
+        } catch (err: any) {
+          console.error(`[backups] Failed to delete Google Drive file:`, err.message);
+        }
+      }
+      await storage.deleteSyncBackup(req.params.id);
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "delete_backup",
+        entity: "sync_backup",
+        entityId: req.params.id,
+        ipAddress: req.ip || null,
+      });
+      return res.json({ message: "Backup deleted" });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to delete backup" });
+    }
+  });
+
+  app.delete("/api/sync-backups/config/:configId", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const backups = await storage.getSyncBackupsByConfig(req.params.configId);
+      for (const b of backups) {
+        if (b.googleDriveFileId) {
+          try { await deleteBackupFile(b.googleDriveFileId); } catch {}
+        }
+      }
+      await storage.deleteSyncBackupsByConfig(req.params.configId);
+      return res.json({ message: `Deleted ${backups.length} backups` });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to delete backups" });
     }
   });
 

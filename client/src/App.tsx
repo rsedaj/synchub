@@ -17,6 +17,7 @@ import UsersPage from "@/pages/users";
 import AuditLogPage from "@/pages/audit-log";
 import VaultPage from "@/pages/vault";
 import SyncConfigPage from "@/pages/sync-config";
+import SyncDashboardPage from "@/pages/sync-dashboard";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -55,6 +56,7 @@ function AppLayout() {
               <Route path="/modules/:id" component={ModuleDetailPage} />
               <Route path="/sync-logs" component={SyncLogsPage} />
               <Route path="/sync" component={SyncConfigPage} />
+              <Route path="/sync-dashboard" component={SyncDashboardPage} />
               <Route path="/vault" component={VaultPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/audit-log" component={AuditLogPage} />

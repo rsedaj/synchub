@@ -1,13 +1,14 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
   type AuditLog, type InsertAuditLog,
   type SyncConfig, type InsertSyncConfig,
   type SyncRun, type InsertSyncRun,
+  type SyncBackup, type InsertSyncBackup,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -48,8 +49,16 @@ export interface IStorage {
   updateSyncConfig(id: string, data: Partial<SyncConfig>): Promise<SyncConfig | undefined>;
   deleteSyncConfig(id: string): Promise<void>;
   getSyncRuns(configId?: string, limit?: number): Promise<SyncRun[]>;
+  getSyncRun(id: string): Promise<SyncRun | undefined>;
   createSyncRun(data: InsertSyncRun): Promise<SyncRun>;
   updateSyncRun(id: string, data: Partial<SyncRun>): Promise<SyncRun | undefined>;
+
+  getAllSyncBackups(): Promise<SyncBackup[]>;
+  getSyncBackup(id: string): Promise<SyncBackup | undefined>;
+  getSyncBackupsByConfig(configId: string): Promise<SyncBackup[]>;
+  createSyncBackup(data: InsertSyncBackup): Promise<SyncBackup>;
+  deleteSyncBackup(id: string): Promise<void>;
+  deleteSyncBackupsByConfig(configId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -209,9 +218,42 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getSyncRun(id: string): Promise<SyncRun | undefined> {
+    const [run] = await db.select().from(syncRuns).where(eq(syncRuns.id, id));
+    return run;
+  }
+
   async updateSyncRun(id: string, data: Partial<SyncRun>): Promise<SyncRun | undefined> {
     const [updated] = await db.update(syncRuns).set(data).where(eq(syncRuns.id, id)).returning();
     return updated;
+  }
+
+  async getAllSyncBackups(): Promise<SyncBackup[]> {
+    return db.select().from(syncBackups).orderBy(desc(syncBackups.createdAt));
+  }
+
+  async getSyncBackup(id: string): Promise<SyncBackup | undefined> {
+    const [backup] = await db.select().from(syncBackups).where(eq(syncBackups.id, id));
+    return backup;
+  }
+
+  async getSyncBackupsByConfig(configId: string): Promise<SyncBackup[]> {
+    return db.select().from(syncBackups)
+      .where(eq(syncBackups.syncConfigId, configId))
+      .orderBy(desc(syncBackups.createdAt));
+  }
+
+  async createSyncBackup(data: InsertSyncBackup): Promise<SyncBackup> {
+    const [created] = await db.insert(syncBackups).values(data).returning();
+    return created;
+  }
+
+  async deleteSyncBackup(id: string): Promise<void> {
+    await db.delete(syncBackups).where(eq(syncBackups.id, id));
+  }
+
+  async deleteSyncBackupsByConfig(configId: string): Promise<void> {
+    await db.delete(syncBackups).where(eq(syncBackups.syncConfigId, configId));
   }
 }
 
