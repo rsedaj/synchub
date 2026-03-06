@@ -29,6 +29,71 @@ async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function sanitizePipedriveBody(body: Record<string, any>, entityType: string): Record<string, any> {
+  for (const [key, val] of Object.entries(body)) {
+    if (typeof val === "string" && /^\[\d+ items?\]$/.test(val)) {
+      delete body[key];
+    }
+  }
+
+  if (entityType === "products") {
+    if ("category" in body) {
+      const cat = body.category;
+      if (cat === null || cat === undefined || cat === "") {
+        body.category = null;
+      } else {
+        const num = Number(cat);
+        body.category = isNaN(num) ? null : num;
+      }
+    }
+
+    if ("prices" in body) {
+      const p = body.prices;
+      if (Array.isArray(p)) {
+        // already correct
+      } else if (p && typeof p === "object" && !Array.isArray(p)) {
+        body.prices = [p];
+      } else if (typeof p === "number" || (typeof p === "string" && !isNaN(Number(p)))) {
+        body.prices = [{ currency: "EUR", price: Number(p) }];
+      } else {
+        delete body.prices;
+      }
+    }
+
+    if ("tax" in body) {
+      if (body.tax === null || body.tax === undefined || body.tax === "") {
+        delete body.tax;
+      } else {
+        const t = Number(body.tax);
+        body.tax = isNaN(t) ? 0 : t;
+      }
+    }
+    if ("owner_id" in body) {
+      const o = Number(body.owner_id);
+      if (!o || isNaN(o)) delete body.owner_id;
+      else body.owner_id = o;
+    }
+  }
+
+  if (entityType === "deals" || entityType === "persons" || entityType === "organizations") {
+    if ("owner_id" in body) {
+      const o = Number(body.owner_id);
+      if (!o || isNaN(o)) delete body.owner_id;
+      else body.owner_id = o;
+    }
+    if ("value" in body) {
+      if (body.value === null || body.value === undefined || body.value === "") {
+        delete body.value;
+      } else {
+        const v = Number(body.value);
+        body.value = isNaN(v) ? 0 : v;
+      }
+    }
+  }
+
+  return body;
+}
+
 export async function pushToTarget(
   targetModule: ApiModule,
   targetDataSource: string | null,
@@ -123,6 +188,7 @@ async function pushToPipedrive(
       const body = { ...record };
       delete body.id;
       delete body._pipedrive_id;
+      sanitizePipedriveBody(body, source);
 
       if (i < 3 && batchIndex === 0) {
         console.log(`[target-push] DEBUG record ${i}: ${method} ${url.replace(apiToken, '***')}`);

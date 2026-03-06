@@ -45,6 +45,20 @@ function applyFieldMappings(
           case "lowercase": value = String(value || "").toLowerCase(); break;
           case "trim": value = String(value || "").trim(); break;
           case "number": value = Number(value) || 0; break;
+          case "integer": value = parseInt(String(value), 10) || 0; break;
+          case "price": {
+            let s = String(value || "0").replace(/[^\d.,\-]/g, "");
+            const lastDot = s.lastIndexOf(".");
+            const lastComma = s.lastIndexOf(",");
+            const decSep = Math.max(lastDot, lastComma);
+            if (decSep >= 0) {
+              const before = s.substring(0, decSep).replace(/[.,]/g, "");
+              const after = s.substring(decSep + 1);
+              s = before + "." + after;
+            }
+            value = parseFloat(s) || 0;
+            break;
+          }
           case "string": value = String(value || ""); break;
           case "boolean": value = Boolean(value); break;
         }
