@@ -44,7 +44,6 @@ const mainNavKeys = [
   { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
   { key: "sidebar.syncConfig", url: "/sync", icon: GitBranch, testId: "sync-config" },
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
-  { key: "sidebar.syncLogs", url: "/sync-logs", icon: ArrowLeftRight, testId: "sync-logs" },
 ];
 
 const adminNavKeys = [

@@ -57,19 +57,19 @@ function StatCard({
 }) {
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-2xl font-semibold mt-1 tracking-tight" data-testid={testId}>
+            <p className="text-xs text-muted-foreground">{title}</p>
+            <p className="text-xl font-semibold mt-0.5 tracking-tight" data-testid={testId}>
               {value}
             </p>
             {subtitle && (
-              <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
             )}
           </div>
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted">
-            <Icon className="h-4 w-4 text-muted-foreground" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
         </div>
       </CardContent>
@@ -399,17 +399,17 @@ export default function DashboardPage() {
   if (!data) return null;
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px]">
+    <div className="p-4 md:p-6 space-y-4 max-w-[1400px]">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" data-testid="text-dashboard-title">
+        <h1 className="text-lg font-medium tracking-tight" data-testid="text-dashboard-title">
           {t("dashboard.title")}
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-0.5">
           {t("dashboard.subtitle")}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           title={t("dashboard.totalModules")}
           value={data.totalModules}
@@ -440,11 +440,11 @@ export default function DashboardPage() {
 
       <TestAllPanel modules={data.moduleStatuses} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2 pt-3 px-4">
             <div className="flex items-center gap-2">
-              <Puzzle className="h-4 w-4 text-muted-foreground" />
+              <Puzzle className="h-3.5 w-3.5 text-muted-foreground" />
               <h2 className="text-sm font-medium">{t("dashboard.moduleStatus")}</h2>
             </div>
           </CardHeader>
@@ -479,9 +479,9 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2 pt-3 px-4">
             <div className="flex items-center gap-2">
-              <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+              <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
               <h2 className="text-sm font-medium">{t("dashboard.recentSync")}</h2>
             </div>
           </CardHeader>

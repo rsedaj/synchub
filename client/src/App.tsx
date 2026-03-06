@@ -12,7 +12,7 @@ import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import ModulesPage from "@/pages/modules";
 import ModuleDetailPage from "@/pages/module-detail";
-import SyncLogsPage from "@/pages/sync-logs";
+
 import UsersPage from "@/pages/users";
 import AuditLogPage from "@/pages/audit-log";
 import VaultPage from "@/pages/vault";
@@ -54,7 +54,7 @@ function AppLayout() {
               <Route path="/" component={DashboardPage} />
               <Route path="/modules" component={ModulesPage} />
               <Route path="/modules/:id" component={ModuleDetailPage} />
-              <Route path="/sync-logs" component={SyncLogsPage} />
+
               <Route path="/sync" component={SyncConfigPage} />
               <Route path="/sync-dashboard" component={SyncDashboardPage} />
               <Route path="/vault" component={VaultPage} />

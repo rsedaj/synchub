@@ -83,10 +83,12 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Google Drive backups**: Stored in shared drive folder `0AJCiYKbj09exUk9PVA` → SyncHub_Backups/{configId}/
 - **Backup rotation**: Max 10 backups per config, auto-delete oldest when exceeded
 - **Real Pipedrive push**: `server/target-push.ts` — POST (create) / PUT (update via `_pipedrive_id`) to Pipedrive API; source `id` stripped to avoid incorrect PUT
+- **Dot-notation field mapping**: `getNestedValue()` in sync-engine supports nested XML/JSON paths like `price.vat` without flattening, preserving original data types
 - **Created/Updated tracking**: Separate counters for new vs updated records, Pipedrive IDs captured and stored
 - **Record-level detail**: Up to 200 synced records stored in run details with Pipedrive ID, status, error message
 - **Early stop**: 3 consecutive 100% error batches → auto-stop with clear error message
-- **Real-time progress**: Progress %, created/updated/failed live counters, batch indicator, speed, ETA
+- **Phase history**: `phaseHistory` stored in run details for step-by-step phase indicator (done/running/error/pending)
+- **Real-time progress**: Progress %, created/updated/failed live counters, batch indicator, speed, ETA, 4-step phase indicator
 - **Batch processing**: 50 records per batch, rate limit delays, per-record error tracking
 - **Cancellation**: Cancel running sync between batches
 - **Undo/Restore**: Restore from any backup with one click
@@ -102,6 +104,9 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Error visibility**: Error details shown directly in progress card; expandable error details in run history with grouped errors (×count)
 - **Record viewer**: Expandable table of synced records per run — Pipedrive ID, status (Nový/Aktualizovaný/Chyba), error message; filterable + paginated (20/page)
 - **Created/Updated/Failed**: Live counters during sync, breakdown in run history row
+- **Step phase indicator**: Horizontal 4-step indicator showing preflight→backup→fetch→sync with green checkmarks for completed, spinner for active, gray for pending, red X for error
+- **Compact styling**: Reduced font weights (semibold/medium vs bold), tighter padding (p-3/p-4), smaller gaps, professional look
+- **Consolidated menu**: Only 2 sync items in sidebar: "Konfigurácie" (/sync) and "Synchronizácia" (/sync-dashboard with overview/logs/backups tabs)
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count

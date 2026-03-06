@@ -20,13 +20,24 @@ export function getActiveRuns(): string[] {
   return Array.from(activeRuns.keys());
 }
 
+function getNestedValue(obj: Record<string, any>, dotPath: string): any {
+  if (dotPath in obj) return obj[dotPath];
+  const parts = dotPath.split(".");
+  let current: any = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
 function applyFieldMappings(
   record: Record<string, any>,
   mappings: Array<{ sourceField: string; targetField: string; transform?: string }>
 ): Record<string, any> {
   const result: Record<string, any> = {};
   for (const mapping of mappings) {
-    let value = record[mapping.sourceField];
+    let value = getNestedValue(record, mapping.sourceField);
     if (mapping.transform) {
       try {
         switch (mapping.transform) {
@@ -44,8 +55,43 @@ function applyFieldMappings(
   return result;
 }
 
+const PHASE_ORDER = ["preflight", "backup", "fetch", "sync"] as const;
+
+function buildPhaseHistory(currentPhase: string): Record<string, string> {
+  const history: Record<string, string> = {};
+  let foundCurrent = false;
+  for (const p of PHASE_ORDER) {
+    if (p === currentPhase) {
+      history[p] = "running";
+      foundCurrent = true;
+    } else if (!foundCurrent) {
+      history[p] = "done";
+    } else {
+      history[p] = "pending";
+    }
+  }
+  return history;
+}
+
+function buildErrorPhaseHistory(failedAtPhase: string): Record<string, string> {
+  const history: Record<string, string> = {};
+  let foundFailed = false;
+  for (const p of PHASE_ORDER) {
+    if (p === failedAtPhase) {
+      history[p] = "error";
+      foundFailed = true;
+    } else if (!foundFailed) {
+      history[p] = "done";
+    } else {
+      history[p] = "pending";
+    }
+  }
+  return history;
+}
+
 async function updatePhase(runId: string, phase: string, extra?: Partial<SyncRun>) {
-  const update: any = { details: { phase }, ...extra };
+  const phaseHistory = buildPhaseHistory(phase);
+  const update: any = { details: { phase, phaseHistory }, ...extra };
   await storage.updateSyncRun(runId, update);
 }
 
@@ -77,7 +123,7 @@ export async function executeSyncRun(
       status: "error",
       errorMessage: err.message || "Fatal error",
       completedAt: new Date(),
-      details: { phase: "error" },
+      details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
     }).catch(() => {});
     activeRuns.delete(run.id);
   });
@@ -108,7 +154,7 @@ async function executeAsync(
         status: "error",
         errorMessage: "No field mappings configured",
         completedAt: new Date(),
-        details: { phase: "error" },
+        details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
       });
       activeRuns.delete(runId);
       return;
@@ -173,7 +219,7 @@ async function executeAsync(
           status: "error",
           errorMessage: `Backup failed: ${err.message}`,
           completedAt: new Date(),
-          details: { phase: "error", backupError: err.message },
+          details: { phase: "error", backupError: err.message, phaseHistory: buildErrorPhaseHistory("backup") },
         });
         activeRuns.delete(runId);
         return;
@@ -204,7 +250,7 @@ async function executeAsync(
         status: "error",
         errorMessage: sourceResult?.error || "No source data available after 3 attempts",
         completedAt: new Date(),
-        details: { phase: "error" },
+        details: { phase: "error", phaseHistory: buildErrorPhaseHistory("fetch") },
       });
       activeRuns.delete(runId);
       return;
@@ -246,9 +292,9 @@ async function executeAsync(
       const batchRecords = allRecords.slice(i, i + BATCH_SIZE);
 
       const mappedBatch: Record<string, any>[] = [];
-      for (const record of batchRecords) {
+      for (const rawRecord of batchRecords) {
         try {
-          mappedBatch.push(applyFieldMappings(record, mappings));
+          mappedBatch.push(applyFieldMappings(rawRecord, mappings));
         } catch (err: any) {
           totalFailed++;
           allErrors.push({ batch: currentBatch, index: i + mappedBatch.length, message: `Mapping error: ${err.message}` });
@@ -302,6 +348,7 @@ async function executeAsync(
           errorMessage: `Sync stopped: ${consecutiveFailBatches} consecutive batches failed (${totalFailed} records). Last error: ${lastError}`,
           details: {
             phase: "error",
+            phaseHistory: { preflight: "done", backup: "done", fetch: "done", sync: "error" },
             earlyStopReason: `${consecutiveFailBatches} consecutive 100% error batches`,
             totalCreated,
             totalUpdated,
@@ -331,6 +378,7 @@ async function executeAsync(
         estimatedEndAt: new Date(Date.now() + estimatedMs),
         details: {
           phase: "sync",
+          phaseHistory: buildPhaseHistory("sync"),
           totalCreated,
           totalUpdated,
           totalFailed,
@@ -354,6 +402,7 @@ async function executeAsync(
       errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
       details: {
         phase: "complete",
+        phaseHistory: { preflight: "done", backup: "done", fetch: "done", sync: "done" },
         duration,
         totalCreated,
         totalUpdated,
@@ -382,7 +431,7 @@ async function executeAsync(
       status: "error",
       errorMessage: err.message || "Unknown error",
       completedAt: new Date(),
-      details: { phase: "error" },
+      details: { phase: "error", phaseHistory: buildErrorPhaseHistory("sync") },
     });
   } finally {
     activeRuns.delete(runId);
@@ -411,6 +460,7 @@ async function markCancelled(
     completedAt: new Date(),
     details: {
       phase: "cancelled",
+      phaseHistory: { preflight: "done", backup: "done", fetch: "done", sync: "done" },
       cancelledAtBatch: batch,
       totalCreated: created,
       totalUpdated: updated,

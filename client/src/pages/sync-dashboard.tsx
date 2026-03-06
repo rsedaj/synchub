@@ -18,6 +18,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Play,
   Square,
   RotateCcw,
@@ -41,8 +48,14 @@ import {
   Upload,
   ChevronDown,
   ChevronUp,
+  ArrowLeftRight,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Filter,
+  FileText,
 } from "lucide-react";
-import type { SyncConfig, SyncRun } from "@shared/schema";
+import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
+import { formatDistanceToNow } from "date-fns";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -102,33 +115,66 @@ const PHASE_CONFIG: Record<string, { labelKey: string; icon: any; step: number }
   cancelled: { labelKey: "syncDash.phaseCancelled", icon: Square, step: 0 },
 };
 
-function PhaseIndicator({ phase, t }: { phase: string; t: (key: string) => string }) {
-  const config = PHASE_CONFIG[phase];
-  if (!config) return null;
-  const Icon = config.icon;
+const PHASE_STEPS = ["preflight", "backup", "fetch", "sync"] as const;
+
+function PhaseIndicator({ phase, phaseHistory, t }: { phase: string; phaseHistory?: Record<string, string>; t: (key: string) => string }) {
   const isError = phase === "error" || phase === "cancelled";
   const isComplete = phase === "complete";
-  const isBackup = phase === "backup";
+
+  const getStepStatus = (step: string): "done" | "running" | "pending" | "error" => {
+    if (isError) {
+      if (phaseHistory && phaseHistory[step]) {
+        return phaseHistory[step] as any;
+      }
+      return "error";
+    }
+    if (isComplete) return "done";
+    if (phaseHistory && phaseHistory[step]) return phaseHistory[step] as any;
+    const currentIdx = PHASE_STEPS.indexOf(phase as any);
+    const stepIdx = PHASE_STEPS.indexOf(step as any);
+    if (stepIdx < 0 || currentIdx < 0) return "pending";
+    if (stepIdx < currentIdx) return "done";
+    if (stepIdx === currentIdx) return "running";
+    return "pending";
+  };
 
   return (
-    <div
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium ${
-        isError ? "bg-destructive/10 text-destructive" :
-        isComplete ? "bg-green-500/10 text-green-700 dark:text-green-400" :
-        isBackup ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
-        "bg-muted"
-      }`}
-      data-testid={`phase-indicator-${phase}`}
-    >
-      {(phase === "backup" || phase === "fetch" || phase === "preflight" || phase === "sync") ? (
-        <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-      ) : (
-        <Icon className="h-4 w-4 flex-shrink-0" />
-      )}
-      <span>
-        {t("syncDash.phaseLabel")} {config.step > 0 ? `${config.step}/4` : ""}: {t(config.labelKey)}
-      </span>
-      {isBackup && <span className="text-xs opacity-70">...</span>}
+    <div className="flex items-center gap-1 w-full" data-testid="phase-indicator-steps">
+      {PHASE_STEPS.map((step, idx) => {
+        const status = getStepStatus(step);
+        const config = PHASE_CONFIG[step];
+        if (!config) return null;
+        const Icon = config.icon;
+
+        return (
+          <div key={step} className="flex items-center flex-1 min-w-0">
+            <div
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium w-full ${
+                status === "done" ? "bg-green-500/10 text-green-700 dark:text-green-400" :
+                status === "running" ? "bg-foreground/10 text-foreground" :
+                status === "error" ? "bg-destructive/10 text-destructive" :
+                "bg-muted/50 text-muted-foreground"
+              }`}
+              data-testid={`phase-step-${step}`}
+            >
+              {status === "done" ? (
+                <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-green-600 dark:text-green-400" />
+              ) : status === "running" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+              ) : status === "error" ? (
+                <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              ) : (
+                <Icon className="h-3.5 w-3.5 flex-shrink-0 opacity-40" />
+              )}
+              <span className="truncate">{t(config.labelKey)}</span>
+              {status === "done" && <span className="text-[10px] opacity-70 ml-auto flex-shrink-0">{t("syncDash.phaseOk")}</span>}
+            </div>
+            {idx < PHASE_STEPS.length - 1 && (
+              <div className={`w-3 h-px flex-shrink-0 mx-0.5 ${status === "done" ? "bg-green-500/40" : "bg-muted"}`} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -228,13 +274,15 @@ function TimelineChart({ runs }: { runs: SyncRun[] }) {
 export default function SyncDashboardPage() {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"overview" | "backups">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">("overview");
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [recordsViewRunId, setRecordsViewRunId] = useState<string | null>(null);
   const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "error">("all");
   const [recordsPage, setRecordsPage] = useState(0);
+  const [filterModule, setFilterModule] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   const { data: configs = [] } = useQuery<(SyncConfig & { sourceModule?: any; targetModule?: any })[]>({
     queryKey: ["/api/sync-configs"],
@@ -257,6 +305,28 @@ export default function SyncDashboardPage() {
   const { data: backupStats } = useQuery<any>({
     queryKey: ["/api/sync-backups", "stats"],
   });
+
+  const { data: modules = [] } = useQuery<ApiModule[]>({
+    queryKey: ["/api/modules"],
+  });
+
+  const { data: syncLogs = [] } = useQuery<SyncLog[]>({
+    queryKey: ["/api/sync-logs"],
+  });
+
+  const filteredLogs = syncLogs.filter((log) => {
+    if (filterModule !== "all" && log.moduleId !== filterModule) return false;
+    if (filterStatus !== "all" && log.status !== filterStatus) return false;
+    return true;
+  });
+
+  const getModuleName = (moduleId: string) => {
+    return modules.find(m => m.id === moduleId)?.name || "Unknown";
+  };
+
+  const getModuleCode = (moduleId: string) => {
+    return modules.find(m => m.id === moduleId)?.code || "\u2014";
+  };
 
   const trackedRun = trackingRunId ? runs.find(r => r.id === trackingRunId) || activeRuns.find(r => r.id === trackingRunId) : null;
 
@@ -357,23 +427,44 @@ export default function SyncDashboardPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-6 space-y-4 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" data-testid="text-sync-dashboard-title">
+          <h1 className="text-lg font-medium tracking-tight" data-testid="text-sync-dashboard-title">
             {t("syncDash.title")}
           </h1>
-          <p className="text-sm text-muted-foreground">{t("syncDash.subtitle")}</p>
+          <p className="text-xs text-muted-foreground">{t("syncDash.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline" size="sm"
-            onClick={() => setActiveTab(activeTab === "overview" ? "backups" : "overview")}
-            data-testid="button-toggle-tab"
-          >
-            {activeTab === "overview" ? <HardDrive className="h-4 w-4 mr-1.5" /> : <BarChart3 className="h-4 w-4 mr-1.5" />}
-            {activeTab === "overview" ? t("syncDash.backups") : t("syncDash.overview")}
-          </Button>
+          <div className="flex items-center rounded-md border">
+            <Button
+              variant={activeTab === "overview" ? "default" : "ghost"} size="sm"
+              onClick={() => setActiveTab("overview")}
+              data-testid="button-tab-overview"
+              className="rounded-r-none"
+            >
+              <BarChart3 className="h-4 w-4 mr-1.5" />
+              {t("syncDash.overview")}
+            </Button>
+            <Button
+              variant={activeTab === "logs" ? "default" : "ghost"} size="sm"
+              onClick={() => setActiveTab("logs")}
+              data-testid="button-tab-logs"
+              className="rounded-none border-x"
+            >
+              <FileText className="h-4 w-4 mr-1.5" />
+              {t("syncDash.logs")}
+            </Button>
+            <Button
+              variant={activeTab === "backups" ? "default" : "ghost"} size="sm"
+              onClick={() => setActiveTab("backups")}
+              data-testid="button-tab-backups"
+              className="rounded-l-none"
+            >
+              <HardDrive className="h-4 w-4 mr-1.5" />
+              {t("syncDash.backups")}
+            </Button>
+          </div>
           <Button
             variant="outline" size="sm"
             onClick={() => { refetchRuns(); refetchBackups(); }}
@@ -393,7 +484,7 @@ export default function SyncDashboardPage() {
                   <Activity className="h-4 w-4" />
                   <span className="text-xs">{t("syncDash.todaySyncs")}</span>
                 </div>
-                <p className="text-2xl font-bold" data-testid="text-today-syncs">{todayRuns.length}</p>
+                <p className="text-xl font-semibold" data-testid="text-today-syncs">{todayRuns.length}</p>
               </CardContent>
             </Card>
             <Card>
@@ -402,7 +493,7 @@ export default function SyncDashboardPage() {
                   <TrendingUp className="h-4 w-4" />
                   <span className="text-xs">{t("syncDash.totalRecords")}</span>
                 </div>
-                <p className="text-2xl font-bold" data-testid="text-total-records">{totalRecordsSynced.toLocaleString()}</p>
+                <p className="text-xl font-semibold" data-testid="text-total-records">{totalRecordsSynced.toLocaleString()}</p>
               </CardContent>
             </Card>
             <Card>
@@ -411,7 +502,7 @@ export default function SyncDashboardPage() {
                   <Timer className="h-4 w-4" />
                   <span className="text-xs">{t("syncDash.avgTime")}</span>
                 </div>
-                <p className="text-2xl font-bold" data-testid="text-avg-time">{avgDuration > 0 ? formatDuration(avgDuration) : "—"}</p>
+                <p className="text-xl font-semibold" data-testid="text-avg-time">{avgDuration > 0 ? formatDuration(avgDuration) : "—"}</p>
               </CardContent>
             </Card>
             <Card>
@@ -420,31 +511,31 @@ export default function SyncDashboardPage() {
                   <CheckCircle2 className="h-4 w-4" />
                   <span className="text-xs">{t("syncDash.successRate")}</span>
                 </div>
-                <p className="text-2xl font-bold" data-testid="text-success-rate">{successRate}%</p>
+                <p className="text-xl font-semibold" data-testid="text-success-rate">{successRate}%</p>
               </CardContent>
             </Card>
           </div>
 
           {trackedRun && (
             <Card className={`border-foreground/20 ${trackedRun.status === "error" ? "border-destructive/40" : ""}`}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
                   {trackedRun.status === "running" || trackedRun.status === "pending" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : trackedRun.status === "success" ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
                   ) : (
-                    <XCircle className="h-4 w-4 text-destructive" />
+                    <XCircle className="h-3.5 w-3.5 text-destructive" />
                   )}
                   {t("syncDash.liveProgress")}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="flex flex-col md:flex-row items-center gap-6">
+              <CardContent className="px-4 pb-4">
+                <div className="flex flex-col md:flex-row items-center gap-4">
                   <div className="relative">
                     <ProgressRing progress={trackedRun.progress || 0} />
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-2xl font-bold">{trackedRun.progress || 0}%</span>
+                      <span className="text-xl font-semibold">{trackedRun.progress || 0}%</span>
                     </div>
                   </div>
                   <div className="flex-1 space-y-3 min-w-0">
@@ -454,7 +545,7 @@ export default function SyncDashboardPage() {
                     </div>
 
                     {(trackedRun.details as any)?.phase && (
-                      <PhaseIndicator phase={(trackedRun.details as any).phase} t={t} />
+                      <PhaseIndicator phase={(trackedRun.details as any).phase} phaseHistory={(trackedRun.details as any)?.phaseHistory} t={t} />
                     )}
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
@@ -539,10 +630,10 @@ export default function SyncDashboardPage() {
             </Card>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <Card className="lg:col-span-2">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">{t("syncDash.quickSync")}</CardTitle>
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {configs.length === 0 ? (
@@ -601,8 +692,8 @@ export default function SyncDashboardPage() {
 
             <div className="space-y-4">
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">{t("syncDash.breakdown")}</CardTitle>
+                <CardHeader className="pb-1 pt-3 px-4">
+                  <CardTitle className="text-sm font-medium">{t("syncDash.breakdown")}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-center">
@@ -616,7 +707,7 @@ export default function SyncDashboardPage() {
                         size={130}
                       />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-lg font-bold">{runs.length}</span>
+                        <span className="text-base font-semibold">{runs.length}</span>
                       </div>
                     </div>
                   </div>
@@ -634,8 +725,8 @@ export default function SyncDashboardPage() {
               </Card>
 
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">{t("syncDash.last7days")}</CardTitle>
+                <CardHeader className="pb-1 pt-3 px-4">
+                  <CardTitle className="text-sm font-medium">{t("syncDash.last7days")}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <TimelineChart runs={runs} />
@@ -645,8 +736,8 @@ export default function SyncDashboardPage() {
           </div>
 
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("syncDash.runHistory")}</CardTitle>
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="text-sm font-medium">{t("syncDash.runHistory")}</CardTitle>
             </CardHeader>
             <CardContent>
               {runs.length === 0 ? (
@@ -928,6 +1019,134 @@ export default function SyncDashboardPage() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : activeTab === "logs" ? (
+        <>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">{t("syncLogs.filter")}</span>
+            </div>
+            <Select value={filterModule} onValueChange={setFilterModule}>
+              <SelectTrigger className="w-48" data-testid="select-filter-module">
+                <SelectValue placeholder={t("syncLogs.allModules")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("syncLogs.allModules")}</SelectItem>
+                {modules.map((mod) => (
+                  <SelectItem key={mod.id} value={mod.id}>
+                    {mod.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-40" data-testid="select-filter-status">
+                <SelectValue placeholder={t("syncLogs.allStatuses")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("syncLogs.allStatuses")}</SelectItem>
+                <SelectItem value="success">{t("syncLogs.success")}</SelectItem>
+                <SelectItem value="error">{t("syncLogs.error")}</SelectItem>
+                <SelectItem value="running">{t("syncLogs.running")}</SelectItem>
+                <SelectItem value="pending">{t("syncLogs.pending")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Card>
+            <CardContent className="p-0">
+              {filteredLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <ArrowLeftRight className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-sm text-muted-foreground">{t("syncLogs.noLogs")}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {filterModule !== "all" || filterStatus !== "all"
+                      ? t("syncLogs.adjustFilters")
+                      : t("syncLogs.logsWillAppear")}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {filteredLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="flex items-center gap-4 px-5 py-3.5"
+                      data-testid={`row-log-${log.id}`}
+                    >
+                      {log.status === "success" ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      ) : log.status === "error" ? (
+                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      ) : log.status === "running" ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : log.status === "partial" ? (
+                        <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                      )}
+
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium">
+                              {getModuleName(log.moduleId)}
+                            </span>
+                            <Badge variant="outline" className="text-xs">
+                              {getModuleCode(log.moduleId)}
+                            </Badge>
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              {log.direction === "import" ? (
+                                <ArrowDownToLine className="h-3 w-3" />
+                              ) : (
+                                <ArrowUpFromLine className="h-3 w-3" />
+                              )}
+                              <span className="text-xs capitalize">{log.direction}</span>
+                            </div>
+                          </div>
+                          {log.errorMessage && (
+                            <p className="text-xs text-red-600 dark:text-red-400 mt-1 line-clamp-1">
+                              {log.errorMessage}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4 flex-shrink-0">
+                        <div className="text-right">
+                          <p className="text-sm tabular-nums">
+                            {log.recordsProcessed?.toLocaleString()} {t("syncLogs.records")}
+                          </p>
+                          {(log.recordsFailed ?? 0) > 0 && (
+                            <p className="text-xs text-red-600 dark:text-red-400">
+                              {log.recordsFailed} {t("syncLogs.failed")}
+                            </p>
+                          )}
+                        </div>
+                        <Badge
+                          variant={
+                            log.status === "success" ? "default" :
+                            log.status === "error" ? "destructive" :
+                            log.status === "running" ? "outline" :
+                            "secondary"
+                          }
+                          className="capitalize"
+                          data-testid={`badge-log-status-${log.id}`}
+                        >
+                          {log.status}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground w-24 text-right">
+                          {log.startedAt
+                            ? formatDistanceToNow(new Date(log.startedAt), { addSuffix: true })
+                            : "\u2014"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
