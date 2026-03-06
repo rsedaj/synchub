@@ -540,18 +540,17 @@ export default function SyncConfigPage() {
                               sourceFields.length > 0 ? `${sourceFields.length} ${language === "sk" ? "polí" : "fields"}` :
                                 (sourceFieldsData?.error || (language === "sk" ? "žiadne polia" : "no fields"))}
                           </div>
-                          {sourceFields.length > 0 && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-xs px-2"
-                              onClick={() => openPreview("source")}
-                              data-testid="button-preview-source"
-                            >
-                              <Eye className="h-3 w-3 mr-1" />
-                              {language === "sk" ? "Náhľad" : "Preview"}
-                            </Button>
-                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-xs px-2"
+                            onClick={() => openPreview("source")}
+                            disabled={sourceFieldsLoading}
+                            data-testid="button-preview-source"
+                          >
+                            {sourceFieldsLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
+                            {language === "sk" ? "Náhľad" : "Preview"}
+                          </Button>
                         </div>
                       )}
                     </>
@@ -599,18 +598,17 @@ export default function SyncConfigPage() {
                         {" — "}
                         {targetFields.length > 0 ? `${targetFields.length} ${language === "sk" ? "polí" : "fields"}` : (language === "sk" ? "načítavam polia..." : "loading fields...")}
                       </div>
-                      {targetFields.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-xs px-2"
-                          onClick={() => openPreview("target")}
-                          data-testid="button-preview-target"
-                        >
-                          <Eye className="h-3 w-3 mr-1" />
-                          {language === "sk" ? "Náhľad" : "Preview"}
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        onClick={() => openPreview("target")}
+                        disabled={targetFieldsLoading}
+                        data-testid="button-preview-target"
+                      >
+                        {targetFieldsLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
+                        {language === "sk" ? "Náhľad" : "Preview"}
+                      </Button>
                     </div>
                   )}
                 </CardContent>

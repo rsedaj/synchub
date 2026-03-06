@@ -34,6 +34,13 @@ function isUrlAllowed(urlStr: string): boolean {
   }
 }
 
+function collectAllFields(records: Record<string, any>[]): string[] {
+  if (records.length === 0) return [];
+  const allFields = new Set<string>();
+  records.forEach(item => Object.keys(item).forEach(key => allFields.add(key)));
+  return Array.from(allFields);
+}
+
 export interface FetchResult {
   success: boolean;
   source: string;
@@ -340,7 +347,7 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     const totalCount = products.length;
     const preview = products.slice(0, limit).map((p: any) => flattenObject(p));
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
 
     return {
       success: true,
@@ -442,7 +449,7 @@ async function fetchPromotronApiData(config: Record<string, any>, baseUrl: strin
       return row;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
 
     return {
       success: true,
@@ -563,7 +570,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       });
       return {
         success: true, source: selectedSource, recordCount: items.length,
-        fields: flatItems.length > 0 ? Object.keys(flatItems[0]) : [],
+        fields: collectAllFields(flatItems),
         preview: flatItems, fetchedAt: new Date().toISOString(),
       };
     }
@@ -573,7 +580,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       const preview = items.slice(0, limit);
       return {
         success: true, source: selectedSource, recordCount: items.length,
-        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        fields: collectAllFields(preview),
         preview, fetchedAt: new Date().toISOString(),
       };
     }
@@ -596,7 +603,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       });
       return {
         success: true, source: selectedSource, recordCount: items.length,
-        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        fields: collectAllFields(preview),
         preview, fetchedAt: new Date().toISOString(),
       };
     }
@@ -622,7 +629,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       });
       return {
         success: true, source: selectedSource, recordCount: products.length,
-        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        fields: collectAllFields(preview),
         preview, fetchedAt: new Date().toISOString(),
       };
     }
@@ -647,7 +654,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       });
       return {
         success: true, source: selectedSource, recordCount: techniques.length + manipulations.length,
-        fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+        fields: collectAllFields(preview),
         preview: preview.slice(0, limit), fetchedAt: new Date().toISOString(),
       };
     }
@@ -808,7 +815,7 @@ function parseXdJsonFeed(text: string, label: string, source: string, limit: num
 
     return {
       success: true, source: label, recordCount: items.length,
-      fields: preview.length > 0 ? Object.keys(preview[0]) : [],
+      fields: collectAllFields(preview),
       preview, fetchedAt: new Date().toISOString(),
     };
   } catch (err: any) {
@@ -849,7 +856,7 @@ async function parseXdXmlFeed(text: string, label: string, source: string, limit
 
     const totalCount = items.length;
     const preview = items.slice(0, limit).map((p: any) => flattenObject(p));
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
 
     return {
       success: true, source: label, recordCount: totalCount,
@@ -978,7 +985,7 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
       return row;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
 
     return {
       success: true,
@@ -1069,7 +1076,7 @@ async function fetchEasyGiftsData(config: Record<string, any> | undefined, sourc
       return row;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
     return { success: true, source: src.label, recordCount: totalCount, fields, preview, fetchedAt: new Date().toISOString() };
   } catch (err: any) {
     return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: err.name === "AbortError" ? "Request timed out (30s)" : `Failed: ${err.message}`, fetchedAt: new Date().toISOString() };
@@ -1259,7 +1266,7 @@ async function fetchPfConceptData(config: Record<string, any> | undefined, sourc
       return row;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
     return { success: true, source: src.label, recordCount: totalCount, fields, preview, fetchedAt: new Date().toISOString() };
   } catch (err: any) {
     return { success: false, source: src.label, recordCount: 0, fields: [], preview: [], error: err.name === "AbortError" ? "Request timed out (60s) — PF Concept feeds can be large" : `Failed: ${err.message}`, fetchedAt: new Date().toISOString() };
@@ -1507,7 +1514,7 @@ async function fetchStrickerData(config: Record<string, any> | undefined, source
       return flat;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
     const method = sessionToken ? "REST API" : "Direct Download";
 
     return {
@@ -1610,7 +1617,7 @@ async function fetchPipedriveData(config: Record<string, any> | undefined, sourc
       return flat;
     });
 
-    const fields = preview.length > 0 ? Object.keys(preview[0]) : [];
+    const fields = collectAllFields(preview);
 
     return {
       success: true,
