@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
@@ -94,7 +94,31 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false 
   const offset = circumference - (progress / 100) * circumference;
   const center = size / 2;
   const sweepRadius = radius - strokeWidth - 2;
-  const sweepLength = circumference * 0.08;
+  const sweepCirc = 2 * Math.PI * sweepRadius;
+  const sweepLength = sweepCirc * 0.06;
+
+  const [subProgress, setSubProgress] = useState(0);
+  const lastProgressRef = useRef(progress);
+  const tickRef = useRef(0);
+
+  useEffect(() => {
+    if (progress !== lastProgressRef.current) {
+      lastProgressRef.current = progress;
+      tickRef.current = 0;
+      setSubProgress(0);
+    }
+  }, [progress]);
+
+  useEffect(() => {
+    if (!isActive || progress <= 0 || progress >= 100) return;
+    const interval = setInterval(() => {
+      tickRef.current = (tickRef.current + 1) % 100;
+      setSubProgress(tickRef.current);
+    }, 50);
+    return () => clearInterval(interval);
+  }, [isActive, progress]);
+
+  const sweepAngle = isActive && progress > 0 && progress < 100 ? (subProgress / 100) * 360 : 0;
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
@@ -107,13 +131,12 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false 
       {isActive && progress > 0 && progress < 100 && (
         <circle
           cx={center} cy={center} r={sweepRadius} fill="none" stroke="currentColor" strokeWidth={2}
-          strokeDasharray={`${sweepLength} ${2 * Math.PI * sweepRadius - sweepLength}`}
+          strokeDasharray={`${sweepLength} ${sweepCirc - sweepLength}`}
           strokeLinecap="round"
-          className="text-foreground/30"
-          style={{ animation: "sweep-spin 3s linear infinite", transformOrigin: `${center}px ${center}px` }}
+          className="text-foreground/40"
+          style={{ transform: `rotate(${sweepAngle}deg)`, transformOrigin: `${center}px ${center}px`, transition: "transform 50ms linear" }}
         />
       )}
-      <style>{`@keyframes sweep-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </svg>
   );
 }
