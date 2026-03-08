@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
@@ -88,7 +88,7 @@ function formatTimeAgo(date: string | Date): string {
   return `pred ${days}d`;
 }
 
-function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false }: { progress: number; size?: number; strokeWidth?: number; isActive?: boolean }) {
+function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false, recordsProcessed = 0, recordsFailed = 0, recordsTotal = 0 }: { progress: number; size?: number; strokeWidth?: number; isActive?: boolean; recordsProcessed?: number; recordsFailed?: number; recordsTotal?: number }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
@@ -97,28 +97,16 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false 
   const sweepCirc = 2 * Math.PI * sweepRadius;
   const sweepLength = sweepCirc * 0.06;
 
-  const [subProgress, setSubProgress] = useState(0);
-  const lastProgressRef = useRef(progress);
-  const tickRef = useRef(0);
+  let subFraction = 0;
+  if (isActive && recordsTotal > 0 && progress > 0 && progress < 100) {
+    const totalProcessed = recordsProcessed + recordsFailed;
+    const recordsPerPercent = recordsTotal / 100;
+    const floorRecords = Math.floor(progress * recordsPerPercent);
+    const withinPercent = totalProcessed - floorRecords;
+    subFraction = recordsPerPercent > 0 ? Math.min(Math.max(withinPercent / recordsPerPercent, 0), 0.99) : 0;
+  }
 
-  useEffect(() => {
-    if (progress !== lastProgressRef.current) {
-      lastProgressRef.current = progress;
-      tickRef.current = 0;
-      setSubProgress(0);
-    }
-  }, [progress]);
-
-  useEffect(() => {
-    if (!isActive || progress <= 0 || progress >= 100) return;
-    const interval = setInterval(() => {
-      tickRef.current = (tickRef.current + 1) % 100;
-      setSubProgress(tickRef.current);
-    }, 50);
-    return () => clearInterval(interval);
-  }, [isActive, progress]);
-
-  const sweepAngle = isActive && progress > 0 && progress < 100 ? (subProgress / 100) * 360 : 0;
+  const sweepAngle = isActive && progress > 0 && progress < 100 ? subFraction * 360 : 0;
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
@@ -134,7 +122,7 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false 
           strokeDasharray={`${sweepLength} ${sweepCirc - sweepLength}`}
           strokeLinecap="round"
           className="text-foreground/40"
-          style={{ transform: `rotate(${sweepAngle}deg)`, transformOrigin: `${center}px ${center}px`, transition: "transform 50ms linear" }}
+          style={{ transform: `rotate(${sweepAngle}deg)`, transformOrigin: `${center}px ${center}px`, transition: "transform 300ms ease-out" }}
         />
       )}
     </svg>
@@ -637,7 +625,7 @@ export default function SyncDashboardPage() {
               <CardContent className="px-4 pb-4">
                 <div className="flex flex-col md:flex-row items-center gap-4">
                   <div className="relative">
-                    <ProgressRing progress={trackedRun.progress || 0} isActive={trackedRun.status === "running" || trackedRun.status === "pending"} />
+                    <ProgressRing progress={trackedRun.progress || 0} isActive={trackedRun.status === "running" || trackedRun.status === "pending"} recordsProcessed={trackedRun.recordsProcessed || 0} recordsFailed={trackedRun.recordsFailed || 0} recordsTotal={trackedRun.recordsTotal || 0} />
                     <div className="absolute inset-0 flex items-center justify-center">
                       <span className="text-xl font-semibold">{trackedRun.progress || 0}%</span>
                     </div>
