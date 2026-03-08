@@ -25,7 +25,6 @@ import {
   LogOut,
   Sun,
   Moon,
-  Languages,
   Store,
   HelpCircle,
   Lock,
@@ -45,21 +44,28 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 
-const mainNavKeys = [
+type NavItem = {
+  key: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  testId: string;
+  adminOnly?: boolean;
+};
+
+const navItems: NavItem[] = [
   { key: "sidebar.dashboard", url: "/", icon: LayoutDashboard, testId: "dashboard" },
   { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
   { key: "sidebar.syncConfig", url: "/sync", icon: GitBranch, testId: "sync-config" },
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
   { key: "sidebar.shopView", url: "/shop-view", icon: Store, testId: "shop-view" },
   { key: "sidebar.backups", url: "/backups", icon: HardDrive, testId: "backups" },
+  { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor", adminOnly: true },
   { key: "sidebar.help", url: "/help", icon: HelpCircle, testId: "help" },
 ];
 
-const vaultItem = { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor" };
-
-const adminNavKeys = [
-  { key: "sidebar.users", url: "/users", icon: Users, testId: "users" },
-  { key: "sidebar.auditLog", url: "/audit-log", icon: Shield, testId: "audit-log" },
+const adminItems: NavItem[] = [
+  { key: "sidebar.users", url: "/users", icon: Users, testId: "users", adminOnly: true },
+  { key: "sidebar.auditLog", url: "/audit-log", icon: Shield, testId: "audit-log", adminOnly: true },
 ];
 
 function LiveClock() {
@@ -84,8 +90,78 @@ function LiveClock() {
   );
 }
 
+function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast }: {
+  item: NavItem;
+  location: string;
+  isAdmin: boolean;
+  collapsed: boolean;
+  t: (key: string) => string;
+  toast: ReturnType<typeof useToast>["toast"];
+}) {
+  const restricted = item.adminOnly && !isAdmin;
+
+  const handleRestricted = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toast({
+      title: t(item.key),
+      description: t("sidebar.vaultAdminOnly"),
+      variant: "destructive",
+    });
+  };
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SidebarMenuButton
+            asChild
+            data-active={!restricted && location === item.url}
+            className={restricted ? "opacity-50" : ""}
+          >
+            {restricted ? (
+              <button onClick={handleRestricted} className="relative" data-testid={`link-nav-${item.testId}`}>
+                <item.icon className="h-4 w-4" />
+                <Lock className="h-2 w-2 absolute -bottom-0.5 -right-0.5 text-muted-foreground" />
+              </button>
+            ) : (
+              <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
+                <item.icon className="h-4 w-4" />
+              </Link>
+            )}
+          </SidebarMenuButton>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {t(item.key)}{restricted && ` (${t("sidebar.vaultAdminOnly")})`}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <SidebarMenuButton
+      asChild
+      data-active={!restricted && location === item.url}
+      className={restricted ? "opacity-50" : ""}
+    >
+      {restricted ? (
+        <button onClick={handleRestricted} className="flex items-center gap-2 w-full" data-testid={`link-nav-${item.testId}`}>
+          <item.icon className="h-4 w-4" />
+          <span>{t(item.key)}</span>
+          <Lock className="h-3 w-3 ml-auto text-muted-foreground" />
+        </button>
+      ) : (
+        <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
+          <item.icon className="h-4 w-4" />
+          <span>{t(item.key)}</span>
+        </Link>
+      )}
+    </SidebarMenuButton>
+  );
+}
+
 export function AppSidebar() {
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { t, language, toggleLanguage } = useLanguage();
@@ -100,18 +176,6 @@ export function AppSidebar() {
     .join("")
     .toUpperCase()
     .slice(0, 2) || "U";
-
-  const handleVaultClick = (e: React.MouseEvent) => {
-    if (!isAdmin) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast({
-        title: t("sidebar.vault"),
-        description: t("sidebar.vaultAdminOnly"),
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <Sidebar collapsible="icon">
@@ -154,123 +218,41 @@ export function AppSidebar() {
           <SidebarGroupLabel>{collapsed ? "" : t("sidebar.navigation")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavKeys.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.key}>
-                  {collapsed ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton
-                          asChild
-                          data-active={location === item.url}
-                        >
-                          <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
-                            <item.icon className="h-4 w-4" />
-                          </Link>
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">{t(item.key)}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <SidebarMenuButton
-                      asChild
-                      data-active={location === item.url}
-                    >
-                      <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{t(item.key)}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  )}
+                  <NavItemRenderer
+                    item={item}
+                    location={location}
+                    isAdmin={isAdmin}
+                    collapsed={collapsed}
+                    t={t}
+                    toast={toast}
+                  />
                 </SidebarMenuItem>
               ))}
-
-              <SidebarMenuItem>
-                {collapsed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <SidebarMenuButton
-                        asChild
-                        data-active={location === vaultItem.url}
-                        className={!isAdmin ? "opacity-60" : ""}
-                      >
-                        {isAdmin ? (
-                          <Link href={vaultItem.url} data-testid={`link-nav-${vaultItem.testId}`}>
-                            <vaultItem.icon className="h-4 w-4" />
-                          </Link>
-                        ) : (
-                          <button onClick={handleVaultClick} data-testid={`link-nav-${vaultItem.testId}`}>
-                            <vaultItem.icon className="h-4 w-4" />
-                          </button>
-                        )}
-                      </SidebarMenuButton>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(vaultItem.key)}{!isAdmin && ` (${t("sidebar.vaultAdminOnly")})`}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <SidebarMenuButton
-                    asChild
-                    data-active={location === vaultItem.url}
-                    className={!isAdmin ? "opacity-60" : ""}
-                  >
-                    {isAdmin ? (
-                      <Link href={vaultItem.url} data-testid={`link-nav-${vaultItem.testId}`}>
-                        <vaultItem.icon className="h-4 w-4" />
-                        <span>{t(vaultItem.key)}</span>
-                      </Link>
-                    ) : (
-                      <button onClick={handleVaultClick} className="flex items-center gap-2 w-full" data-testid={`link-nav-${vaultItem.testId}`}>
-                        <vaultItem.icon className="h-4 w-4" />
-                        <span>{t(vaultItem.key)}</span>
-                        <Lock className="h-3 w-3 ml-auto text-muted-foreground" />
-                      </button>
-                    )}
-                  </SidebarMenuButton>
-                )}
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{collapsed ? "" : t("sidebar.administration")}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminNavKeys.map((item) => (
-                  <SidebarMenuItem key={item.key}>
-                    {collapsed ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <SidebarMenuButton
-                            asChild
-                            data-active={location === item.url}
-                          >
-                            <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
-                              <item.icon className="h-4 w-4" />
-                            </Link>
-                          </SidebarMenuButton>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">{t(item.key)}</TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <SidebarMenuButton
-                        asChild
-                        data-active={location === item.url}
-                      >
-                        <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{t(item.key)}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    )}
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        <SidebarGroup>
+          <SidebarGroupLabel>{collapsed ? "" : t("sidebar.administration")}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminItems.map((item) => (
+                <SidebarMenuItem key={item.key}>
+                  <NavItemRenderer
+                    item={item}
+                    location={location}
+                    isAdmin={isAdmin}
+                    collapsed={collapsed}
+                    t={t}
+                    toast={toast}
+                  />
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
         <div className={collapsed ? "flex justify-center mt-4" : "px-3 mt-4"}>
           <LiveClock />

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/components/language-provider";
 import { APP_VERSION } from "@shared/version";
-import { MODULE_HELP } from "@/pages/module-detail";
+import { MODULE_HELP } from "@/lib/module-help-data";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Printer, ExternalLink, Download } from "lucide-react";
