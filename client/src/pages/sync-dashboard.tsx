@@ -328,10 +328,10 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
   );
 }
 
-export default function SyncDashboardPage() {
+export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" }) {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">(initialTab || "overview");
   const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);

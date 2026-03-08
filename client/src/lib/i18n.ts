@@ -194,6 +194,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "moduleDetail.statusError": "Chyba",
 
     "sidebar.syncDashboard": "Synchronizácia",
+    "sidebar.backups": "Zálohy",
 
     "syncDash.title": "Synchronizácia",
     "syncDash.subtitle": "Spustenie synchronizácie, priebeh a správa záloh",
@@ -501,6 +502,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "moduleDetail.statusError": "Error",
 
     "sidebar.syncDashboard": "Synchronization",
+    "sidebar.backups": "Backups",
 
     "syncDash.title": "Synchronization",
     "syncDash.subtitle": "Run synchronizations, monitor progress and manage backups",

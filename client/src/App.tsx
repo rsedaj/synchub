@@ -57,6 +57,7 @@ function AppLayout() {
 
               <Route path="/sync" component={SyncConfigPage} />
               <Route path="/sync-dashboard" component={SyncDashboardPage} />
+              <Route path="/backups">{() => <SyncDashboardPage initialTab="backups" />}</Route>
               <Route path="/vault" component={VaultPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/audit-log" component={AuditLogPage} />

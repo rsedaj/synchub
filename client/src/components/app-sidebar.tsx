@@ -18,6 +18,7 @@ import {
   ArrowLeftRight,
   GitBranch,
   BarChart3,
+  HardDrive,
   Users,
   Shield,
   KeyRound,
@@ -45,6 +46,7 @@ const mainNavKeys = [
   { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
   { key: "sidebar.syncConfig", url: "/sync", icon: GitBranch, testId: "sync-config" },
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
+  { key: "sidebar.backups", url: "/backups", icon: HardDrive, testId: "backups" },
 ];
 
 const adminNavKeys = [
