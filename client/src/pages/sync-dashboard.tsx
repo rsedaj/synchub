@@ -437,6 +437,49 @@ export default function SyncDashboardPage() {
     },
   });
 
+  const manualBackupMutation = useMutation({
+    mutationFn: async (configId: string) => {
+      await apiRequest("POST", `/api/backups/manual/${configId}`);
+    },
+    onSuccess: () => {
+      toast({ title: t("syncDash.manualBackupSuccess") });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
+    },
+    onError: (err: any) => {
+      toast({ title: err.message || "Backup failed", variant: "destructive" });
+    },
+  });
+
+  const handleConfigExport = async () => {
+    try {
+      const res = await apiRequest("POST", "/api/backups/config-export");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `synchub-config-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: t("syncDash.exportSuccess") });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    }
+  };
+
+  const handleConfigImport = async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await apiRequest("POST", "/api/backups/config-import", data);
+      toast({ title: t("syncDash.importSuccess") });
+      queryClient.invalidateQueries({ queryKey: ["/api/modules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+    } catch {
+      toast({ title: "Import failed", variant: "destructive" });
+    }
+  };
+
   const toggleConfig = (id: string) => {
     setSelectedConfigs(prev => {
       const next = new Set(prev);
@@ -1317,6 +1360,40 @@ export default function SyncDashboardPage() {
         </>
       ) : (
         <>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline" size="sm"
+                onClick={handleConfigExport}
+                data-testid="button-export-config"
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                {t("syncDash.exportConfig")}
+              </Button>
+              <label>
+                <Button
+                  variant="outline" size="sm" asChild
+                  data-testid="button-import-config"
+                >
+                  <span>
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    {t("syncDash.importConfig")}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleConfigImport(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card>
               <CardContent className="p-4">
@@ -1380,15 +1457,30 @@ export default function SyncDashboardPage() {
                           {configBackups.length} / 10 {t("syncDash.backupsLabel")}
                         </Badge>
                       </CardTitle>
-                      <Button
-                        variant="outline" size="sm"
-                        className="text-destructive"
-                        onClick={() => setConfirmDialog({ type: "deleteAll", id: configId, name: config?.name })}
-                        data-testid={`button-delete-all-backups-${configId}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                        {t("syncDash.deleteAll")}
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline" size="sm"
+                          onClick={() => manualBackupMutation.mutate(configId)}
+                          disabled={manualBackupMutation.isPending}
+                          data-testid={`button-manual-backup-${configId}`}
+                        >
+                          {manualBackupMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                          ) : (
+                            <HardDrive className="h-3.5 w-3.5 mr-1.5" />
+                          )}
+                          {manualBackupMutation.isPending ? t("syncDash.backupRunning") : t("syncDash.manualBackup")}
+                        </Button>
+                        <Button
+                          variant="outline" size="sm"
+                          className="text-destructive"
+                          onClick={() => setConfirmDialog({ type: "deleteAll", id: configId, name: config?.name })}
+                          data-testid={`button-delete-all-backups-${configId}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                          {t("syncDash.deleteAll")}
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>

@@ -660,6 +660,122 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/backups/config-export", requireRole("admin"), async (_req, res) => {
+    try {
+      const configs = await storage.getAllSyncConfigs();
+      const modules = await storage.getAllModules();
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        version: "1.0",
+        syncConfigs: configs,
+        modules: modules.map(m => ({
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          description: m.description,
+          baseUrl: m.baseUrl,
+          status: m.status,
+          config: m.config,
+          dataFields: m.dataFields,
+          docsUrl: m.docsUrl,
+          sortOrder: m.sortOrder,
+        })),
+      };
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="synchub-config-export-${new Date().toISOString().slice(0, 10)}.json"`);
+      return res.json(exportData);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to export config" });
+    }
+  });
+
+  app.post("/api/backups/config-import", requireRole("admin"), async (req, res) => {
+    try {
+      const { modules, syncConfigs } = req.body;
+      let updatedModules = 0;
+      let updatedConfigs = 0;
+
+      if (modules && Array.isArray(modules)) {
+        const existingModules = await storage.getAllModules();
+        for (const imp of modules) {
+          const existing = existingModules.find(m => m.code === imp.code);
+          if (existing) {
+            await storage.updateModule(existing.id, {
+              baseUrl: imp.baseUrl,
+              status: imp.status,
+              config: imp.config,
+            });
+            updatedModules++;
+          }
+        }
+      }
+
+      return res.json({ message: `Imported ${updatedModules} modules, ${updatedConfigs} configs` });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to import config" });
+    }
+  });
+
+  app.post("/api/backups/manual/:configId", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(req.params.configId);
+      if (!config) return res.status(404).json({ message: "Config not found" });
+
+      const modules = await storage.getAllModules();
+      const targetModule = modules.find(m => m.id === config.targetModuleId);
+      if (!targetModule) return res.status(400).json({ message: "Target module not found" });
+
+      let backupData: any[] = [];
+      try {
+        const targetResult = await testModuleConnection(targetModule);
+        if (targetResult.success && targetResult.preview) {
+          backupData = targetResult.preview;
+        }
+      } catch {}
+
+      const { uploadBackup: doUpload, rotateBackups: doRotate } = await import("./google-drive");
+      const driveResult = await doUpload(config.id, config.name, backupData, "manual");
+
+      const backup = await storage.createSyncBackup({
+        syncConfigId: config.id,
+        syncRunId: null,
+        fileName: driveResult.fileName,
+        fileSize: driveResult.fileSize,
+        googleDriveFileId: driveResult.fileId,
+        googleDriveUrl: driveResult.webViewLink,
+        backupRecordCount: backupData.length,
+        configSnapshot: {
+          name: config.name,
+          sourceModuleId: config.sourceModuleId,
+          targetModuleId: config.targetModuleId,
+          fieldMappings: config.fieldMappings,
+        },
+      });
+
+      const deletedIds = await doRotate(config.id, 10);
+      if (deletedIds.length > 0) {
+        const allBackups = await storage.getSyncBackupsByConfig(config.id);
+        for (const b of allBackups) {
+          if (b.googleDriveFileId && deletedIds.includes(b.googleDriveFileId)) {
+            await storage.deleteSyncBackup(b.id);
+          }
+        }
+      }
+
+      await storage.createSyncLog({
+        moduleId: targetModule.id,
+        action: "manual_backup",
+        entity: "sync_backup",
+        status: "success",
+        details: { backupId: backup.id, recordCount: backupData.length, fileName: driveResult.fileName },
+      });
+
+      return res.json({ success: true, backup });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Manual backup failed: ${err.message}` });
+    }
+  });
+
   app.delete("/api/sync-backups/config/:configId", requireRole("admin", "operator"), async (req, res) => {
     try {
       const backups = await storage.getSyncBackupsByConfig(req.params.configId);

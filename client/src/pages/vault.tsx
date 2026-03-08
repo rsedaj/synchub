@@ -132,7 +132,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
   const hasBaseUrl = mod.baseUrl && mod.baseUrl.length > 0;
 
   return (
-    <Card className="border" data-testid={`vault-card-${mod.code}`}>
+    <Card className={`border ${mod.status === "connected" ? "border-blue-500/20" : ""}`} data-testid={`vault-card-${mod.code}`}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -147,8 +147,8 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
               </Badge>
             )}
             <Badge
-              variant={mod.status === "active" ? "default" : mod.status === "configured" ? "secondary" : "outline"}
-              className="text-[10px] h-5"
+              variant={mod.status === "connected" ? "outline" : mod.status === "active" ? "default" : mod.status === "configured" ? "secondary" : "outline"}
+              className={`text-[10px] h-5 ${mod.status === "connected" ? "bg-blue-500/10 text-blue-600 border-blue-500/30" : ""}`}
               data-testid={`badge-status-${mod.code}`}
             >
               {mod.status}
