@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
-import { testModuleConnection, fetchModuleData } from "./data-fetcher";
+import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import passport from "passport";
@@ -1051,6 +1051,141 @@ export async function registerRoutes(
       return res.json({ message: `Deleted ${backups.length} backups` });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to delete backups" });
+    }
+  });
+
+  app.post("/api/shop-view/custom-feed", requireAuth, async (req, res) => {
+    try {
+      const { url, limit = 500 } = req.body;
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ message: "Feed URL is required" });
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          return res.status(400).json({ message: "Only HTTP/HTTPS URLs are supported" });
+        }
+      } catch {
+        return res.status(400).json({ message: "Invalid URL format" });
+      }
+
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const blockedPatterns = [
+        /^localhost$/i,
+        /^127\./,
+        /^10\./,
+        /^172\.(1[6-9]|2\d|3[01])\./,
+        /^192\.168\./,
+        /^0\./,
+        /^169\.254\./,
+        /^::1$/,
+        /^fc/,
+        /^fd/,
+        /^fe80/,
+        /metadata\.google/,
+        /\.internal$/,
+        /\.local$/,
+      ];
+      if (blockedPatterns.some(p => p.test(hostname))) {
+        return res.status(400).json({ message: "URL points to a restricted network address" });
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      const fetchRes = await fetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": "SyncHub/1.0 ShopView" },
+      });
+      clearTimeout(timeout);
+
+      if (!fetchRes.ok) {
+        return res.status(400).json({
+          message: `Feed returned HTTP ${fetchRes.status}: ${fetchRes.statusText}`,
+        });
+      }
+
+      const contentLength = fetchRes.headers.get("content-length");
+      const MAX_SIZE = 50 * 1024 * 1024;
+      if (contentLength && parseInt(contentLength, 10) > MAX_SIZE) {
+        return res.status(400).json({ message: "Feed response too large (max 50MB)" });
+      }
+
+      const contentType = fetchRes.headers.get("content-type") || "";
+      const text = await fetchRes.text();
+
+      let records: Record<string, any>[] = [];
+
+      if (contentType.includes("json") || text.trim().startsWith("[") || text.trim().startsWith("{")) {
+        try {
+          const json = JSON.parse(text);
+          if (Array.isArray(json)) {
+            records = json;
+          } else if (json.data && Array.isArray(json.data)) {
+            records = json.data;
+          } else if (json.products && Array.isArray(json.products)) {
+            records = json.products;
+          } else if (json.items && Array.isArray(json.items)) {
+            records = json.items;
+          } else {
+            const rootKey = Object.keys(json)[0];
+            if (rootKey && Array.isArray(json[rootKey])) {
+              records = json[rootKey];
+            }
+          }
+        } catch {
+          return res.status(400).json({ message: "Failed to parse JSON response" });
+        }
+      } else {
+        try {
+          const { parseStringPromise } = await import("xml2js");
+          const stripPrefix = (name: string) => name.replace(/^.*:/, "");
+          const parsed = await parseStringPromise(text, {
+            explicitArray: false,
+            trim: true,
+            tagNameProcessors: [stripPrefix],
+          });
+
+          const findArray = (obj: any, depth = 0): any[] => {
+            if (depth > 4 || !obj) return [];
+            if (Array.isArray(obj) && obj.length > 0) return obj;
+            if (typeof obj === "object") {
+              for (const key of Object.keys(obj)) {
+                const result = findArray(obj[key], depth + 1);
+                if (result.length > 0) return result;
+              }
+            }
+            return [];
+          };
+
+          records = findArray(parsed);
+        } catch {
+          return res.status(400).json({ message: "Failed to parse XML response" });
+        }
+      }
+
+      if (records.length === 0) {
+        return res.status(400).json({ message: "No records found in feed" });
+      }
+
+      const preview = records.slice(0, Number(limit)).map((r: any) => flattenObject(r));
+      const fields = collectAllFields(preview);
+
+      return res.json({
+        success: true,
+        source: parsedUrl.hostname,
+        recordCount: records.length,
+        fields,
+        preview,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        return res.status(408).json({ message: "Feed request timed out (30s)" });
+      }
+      return res.status(500).json({ message: `Failed to fetch feed: ${err.message}` });
     }
   });
 

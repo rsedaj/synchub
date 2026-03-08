@@ -34,7 +34,7 @@ function isUrlAllowed(urlStr: string): boolean {
   }
 }
 
-function collectAllFields(records: Record<string, any>[]): string[] {
+export function collectAllFields(records: Record<string, any>[]): string[] {
   if (records.length === 0) return [];
   const allFields = new Set<string>();
   records.forEach(item => Object.keys(item).forEach(key => allFields.add(key)));
@@ -1657,7 +1657,7 @@ function stripPrefix(name: string): string {
   return idx >= 0 ? name.substring(idx + 1) : name;
 }
 
-function flattenObject(obj: any, prefix = ""): Record<string, string> {
+export function flattenObject(obj: any, prefix = ""): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, val] of Object.entries(obj)) {
     const newKey = prefix ? `${prefix}.${key}` : key;

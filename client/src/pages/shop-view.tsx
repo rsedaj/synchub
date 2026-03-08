@@ -35,6 +35,10 @@ import {
   ChevronDown,
   ChevronUp,
   Truck,
+  ExternalLink,
+  Plus,
+  Trash2,
+  Globe,
 } from "lucide-react";
 
 type Module = {
@@ -80,6 +84,7 @@ type NormalizedProduct = {
   description: string;
   color: string;
   imageUrl: string | null;
+  link: string;
 };
 
 const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
@@ -159,6 +164,12 @@ const DESC_PATTERNS = [
 
 const COLOR_PATTERNS = [
   "color_name", "color", "Color", "colour", "Colour", "ColorName",
+];
+
+const LINK_PATTERNS = [
+  "link", "url", "URL", "productUrl", "ProductURL", "product_url",
+  "detail_url", "DetailURL", "productLink", "ProductLink",
+  "product_page_url", "webpage",
 ];
 
 function findField(fields: string[], patterns: string[]): string | null {
@@ -271,6 +282,7 @@ function normalizeProducts(
   const stockF = findField(fields, STOCK_PATTERNS);
   const descF = findField(fields, DESC_PATTERNS);
   const colorF = findField(fields, COLOR_PATTERNS);
+  const linkF = findField(fields, LINK_PATTERNS);
   const hasImageData = fields.includes("imageData");
 
   return data.preview.map(item => {
@@ -297,11 +309,13 @@ function normalizeProducts(
       description: descF ? String(item[descF] || "") : "",
       color: colorF ? String(item[colorF] || "") : "",
       imageUrl,
+      link: linkF ? String(item[linkF] || "") : "",
     };
   });
 }
 
-const ITEMS_PER_PAGE = 24;
+const PAGE_SIZES = [48, 96, 200];
+const DEFAULT_PAGE_SIZE = 48;
 
 const SUPPLIER_COLORS: Record<string, string> = {
   MACMA: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -313,6 +327,7 @@ const SUPPLIER_COLORS: Record<string, string> = {
   STICKER: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   GIVING: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   PROMOTRON: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+  CUSTOM: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
 };
 
 export default function ShopViewPage() {
@@ -331,6 +346,10 @@ export default function ShopViewPage() {
   const [loadedProducts, setLoadedProducts] = useState<NormalizedProduct[]>([]);
   const [loadErrors, setLoadErrors] = useState<{ feed: string; error: string }[]>([]);
   const [feedStats, setFeedStats] = useState<Record<FeedKey, number>>({});
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
+  const [customFeedUrl, setCustomFeedUrl] = useState("");
+  const [customFeedName, setCustomFeedName] = useState("");
+  const [customFeeds, setCustomFeeds] = useState<{ url: string; name: string }[]>([]);
 
   const handleSortChange = (val: string) => {
     setSortBy(val);
@@ -441,12 +460,40 @@ export default function ShopViewPage() {
       }
     }
 
+    for (const cf of customFeeds) {
+      try {
+        const res = await apiRequest("POST", "/api/shop-view/custom-feed", {
+          url: cf.url,
+          limit: 500,
+        });
+        const data = await res.json() as DataPreview;
+        if (data.success && data.preview?.length > 0) {
+          const hostname = cf.name || new URL(cf.url).hostname;
+          const feedDef: FeedDef = {
+            key: `custom_${cf.url}`,
+            moduleCode: "CUSTOM",
+            moduleName: hostname,
+            moduleId: "",
+            source: "custom",
+            sourceLabel: hostname,
+          };
+          const normalized = normalizeProducts(data, feedDef);
+          allProducts.push(...normalized);
+          stats[feedDef.key] = normalized.length;
+        } else if ((data as any).message) {
+          errors.push({ feed: cf.name || cf.url, error: (data as any).message });
+        }
+      } catch (err: any) {
+        errors.push({ feed: cf.name || cf.url, error: err.message || "Neznáma chyba" });
+      }
+    }
+
     setLoadedProducts(allProducts);
     setLoadErrors(errors);
     setFeedStats(stats);
     setIsLoading(false);
     setShowFeedSelector(false);
-  }, [selectedFeeds, availableFeeds]);
+  }, [selectedFeeds, availableFeeds, customFeeds]);
 
   const suppliers = useMemo(() => {
     const set = new Set<string>();
@@ -497,10 +544,10 @@ export default function ShopViewPage() {
     return items;
   }, [loadedProducts, selectedSupplier, selectedCategory, searchQuery, sortBy]);
 
-  const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
   const paginatedItems = filteredItems.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
   const hasData = loadedProducts.length > 0;
@@ -533,7 +580,7 @@ export default function ShopViewPage() {
             <Button
               size="sm"
               onClick={handleLoadFeeds}
-              disabled={selectedFeeds.size === 0 || isLoading}
+              disabled={(selectedFeeds.size === 0 && customFeeds.length === 0) || isLoading}
               data-testid="button-fetch-shop"
             >
               {isLoading ? (
@@ -644,6 +691,71 @@ export default function ShopViewPage() {
                   ))}
                 </div>
               ))}
+            </div>
+
+            <Separator className="my-3" />
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium">Vlastný feed (XML/JSON)</span>
+              </div>
+              <div className="flex gap-2 items-end flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <Input
+                    placeholder="https://example.com/feed.xml"
+                    value={customFeedUrl}
+                    onChange={(e) => setCustomFeedUrl(e.target.value)}
+                    className="h-8 text-xs"
+                    data-testid="input-custom-feed-url"
+                  />
+                </div>
+                <div className="w-32">
+                  <Input
+                    placeholder="Názov (voliteľné)"
+                    value={customFeedName}
+                    onChange={(e) => setCustomFeedName(e.target.value)}
+                    className="h-8 text-xs"
+                    data-testid="input-custom-feed-name"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => {
+                    if (!customFeedUrl.trim()) return;
+                    setCustomFeeds(prev => [...prev, { url: customFeedUrl.trim(), name: customFeedName.trim() }]);
+                    setCustomFeedUrl("");
+                    setCustomFeedName("");
+                  }}
+                  disabled={!customFeedUrl.trim()}
+                  data-testid="button-add-custom-feed"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Pridať
+                </Button>
+              </div>
+              {customFeeds.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {customFeeds.map((cf, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs bg-background rounded px-2 py-1 border">
+                      <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${SUPPLIER_COLORS.CUSTOM}`}>
+                        CUSTOM
+                      </Badge>
+                      <span className="truncate flex-1" title={cf.url}>
+                        {cf.name || cf.url}
+                      </span>
+                      <button
+                        onClick={() => setCustomFeeds(prev => prev.filter((_, idx) => idx !== i))}
+                        className="text-muted-foreground hover:text-destructive"
+                        data-testid={`button-remove-custom-feed-${i}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -883,8 +995,9 @@ export default function ShopViewPage() {
                         return (
                           <Card
                             key={imgKey}
-                            className="overflow-hidden group cursor-default"
+                            className={`overflow-hidden group ${item.link ? "cursor-pointer hover:shadow-md transition-shadow" : "cursor-default"}`}
                             data-testid={`card-product-${idx}`}
+                            onClick={() => { if (item.link) window.open(item.link, "_blank", "noopener"); }}
                           >
                             <div className="relative aspect-square bg-muted/50 flex items-center justify-center overflow-hidden">
                               {item.imageUrl && !imgErrors.has(imgKey) ? (
@@ -911,6 +1024,13 @@ export default function ShopViewPage() {
                                   {formatStock(item.stock)}
                                 </Badge>
                               )}
+                              {item.link && (
+                                <div className="absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className="bg-background/80 rounded-full p-1">
+                                    <ExternalLink className="h-3.5 w-3.5 text-foreground" />
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <CardContent className="p-2.5 space-y-1">
                               <p className="text-xs font-medium line-clamp-2 leading-tight min-h-[2rem]" data-testid={`text-product-name-${idx}`}>
@@ -936,11 +1056,16 @@ export default function ShopViewPage() {
                                   {item.color}
                                 </p>
                               )}
-                              {item.price && (
-                                <p className="text-sm font-bold" data-testid={`text-product-price-${idx}`}>
-                                  {formatPrice(item.price)}
-                                </p>
-                              )}
+                              <div className="flex items-center justify-between">
+                                {item.price && (
+                                  <p className="text-sm font-bold" data-testid={`text-product-price-${idx}`}>
+                                    {formatPrice(item.price)}
+                                  </p>
+                                )}
+                                {item.link && (
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                                )}
+                              </div>
                             </CardContent>
                           </Card>
                         );
@@ -953,8 +1078,9 @@ export default function ShopViewPage() {
                         return (
                           <Card
                             key={imgKey}
-                            className="p-3"
+                            className={`p-3 ${item.link ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
                             data-testid={`card-product-${idx}`}
+                            onClick={() => { if (item.link) window.open(item.link, "_blank", "noopener"); }}
                           >
                             <div className="flex gap-3">
                               <div className="w-20 h-20 rounded bg-muted/50 flex items-center justify-center flex-shrink-0 overflow-hidden relative">
@@ -1021,6 +1147,9 @@ export default function ShopViewPage() {
                                         {formatStock(item.stock)}
                                       </Badge>
                                     )}
+                                    {item.link && (
+                                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1032,28 +1161,43 @@ export default function ShopViewPage() {
                   )}
 
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-center gap-2 py-4" data-testid="pagination-shop">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={currentPage <= 1}
-                        onClick={() => setCurrentPage(p => p - 1)}
-                        data-testid="button-prev-page"
+                    <div className="flex items-center justify-center gap-4 py-4" data-testid="pagination-shop">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage <= 1}
+                          onClick={() => setCurrentPage(p => p - 1)}
+                          data-testid="button-prev-page"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm text-muted-foreground px-2">
+                          {currentPage} / {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage >= totalPages}
+                          onClick={() => setCurrentPage(p => p + 1)}
+                          data-testid="button-next-page"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Select
+                        value={String(itemsPerPage)}
+                        onValueChange={(v) => { setItemsPerPage(Number(v)); setCurrentPage(1); }}
                       >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <span className="text-sm text-muted-foreground px-2">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={currentPage >= totalPages}
-                        onClick={() => setCurrentPage(p => p + 1)}
-                        data-testid="button-next-page"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                        <SelectTrigger className="w-24 h-8 text-xs" data-testid="select-page-size">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAGE_SIZES.map(s => (
+                            <SelectItem key={s} value={String(s)}>{s} / str.</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </div>
