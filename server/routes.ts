@@ -76,6 +76,14 @@ export async function registerRoutes(
   setupAuth(app);
   await seedData();
 
+  app.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.set("Surrogate-Control", "no-store");
+    next();
+  });
+
   app.post("/api/auth/login", (req, res, next) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {

@@ -114,14 +114,14 @@ const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
 };
 
 const IMAGE_PATTERNS = [
-  "image", "img", "picture", "photo", "thumbnail",
-  "main_image", "imageUrl", "ImageURL", "digital_asset", "item_picture",
-  "MainImage", "PictureURL", "ProductPicture",
+  "image_link", "main_image", "image", "img", "picture", "photo", "thumbnail",
+  "imageUrl", "ImageURL", "digital_asset", "item_picture",
+  "MainImage", "PictureURL", "ProductPicture", "mainpic",
 ];
 
 const NAME_PATTERNS = [
-  "name", "title", "product_name", "ProductName",
-  "Name", "Title", "description_short", "ProductTitle",
+  "title", "name", "product_name", "ProductName",
+  "Name", "Title", "ProductTitle",
 ];
 
 const PRICE_PATTERNS = [
@@ -130,32 +130,35 @@ const PRICE_PATTERNS = [
 ];
 
 const SKU_PATTERNS = [
+  "custom_label_1", "catalogcode", "modelCode", "firstItemCode",
   "sku", "SKU", "code", "Code", "article", "Article", "item_number",
   "ItemNumber", "ProductCode", "master_code", "MasterCode", "ean", "EAN",
+  "id",
 ];
 
 const CATEGORY_PATTERNS = [
+  "product_type", "chapter", "categoryData",
   "category", "Category", "group", "Group", "MainCategory", "SubCategory",
   "category_code", "product_group", "ProductGroup", "CategoryName",
   "categories", "family", "Family",
 ];
 
 const BRAND_PATTERNS = [
-  "brand", "Brand", "manufacturer", "Manufacturer", "supplier", "Supplier",
+  "brand", "Brand", "manufacturer", "Manufacturer",
 ];
 
 const STOCK_PATTERNS = [
-  "stock", "Stock", "inventory", "Inventory", "qty", "quantity", "available",
-  "InStock", "StockLevel",
+  "availability", "stock", "Stock", "inventory", "Inventory",
+  "qty", "quantity", "available", "InStock", "StockLevel",
 ];
 
 const DESC_PATTERNS = [
   "description", "Description", "desc", "long_description", "ProductDescription",
-  "short_description", "ShortDescription", "LongDescription",
+  "short_description", "ShortDescription", "LongDescription", "extDesc",
 ];
 
 const COLOR_PATTERNS = [
-  "color", "Color", "colour", "Colour", "ColorName", "color_name",
+  "color_name", "color", "Color", "colour", "Colour", "ColorName",
 ];
 
 function findField(fields: string[], patterns: string[]): string | null {
@@ -172,11 +175,13 @@ function findField(fields: string[], patterns: string[]): string | null {
 
 function isImageUrl(val: any): boolean {
   if (typeof val !== "string") return false;
-  const lower = val.toLowerCase();
-  return (lower.startsWith("http://") || lower.startsWith("https://")) &&
-    (lower.includes(".jpg") || lower.includes(".jpeg") || lower.includes(".png") ||
-     lower.includes(".webp") || lower.includes(".gif") || lower.includes(".svg") ||
-     lower.includes("/image") || lower.includes("/img") || lower.includes("media"));
+  const lower = val.toLowerCase().trim();
+  if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false;
+  if (lower.includes(".jpg") || lower.includes(".jpeg") || lower.includes(".png") ||
+      lower.includes(".webp") || lower.includes(".gif") || lower.includes(".svg")) return true;
+  if (lower.includes("/image") || lower.includes("/img") || lower.includes("media") ||
+      lower.includes("/products/") || lower.includes("cdn.") || lower.includes("web-images")) return true;
+  return false;
 }
 
 function detectImageValue(record: Record<string, any>, fields: string[]): string | null {
@@ -197,9 +202,60 @@ function detectImageValue(record: Record<string, any>, fields: string[]): string
 
 function formatPrice(val: any): string {
   if (val === null || val === undefined || val === "") return "";
-  const num = typeof val === "string" ? parseFloat(val) : val;
-  if (isNaN(num)) return String(val);
+  const str = String(val).trim();
+  const numMatch = str.match(/[\d.,]+/);
+  if (!numMatch) return str;
+  const num = parseFloat(numMatch[0].replace(",", "."));
+  if (isNaN(num)) return str;
+  if (str.includes("EUR") || str.includes("€")) return num.toFixed(2) + " €";
   return num.toFixed(2) + " €";
+}
+
+function extractCategory(val: any): string {
+  if (!val || typeof val !== "string") return "";
+  const trimmed = val.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed.catDesc || parsed.groupDesc || parsed.CategoryName || "";
+    } catch { /* not JSON */ }
+    const match = trimmed.match(/"(?:catDesc|groupDesc|CategoryName)":"([^"]+)"/);
+    if (match) return match[1];
+  }
+  if (trimmed.includes("|")) {
+    return trimmed.split("|")[0].trim();
+  }
+  return trimmed;
+}
+
+function isStockPositive(val: string): boolean {
+  const lower = val.toLowerCase().trim();
+  if (lower === "in stock" || lower === "na sklade" || lower === "available") return true;
+  if (lower === "out of stock" || lower === "nie je na sklade" || lower === "unavailable") return false;
+  const num = parseFloat(val);
+  return !isNaN(num) && num > 0;
+}
+
+function formatStock(val: string): string {
+  const lower = val.toLowerCase().trim();
+  if (lower === "in stock" || lower === "na sklade") return "Na sklade";
+  if (lower === "out of stock" || lower === "nie je na sklade") return "Nedostupné";
+  const num = parseFloat(val);
+  if (!isNaN(num)) return num > 0 ? `${val} ks` : "0 ks";
+  return val;
+}
+
+function extractImageFromData(val: any): string | null {
+  if (!val || typeof val !== "string") return null;
+  if (val.startsWith("{")) {
+    const match = val.match(/"imageMain":"([^"]+)"/);
+    if (match) {
+      const filename = match[1];
+      if (filename.startsWith("http")) return filename;
+      return `https://www.pfconcept.com/img/catalog/${filename}`;
+    }
+  }
+  return null;
 }
 
 function normalizeProducts(
@@ -215,23 +271,34 @@ function normalizeProducts(
   const stockF = findField(fields, STOCK_PATTERNS);
   const descF = findField(fields, DESC_PATTERNS);
   const colorF = findField(fields, COLOR_PATTERNS);
+  const hasImageData = fields.includes("imageData");
 
-  return data.preview.map(item => ({
-    _feedKey: feedDef.key,
-    _supplierName: feedDef.moduleName,
-    _supplierCode: feedDef.moduleCode,
-    _raw: item,
-    _fields: fields,
-    name: nameF ? String(item[nameF] || "") : "",
-    sku: skuF ? String(item[skuF] || "") : "",
-    price: priceF ? String(item[priceF] || "") : "",
-    category: catF ? String(item[catF] || "").trim() : "",
-    brand: brandF ? String(item[brandF] || "") : "",
-    stock: stockF ? String(item[stockF] || "") : "",
-    description: descF ? String(item[descF] || "") : "",
-    color: colorF ? String(item[colorF] || "") : "",
-    imageUrl: detectImageValue(item, fields),
-  }));
+  return data.preview.map(item => {
+    let imageUrl = detectImageValue(item, fields);
+    if (!imageUrl && hasImageData) {
+      imageUrl = extractImageFromData(item["imageData"]);
+    }
+
+    const rawCategory = catF ? String(item[catF] || "") : "";
+    const category = extractCategory(rawCategory);
+
+    return {
+      _feedKey: feedDef.key,
+      _supplierName: feedDef.moduleName,
+      _supplierCode: feedDef.moduleCode,
+      _raw: item,
+      _fields: fields,
+      name: nameF ? String(item[nameF] || "") : "",
+      sku: skuF ? String(item[skuF] || "") : "",
+      price: priceF ? String(item[priceF] || "") : "",
+      category,
+      brand: brandF ? String(item[brandF] || "") : "",
+      stock: stockF ? String(item[stockF] || "") : "",
+      description: descF ? String(item[descF] || "") : "",
+      color: colorF ? String(item[colorF] || "") : "",
+      imageUrl,
+    };
+  });
 }
 
 const ITEMS_PER_PAGE = 24;
@@ -838,10 +905,10 @@ export default function ShopViewPage() {
                               </Badge>
                               {item.stock && (
                                 <Badge
-                                  variant={Number(item.stock) > 0 ? "default" : "secondary"}
+                                  variant={isStockPositive(item.stock) ? "default" : "secondary"}
                                   className="absolute top-1.5 right-1.5 text-[9px] px-1.5 py-0"
                                 >
-                                  {Number(item.stock) > 0 ? `${item.stock} ks` : "0"}
+                                  {formatStock(item.stock)}
                                 </Badge>
                               )}
                             </div>
@@ -948,10 +1015,10 @@ export default function ShopViewPage() {
                                     )}
                                     {item.stock && (
                                       <Badge
-                                        variant={Number(item.stock) > 0 ? "default" : "secondary"}
+                                        variant={isStockPositive(item.stock) ? "default" : "secondary"}
                                         className="text-[9px] px-1.5 py-0"
                                       >
-                                        {Number(item.stock) > 0 ? `${item.stock} ks` : "0 ks"}
+                                        {formatStock(item.stock)}
                                       </Badge>
                                     )}
                                   </div>
