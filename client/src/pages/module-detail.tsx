@@ -70,7 +70,7 @@ interface HelpSection {
   content: string;
 }
 
-const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoints?: string[]; authInfo: string; dataFields: string; notes?: string; links?: { label: string; url: string }[] }> = {
+export const MODULE_HELP: Record<string, { description: string; apiInfo: string; endpoints?: string[]; authInfo: string; dataFields: string; notes?: string; links?: { label: string; url: string }[] }> = {
   ONIX: {
     description: "Centrálny ERP systém ONIX od spoločnosti KROS a.s. Slúži ako hlavný zdroj dát (master data) pre celú platformu SyncHub. Všetky ostatné moduly sa synchronizujú práve s ONIX — produkty, ceny, skladové zásoby, objednávky a faktúry.\n\nONIX spravuje kompletný životný cyklus produktu: od vytvorenia skladovej karty, cez naskladnenie, predaj, až po fakturáciu. SyncHub z neho číta aktuálne dáta a zapisuje späť objednávky z e-shopu a CRM.",
     apiInfo: "REST API dostupné na internom serveri (IP: 195.146.148.139). Swagger dokumentácia je priamo na serveri na /onix_api/swagger/ui/index.\n\nAPI podporuje operácie:\n• Čítanie skladových kariet (stock cards) — produkty, varianty, EAN kódy\n• Čítanie a zápis cien (nákupná, manažérska, predajná, akciová)\n• Čítanie skladových zásob v reálnom čase\n• Vytváranie a čítanie objednávok\n• Správa odberateľov a dodávateľov\n• Fakturácia a platobné doklady\n\nFormát: JSON. Stránkovanie cez offset/limit parametre.",

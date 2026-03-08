@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/components/language-provider";
 import { APP_VERSION } from "@shared/version";
+import { MODULE_HELP } from "@/pages/module-detail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Printer, ExternalLink, Download } from "lucide-react";
@@ -25,6 +26,20 @@ const DOCUMENTS = [
   { name: "XD Connects — Data Feed Manual v3", file: "Data_feed_manual_v3_1772750643185.pdf", supplier: "XDCONNECT" },
 ];
 
+function TextBlock({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i) => {
+        if (line.trim() === "") return <br key={i} />;
+        if (line.startsWith("•")) {
+          return <p key={i} className="text-sm leading-relaxed text-muted-foreground pl-4">{line}</p>;
+        }
+        return <p key={i} className="text-sm leading-relaxed text-muted-foreground">{line}</p>;
+      })}
+    </>
+  );
+}
+
 export default function HelpPage() {
   const { t } = useLanguage();
 
@@ -40,9 +55,6 @@ export default function HelpPage() {
       </div>
     );
   }
-
-  const connectedModules = modules?.filter(m => m.status === "connected") || [];
-  const modulesWithDocs = modules?.filter(m => m.docsUrl) || [];
 
   return (
     <div className="p-6 max-w-[900px] print:max-w-none print:p-4">
@@ -66,7 +78,7 @@ export default function HelpPage() {
         <p className="text-sm text-gray-500 mt-1">{APP_VERSION} · {new Date().toLocaleDateString()}</p>
       </div>
 
-      <article className="prose prose-sm dark:prose-invert max-w-none space-y-8" data-testid="help-content">
+      <article className="prose prose-sm dark:prose-invert max-w-none space-y-10" data-testid="help-content">
 
         <section data-testid="section-help-about">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">O aplikácii SyncHub</h2>
@@ -79,62 +91,8 @@ export default function HelpPage() {
           <p className="text-sm leading-relaxed text-muted-foreground mt-2">
             Aktuálna verzia: <strong className="text-foreground font-mono">{APP_VERSION}</strong> ·
             Databáza: PostgreSQL ·
-            Počet modulov: <strong className="text-foreground">{modules?.length || 0}</strong> ·
-            Pripojených: <strong className="text-foreground">{connectedModules.length}</strong>
+            Počet modulov: <strong className="text-foreground">{modules?.length || 0}</strong>
           </p>
-        </section>
-
-        <section data-testid="section-help-modules">
-          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Integrované moduly</h2>
-          <p className="text-sm leading-relaxed text-muted-foreground mb-3">
-            Systém integruje nasledujúce externé služby a dodávateľov. Každý modul má vlastnú
-            konfiguráciu, prístupové údaje a možnosť synchronizácie dát.
-          </p>
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b">
-                  <th className="text-left px-3 py-2 font-medium">Modul</th>
-                  <th className="text-left px-3 py-2 font-medium">Kód</th>
-                  <th className="text-left px-3 py-2 font-medium">API / Auth</th>
-                  <th className="text-left px-3 py-2 font-medium">Dokumentácia</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {modules?.map((mod) => {
-                  const swaggerUrl = mod.config?.swaggerUrl;
-                  return (
-                    <tr key={mod.id} className="hover:bg-muted/30" data-testid={`row-help-module-${mod.code}`}>
-                      <td className="px-3 py-2 font-medium">{mod.name}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{mod.code}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{mod.apiType} · {mod.authType}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          {mod.docsUrl && (
-                            <a href={mod.docsUrl} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                              data-testid={`link-docs-${mod.code}`}>
-                              Docs <ExternalLink className="h-2.5 w-2.5" />
-                            </a>
-                          )}
-                          {swaggerUrl && (
-                            <a href={swaggerUrl} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                              data-testid={`link-swagger-${mod.code}`}>
-                              Swagger <ExternalLink className="h-2.5 w-2.5" />
-                            </a>
-                          )}
-                          {!mod.docsUrl && !swaggerUrl && (
-                            <span className="text-xs text-muted-foreground italic">—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </section>
 
         <section data-testid="section-help-navigation">
@@ -200,11 +158,124 @@ export default function HelpPage() {
           </div>
         </section>
 
+        <section data-testid="section-help-workflow">
+          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Typický pracovný postup</h2>
+          <div className="space-y-2 text-sm leading-relaxed text-muted-foreground">
+            <p><strong className="text-foreground">1.</strong> Nakonfigurujte modul — zadajte API kľúče a URL v záložke Konfigurácia modulu.</p>
+            <p><strong className="text-foreground">2.</strong> Otestujte pripojenie — použite tlačidlo "Test Connection" na overenie funkčnosti.</p>
+            <p><strong className="text-foreground">3.</strong> Overte dáta — v záložke "Dáta Preview" načítajte live náhľad z API.</p>
+            <p><strong className="text-foreground">4.</strong> Vytvorte sync konfiguráciu — definujte zdroj, cieľ a mapovanie polí.</p>
+            <p><strong className="text-foreground">5.</strong> Spustite synchronizáciu — v sekcii Synchronizácia spustite beh a sledujte priebeh.</p>
+            <p><strong className="text-foreground">6.</strong> Skontrolujte výsledky — v logoch a Audit Logu overte úspešnosť operácií.</p>
+          </div>
+        </section>
+
+        <section data-testid="section-help-modules">
+          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Detailná dokumentácia modulov</h2>
+          <p className="text-sm leading-relaxed text-muted-foreground mb-6">
+            Nasleduje kompletná dokumentácia ku každému integrovanému modulu — popis, API informácie,
+            endpointy, autentifikácia, dátové polia a praktické poznámky.
+          </p>
+
+          {modules?.map((mod) => {
+            const help = MODULE_HELP[mod.code];
+            const swaggerUrl = mod.config?.swaggerUrl;
+            if (!help) return null;
+
+            return (
+              <div key={mod.id} className="mb-10 print:break-inside-avoid" data-testid={`help-module-detail-${mod.code}`}>
+                <h3 className="text-base font-semibold mb-1 flex items-center gap-2">
+                  {mod.name}
+                  <span className="text-xs font-mono text-muted-foreground font-normal">({mod.code})</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {mod.apiType} · {mod.authType}
+                  {mod.docsUrl && (
+                    <>
+                      {" · "}
+                      <a href={mod.docsUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-0.5"
+                        data-testid={`link-docs-${mod.code}`}>
+                        Docs <ExternalLink className="h-2.5 w-2.5 inline" />
+                      </a>
+                    </>
+                  )}
+                  {swaggerUrl && (
+                    <>
+                      {" · "}
+                      <a href={swaggerUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-0.5"
+                        data-testid={`link-swagger-${mod.code}`}>
+                        Swagger <ExternalLink className="h-2.5 w-2.5 inline" />
+                      </a>
+                    </>
+                  )}
+                </p>
+
+                <div className="space-y-4 ml-0">
+                  <div>
+                    <h4 className="text-sm font-medium mb-1">Popis</h4>
+                    <TextBlock text={help.description} />
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium mb-1">API informácie</h4>
+                    <TextBlock text={help.apiInfo} />
+                  </div>
+
+                  {help.endpoints && help.endpoints.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-1">Endpointy</h4>
+                      <div className="bg-muted/50 rounded p-3 space-y-0.5">
+                        {help.endpoints.map((ep, i) => (
+                          <p key={i} className="text-xs font-mono text-muted-foreground">{ep}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-sm font-medium mb-1">Autentifikácia</h4>
+                    <TextBlock text={help.authInfo} />
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium mb-1">Dátové polia</h4>
+                    <TextBlock text={help.dataFields} />
+                  </div>
+
+                  {help.notes && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-1">Poznámky</h4>
+                      <TextBlock text={help.notes} />
+                    </div>
+                  )}
+
+                  {help.links && help.links.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-1">Užitočné odkazy</h4>
+                      <div className="flex flex-wrap gap-3">
+                        {help.links.map((link, i) => (
+                          <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+                            {link.label} <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-b mt-6" />
+              </div>
+            );
+          })}
+        </section>
+
         <section data-testid="section-help-documents">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">Dokumenty a manuály dodávateľov</h2>
           <p className="text-sm leading-relaxed text-muted-foreground mb-3">
-            Nasledujúce PDF dokumenty obsahujú technické špecifikácie API a dátových feedov
-            jednotlivých dodávateľov. Tieto manuály sú užitočné pri konfigurácii a riešení problémov.
+            PDF dokumenty s technickými špecifikáciami API a dátových feedov dodávateľov.
           </p>
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
@@ -232,18 +303,6 @@ export default function HelpPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-        </section>
-
-        <section data-testid="section-help-workflow">
-          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Typický pracovný postup</h2>
-          <div className="space-y-2 text-sm leading-relaxed text-muted-foreground">
-            <p><strong className="text-foreground">1.</strong> Nakonfigurujte modul — zadajte API kľúče a URL v záložke Konfigurácia modulu.</p>
-            <p><strong className="text-foreground">2.</strong> Otestujte pripojenie — použite tlačidlo "Test Connection" na overenie funkčnosti.</p>
-            <p><strong className="text-foreground">3.</strong> Overte dáta — v záložke "Dáta Preview" načítajte live náhľad z API.</p>
-            <p><strong className="text-foreground">4.</strong> Vytvorte sync konfiguráciu — definujte zdroj, cieľ a mapovanie polí.</p>
-            <p><strong className="text-foreground">5.</strong> Spustite synchronizáciu — v sekcii Synchronizácia spustite beh a sledujte priebeh.</p>
-            <p><strong className="text-foreground">6.</strong> Skontrolujte výsledky — v logoch a Audit Logu overte úspešnosť operácií.</p>
           </div>
         </section>
 
