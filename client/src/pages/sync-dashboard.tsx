@@ -88,11 +88,13 @@ function formatTimeAgo(date: string | Date): string {
   return `pred ${days}d`;
 }
 
-function ProgressRing({ progress, size = 120, strokeWidth = 8 }: { progress: number; size?: number; strokeWidth?: number }) {
+function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false }: { progress: number; size?: number; strokeWidth?: number; isActive?: boolean }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
   const center = size / 2;
+  const sweepRadius = radius - strokeWidth - 2;
+  const sweepLength = circumference * 0.08;
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
@@ -102,6 +104,16 @@ function ProgressRing({ progress, size = 120, strokeWidth = 8 }: { progress: num
         strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
         className="text-foreground transition-all duration-500"
       />
+      {isActive && progress > 0 && progress < 100 && (
+        <circle
+          cx={center} cy={center} r={sweepRadius} fill="none" stroke="currentColor" strokeWidth={2}
+          strokeDasharray={`${sweepLength} ${2 * Math.PI * sweepRadius - sweepLength}`}
+          strokeLinecap="round"
+          className="text-foreground/30"
+          style={{ animation: "sweep-spin 3s linear infinite", transformOrigin: `${center}px ${center}px` }}
+        />
+      )}
+      <style>{`@keyframes sweep-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </svg>
   );
 }
@@ -225,9 +237,9 @@ function DonutChart({ data, size = 160 }: { data: { label: string; value: number
   );
 }
 
-function TimelineChart({ runs }: { runs: SyncRun[] }) {
+function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }) {
   const days: Record<string, { success: number; error: number; total: number }> = {};
-  for (let i = 6; i >= 0; i--) {
+  for (let i = dayCount - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
@@ -245,27 +257,30 @@ function TimelineChart({ runs }: { runs: SyncRun[] }) {
 
   const entries = Object.entries(days);
   const maxVal = Math.max(1, ...entries.map(([, v]) => v.total));
+  const showEveryNth = dayCount > 14 ? 3 : dayCount > 7 ? 2 : 1;
 
   return (
-    <div className="flex items-end gap-1 h-24">
-      {entries.map(([date, val]) => (
-        <div key={date} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full flex flex-col items-center gap-0.5" style={{ height: "80px" }}>
+    <div className="flex items-end gap-px h-24">
+      {entries.map(([date, val], idx) => (
+        <div key={date} className="flex-1 flex flex-col items-center gap-0.5">
+          <div className="w-full flex flex-col items-center gap-0.5" style={{ height: "76px" }}>
             {val.error > 0 && (
               <div
                 className="w-full bg-destructive/70 rounded-t-sm"
-                style={{ height: `${(val.error / maxVal) * 70}px`, minHeight: val.error > 0 ? "4px" : "0px" }}
+                style={{ height: `${(val.error / maxVal) * 68}px`, minHeight: "3px" }}
               />
             )}
             {val.success > 0 && (
               <div
                 className="w-full bg-foreground rounded-t-sm"
-                style={{ height: `${(val.success / maxVal) * 70}px`, minHeight: val.success > 0 ? "4px" : "0px" }}
+                style={{ height: `${(val.success / maxVal) * 68}px`, minHeight: "3px" }}
               />
             )}
-            {val.total === 0 && <div className="w-full bg-muted/30 rounded-sm" style={{ height: "4px", marginTop: "auto" }} />}
+            {val.total === 0 && <div className="w-full bg-muted/30 rounded-sm" style={{ height: "3px", marginTop: "auto" }} />}
           </div>
-          <span className="text-[9px] text-muted-foreground">{date.slice(5)}</span>
+          {idx % showEveryNth === 0 && (
+            <span className="text-[8px] text-muted-foreground leading-none">{date.slice(5)}</span>
+          )}
         </div>
       ))}
     </div>
@@ -276,6 +291,7 @@ export default function SyncDashboardPage() {
   const { t } = useLanguage();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">("overview");
+  const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -598,7 +614,7 @@ export default function SyncDashboardPage() {
               <CardContent className="px-4 pb-4">
                 <div className="flex flex-col md:flex-row items-center gap-4">
                   <div className="relative">
-                    <ProgressRing progress={trackedRun.progress || 0} />
+                    <ProgressRing progress={trackedRun.progress || 0} isActive={trackedRun.status === "running" || trackedRun.status === "pending"} />
                     <div className="absolute inset-0 flex items-center justify-center">
                       <span className="text-xl font-semibold">{trackedRun.progress || 0}%</span>
                     </div>
@@ -848,10 +864,24 @@ export default function SyncDashboardPage() {
 
               <Card>
                 <CardHeader className="pb-1 pt-3 px-4">
-                  <CardTitle className="text-sm font-medium">{t("syncDash.last7days")}</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">{t("syncDash.last7days")}</CardTitle>
+                    <div className="flex gap-0.5">
+                      {[1, 3, 7, 14, 28].map(d => (
+                        <button
+                          key={d}
+                          data-testid={`button-timeline-${d}d`}
+                          onClick={() => setTimelineDays(d)}
+                          className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${timelineDays === d ? "bg-foreground text-background font-medium" : "text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {d}D
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <TimelineChart runs={runs} />
+                  <TimelineChart runs={runs} dayCount={timelineDays} />
                 </CardContent>
               </Card>
             </div>

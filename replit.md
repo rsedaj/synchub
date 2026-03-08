@@ -111,6 +111,8 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Command Center dashboard**: Spy-film inspired design — COMMAND CENTER header, live clock, pulsing status dots, network topology map, monospace styling, timeline-style recent syncs
 - **2-column test panel**: Test Connection results in 2-column grid to avoid scrolling
 - **Centralized version**: `shared/version.ts` — single source for APP_VERSION used on login page and sidebar
+- **Sweep-hand animation**: ProgressRing shows rotating sweep indicator during active sync (between 0-100%), visual feedback when percentage doesn't change
+- **Timeline range tabs**: 1D/3D/7D/14D/28D selector above timeline chart, default 7D, smart label density for wider ranges
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count
