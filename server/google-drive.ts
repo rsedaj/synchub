@@ -288,6 +288,60 @@ export async function rotateBackups(configId: string, maxBackups: number = 10): 
   return deleted;
 }
 
+export async function cleanupOldFolders(): Promise<{ deleted: string[]; errors: string[] }> {
+  const deleted: string[] = [];
+  const errors: string[] = [];
+  try {
+    const rootQ = `name='${SYNCHUB_SUBFOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${TARGET_FOLDER_ID}' in parents`;
+    const rootRes = await connectors.proxy(
+      "google-drive",
+      `/drive/v3/files?q=${encodeURIComponent(rootQ)}&fields=files(id)&${SD}`,
+      { method: "GET" }
+    );
+    const rootData = await rootRes.json();
+    if (!rootData.files || rootData.files.length === 0) return { deleted, errors };
+
+    const rootId = rootData.files[0].id;
+    const foldersQ = `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const foldersRes = await connectors.proxy(
+      "google-drive",
+      `/drive/v3/files?q=${encodeURIComponent(foldersQ)}&fields=files(id,name)&${SD}`,
+      { method: "GET" }
+    );
+    const foldersData = await foldersRes.json();
+
+    const keepFolders = ["Data", "Config"];
+    for (const folder of (foldersData.files || [])) {
+      if (keepFolders.includes(folder.name)) continue;
+
+      const filesQ = `'${folder.id}' in parents and trashed=false`;
+      const filesRes = await connectors.proxy(
+        "google-drive",
+        `/drive/v3/files?q=${encodeURIComponent(filesQ)}&fields=files(id,name)&${SD}`,
+        { method: "GET" }
+      );
+      const filesData = await filesRes.json();
+      for (const file of (filesData.files || [])) {
+        try {
+          await connectors.proxy("google-drive", `/drive/v3/files/${file.id}?${SD}`, { method: "DELETE" });
+          deleted.push(`${folder.name}/${file.name}`);
+        } catch (e: any) {
+          errors.push(`${folder.name}/${file.name}: ${e.message}`);
+        }
+      }
+      try {
+        await connectors.proxy("google-drive", `/drive/v3/files/${folder.id}?${SD}`, { method: "DELETE" });
+        deleted.push(folder.name);
+      } catch (e: any) {
+        errors.push(`folder ${folder.name}: ${e.message}`);
+      }
+    }
+  } catch (err: any) {
+    errors.push(`cleanup failed: ${err.message}`);
+  }
+  return { deleted, errors };
+}
+
 export async function getStorageStats(): Promise<{ totalFiles: number; totalSize: number; perConfig: Record<string, { count: number; size: number }> }> {
   try {
     const rootQ = `name='${SYNCHUB_SUBFOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${TARGET_FOLDER_ID}' in parents`;

@@ -5,7 +5,7 @@ import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
 import { testModuleConnection, fetchModuleData } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
-import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup } from "./google-drive";
+import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
@@ -881,6 +881,15 @@ export async function registerRoutes(
       return res.json({ message: `Deleted ${backups.length} backups` });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to delete backups" });
+    }
+  });
+
+  app.post("/api/backups/cleanup-old", requireRole("admin"), async (_req, res) => {
+    try {
+      const result = await cleanupOldFolders();
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ message: `Cleanup failed: ${err.message}` });
     }
   });
 
