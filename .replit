@@ -44,4 +44,4 @@ args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["google-drive:1.0.0"]
+integrations = ["google-drive:1.0.0", "github:1.0.0"]

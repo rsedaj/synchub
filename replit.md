@@ -113,6 +113,10 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Centralized version**: `shared/version.ts` — single source for APP_VERSION used on login page and sidebar
 - **Sweep-hand animation**: ProgressRing shows rotating sweep indicator during active sync (between 0-100%), visual feedback when percentage doesn't change
 - **Timeline range tabs**: 1D/3D/7D/14D/28D selector above timeline chart, default 7D, smart label density for wider ranges
+- **Vault blue highlights**: Connected modules show blue badge + blue card border in Vault/Trezor page
+- **Config export/import**: Export all modules + sync configs as JSON, import from JSON file (Backups tab)
+- **Manual backup**: Per-config manual backup button creates Google Drive backup without running sync
+- **GitHub integration**: Repo at github.com/rsedaj/synchub (private), pushed via GitHub API connector
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count
