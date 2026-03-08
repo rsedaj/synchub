@@ -115,7 +115,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Timeline range tabs**: 1D/3D/7D/14D/28D selector above timeline chart, default 7D, smart label density for wider ranges
 - **Vault blue highlights**: Connected modules show blue badge + blue card border in Vault/Trezor page
 - **Config export/import**: Export all modules + sync configs as JSON, import from JSON file (Backups tab)
-- **Config backup to Drive**: Full application config (modules + sync configs) backed up to Google Drive SyncHub_Backups/Config/ with download and delete
+- **Config backup to Drive**: Full application config (modules + sync configs + users — passwords excluded) backed up to Google Drive SyncHub_Backups/Config/ with download, delete, and restore. Restore updates modules (by code), sync configs (by id/name, upsert), users (by username, no password overwrite). Backup format v2.0.
 - **Manual backup**: Per-config manual backup button creates Google Drive backup without running sync
 - **GitHub integration**: Repo at github.com/rsedaj/synchub (private), pushed via GitHub API connector
 - **Donut chart**: Success vs Error vs Other breakdown
@@ -145,4 +145,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.11.0
+- App version: v1.12.0

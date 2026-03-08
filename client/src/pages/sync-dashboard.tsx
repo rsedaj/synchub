@@ -482,7 +482,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     onSuccess: (data) => {
       toast({
         title: t("syncDash.configBackupSuccess"),
-        description: `${data.fileName} (${data.stats.configs} ${t("syncDash.configs")}, ${data.stats.modules} ${t("syncDash.modules")})`,
+        description: `${data.fileName} (${data.stats.configs} ${t("syncDash.configs")}, ${data.stats.modules} ${t("syncDash.modules")}, ${data.stats.users} ${t("syncDash.users")})`,
       });
       refetchConfigDriveBackups();
     },
@@ -498,6 +498,24 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     onSuccess: () => {
       toast({ title: t("syncDash.configBackupDeleted") });
       refetchConfigDriveBackups();
+    },
+  });
+
+  const restoreConfigDriveMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      const res = await apiRequest("POST", `/api/backups/config-restore-from-drive/${fileId}`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: t("syncDash.configRestoreSuccess"),
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/modules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+    },
+    onError: (err: any) => {
+      toast({ title: t("syncDash.configRestoreFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -1508,6 +1526,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Button
+                          variant="outline" size="sm"
+                          onClick={() => setConfirmDialog({ type: "restoreConfigDrive", id: file.id, name: file.name })}
+                          disabled={restoreConfigDriveMutation.isPending}
+                          data-testid={`button-restore-config-drive-${file.id}`}
+                        >
+                          {restoreConfigDriveMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                          )}
+                          {t("syncDash.restore")}
+                        </Button>
+                        <Button
                           variant="ghost" size="sm"
                           onClick={async () => {
                             try {
@@ -1707,17 +1738,20 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
         </>
       )}
 
-      <AlertDialog open={!!confirmDialog} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+      <AlertDialog open={!!confirmDialog} onOpenChange={(open) => { if (!open) setConfirmDialog(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmDialog?.type === "restore" ? t("syncDash.confirmRestore") :
-               confirmDialog?.type === "delete" ? t("syncDash.confirmDelete") :
+               confirmDialog?.type === "restoreConfigDrive" ? t("syncDash.confirmRestoreConfig") :
+               confirmDialog?.type === "delete" || confirmDialog?.type === "deleteConfigDrive" ? t("syncDash.confirmDelete") :
                t("syncDash.confirmDeleteAll")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDialog?.type === "restore"
                 ? t("syncDash.confirmRestoreDesc").replace("{name}", confirmDialog?.name || "")
+                : confirmDialog?.type === "restoreConfigDrive"
+                ? t("syncDash.confirmRestoreConfigDesc").replace("{name}", confirmDialog?.name || "")
                 : confirmDialog?.type === "deleteAll"
                 ? t("syncDash.confirmDeleteAllDesc").replace("{name}", confirmDialog?.name || "")
                 : t("syncDash.confirmDeleteDesc").replace("{name}", confirmDialog?.name || "")}
@@ -1727,16 +1761,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             <AlertDialogCancel data-testid="button-confirm-cancel">{t("syncDash.cancelAction")}</AlertDialogCancel>
             <AlertDialogAction
               data-testid="button-confirm-action"
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
                 if (!confirmDialog) return;
-                if (confirmDialog.type === "restore") restoreBackupMutation.mutate(confirmDialog.id);
-                else if (confirmDialog.type === "delete") deleteBackupMutation.mutate(confirmDialog.id);
-                else if (confirmDialog.type === "deleteAll") deleteAllBackupsMutation.mutate(confirmDialog.id);
-                else if (confirmDialog.type === "deleteConfigDrive") deleteConfigDriveBackupMutation.mutate(confirmDialog.id);
+                const dialog = confirmDialog;
                 setConfirmDialog(null);
+                if (dialog.type === "restore") restoreBackupMutation.mutate(dialog.id);
+                else if (dialog.type === "delete") deleteBackupMutation.mutate(dialog.id);
+                else if (dialog.type === "deleteAll") deleteAllBackupsMutation.mutate(dialog.id);
+                else if (dialog.type === "deleteConfigDrive") deleteConfigDriveBackupMutation.mutate(dialog.id);
+                else if (dialog.type === "restoreConfigDrive") restoreConfigDriveMutation.mutate(dialog.id);
               }}
             >
-              {confirmDialog?.type === "restore" ? t("syncDash.restore") : t("syncDash.delete")}
+              {(confirmDialog?.type === "restore" || confirmDialog?.type === "restoreConfigDrive") ? t("syncDash.restore") : t("syncDash.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

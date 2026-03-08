@@ -780,9 +780,10 @@ export async function registerRoutes(
     try {
       const configs = await storage.getAllSyncConfigs();
       const modules = await storage.getAllModules();
+      const allUsers = await storage.getAllUsers();
 
       const configData = {
-        version: "1.0",
+        version: "2.0",
         appVersion: (await import("@shared/version")).APP_VERSION,
         syncConfigs: configs.map(c => ({
           id: c.id,
@@ -809,8 +810,17 @@ export async function registerRoutes(
           docsUrl: m.docsUrl,
           sortOrder: m.sortOrder,
         })),
+        users: allUsers.map(u => ({
+          id: u.id,
+          username: u.username,
+          fullName: u.fullName,
+          email: u.email,
+          role: u.role,
+          isActive: u.isActive,
+        })),
         totalConfigs: configs.length,
         totalModules: modules.length,
+        totalUsers: allUsers.length,
       };
 
       const driveResult = await uploadConfigBackup(configData);
@@ -824,6 +834,7 @@ export async function registerRoutes(
           fileSize: driveResult.fileSize,
           totalConfigs: configs.length,
           totalModules: modules.length,
+          totalUsers: allUsers.length,
         },
       });
 
@@ -835,6 +846,7 @@ export async function registerRoutes(
         stats: {
           configs: configs.length,
           modules: modules.length,
+          users: allUsers.length,
         },
       });
     } catch (err: any) {
@@ -866,6 +878,156 @@ export async function registerRoutes(
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ message: `Failed to delete config backup: ${err.message}` });
+    }
+  });
+
+  app.post("/api/backups/config-restore-from-drive/:fileId", requireRole("admin"), async (req, res) => {
+    try {
+      const data = await downloadBackup(req.params.fileId);
+      if (!data || (!data.modules && !data.syncConfigs && !data.users)) {
+        return res.status(400).json({ message: "Invalid backup file format" });
+      }
+
+      if (!data.version || !data.type && !data.modules) {
+        return res.status(400).json({ message: "Invalid backup format: missing version or data" });
+      }
+
+      const results = { modules: 0, syncConfigs: 0, users: 0, skipped: [] as string[], errors: [] as string[] };
+
+      const moduleIdMap: Record<string, string> = {};
+
+      if (data.modules && Array.isArray(data.modules)) {
+        const existingModules = await storage.getAllModules();
+        for (const imp of data.modules) {
+          try {
+            const existing = existingModules.find(m => m.code === imp.code);
+            if (existing) {
+              moduleIdMap[imp.id] = existing.id;
+              await storage.updateModule(existing.id, {
+                name: imp.name,
+                description: imp.description,
+                baseUrl: imp.baseUrl,
+                status: imp.status,
+                config: imp.config,
+                dataFields: imp.dataFields,
+                docsUrl: imp.docsUrl,
+                sortOrder: imp.sortOrder,
+              });
+              results.modules++;
+            } else {
+              results.skipped.push(`Module ${imp.code}: not found in current system`);
+            }
+          } catch (e: any) {
+            results.errors.push(`Module ${imp.code}: ${e.message}`);
+          }
+        }
+      }
+
+      if (data.syncConfigs && Array.isArray(data.syncConfigs)) {
+        const existingConfigs = await storage.getAllSyncConfigs();
+        for (const imp of data.syncConfigs) {
+          try {
+            const remappedSourceId = moduleIdMap[imp.sourceModuleId] || imp.sourceModuleId;
+            const remappedTargetId = moduleIdMap[imp.targetModuleId] || imp.targetModuleId;
+
+            const existing = existingConfigs.find(c => c.id === imp.id || c.name === imp.name);
+            if (existing) {
+              await storage.updateSyncConfig(existing.id, {
+                name: imp.name,
+                sourceModuleId: remappedSourceId,
+                targetModuleId: remappedTargetId,
+                fieldMappings: imp.fieldMappings,
+                schedule: imp.schedule,
+                isActive: imp.isActive,
+                syncMode: imp.syncMode,
+                batchSize: imp.batchSize,
+                retryAttempts: imp.retryAttempts,
+                backupBeforeSync: imp.backupBeforeSync,
+              });
+              results.syncConfigs++;
+            } else {
+              const currentModules = await storage.getAllModules();
+              const sourceExists = currentModules.find(m => m.id === remappedSourceId);
+              const targetExists = currentModules.find(m => m.id === remappedTargetId);
+              if (sourceExists && targetExists) {
+                await storage.createSyncConfig({
+                  name: imp.name,
+                  sourceModuleId: remappedSourceId,
+                  targetModuleId: remappedTargetId,
+                  fieldMappings: imp.fieldMappings,
+                  schedule: imp.schedule,
+                  isActive: imp.isActive ?? true,
+                  syncMode: imp.syncMode || "full",
+                  batchSize: imp.batchSize || 50,
+                  retryAttempts: imp.retryAttempts || 3,
+                  backupBeforeSync: imp.backupBeforeSync ?? true,
+                });
+                results.syncConfigs++;
+              } else {
+                results.skipped.push(`Sync config "${imp.name}": source or target module not found after ID remap`);
+              }
+            }
+          } catch (e: any) {
+            results.errors.push(`Sync config "${imp.name}": ${e.message}`);
+          }
+        }
+      }
+
+      if (data.users && Array.isArray(data.users)) {
+        const existingUsers = await storage.getAllUsers();
+        for (const imp of data.users) {
+          try {
+            const existing = existingUsers.find(u => u.username === imp.username);
+            if (existing) {
+              await storage.updateUser(existing.id, {
+                fullName: imp.fullName,
+                email: imp.email,
+                role: imp.role,
+                isActive: imp.isActive,
+              });
+              results.users++;
+            } else {
+              results.skipped.push(`User "${imp.username}": not found, skipped (create users manually)`);
+            }
+          } catch (e: any) {
+            results.errors.push(`User ${imp.username}: ${e.message}`);
+          }
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: (req.user as any)?.id || "system",
+        action: "update",
+        entity: "config_restore_from_drive",
+        details: {
+          fileId: req.params.fileId,
+          backupVersion: data.version,
+          backupAppVersion: data.appVersion,
+          restored: results,
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: `Obnovené: ${results.modules} modulov, ${results.syncConfigs} sync konfigurácií, ${results.users} používateľov`,
+        results,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Config restore failed: ${err.message}` });
+    }
+  });
+
+  app.post("/api/backups/cleanup-stale", requireRole("admin"), async (_req, res) => {
+    try {
+      const allBackups = await storage.getAllSyncBackups();
+      let deleted = 0;
+      for (const b of allBackups) {
+        await storage.deleteSyncBackup(b.id);
+        deleted++;
+      }
+      return res.json({ success: true, deleted });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Cleanup failed: ${err.message}` });
     }
   });
 
