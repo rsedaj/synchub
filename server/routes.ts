@@ -1,5 +1,7 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
+import path from "path";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
@@ -75,6 +77,8 @@ export async function registerRoutes(
 ): Promise<Server> {
   setupAuth(app);
   await seedData();
+
+  app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
   app.use("/api", (_req, res, next) => {
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

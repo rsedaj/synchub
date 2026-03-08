@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,24 +35,37 @@ import {
   Loader2,
   UserCheck,
   UserX,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/schema";
 import { useState } from "react";
 import { useLanguage } from "@/components/language-provider";
+import { useAuth } from "@/lib/auth";
 
 type SafeUser = Omit<User, "password">;
 
 export default function UsersPage() {
   const { toast } = useToast();
   const { t } = useLanguage();
+  const { user: currentUser } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newFullName, setNewFullName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState("operator");
+
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editUser, setEditUser] = useState<SafeUser | null>(null);
+  const [editFullName, setEditFullName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+
+  const [deleteConfirm, setDeleteConfirm] = useState<SafeUser | null>(null);
 
   const { data: users, isLoading } = useQuery<SafeUser[]>({
     queryKey: ["/api/users"],
@@ -68,6 +91,38 @@ export default function UsersPage() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/users/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setEditDialogOpen(false);
+      setEditUser(null);
+      setEditPassword("");
+      toast({ title: t("users.updated"), description: t("users.updatedDesc") });
+    },
+    onError: (err: any) => {
+      toast({ title: t("users.createFailed"), description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/users/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setDeleteConfirm(null);
+      toast({ title: t("users.deleted"), description: t("users.deletedDesc") });
+    },
+    onError: (err: any) => {
+      toast({ title: t("users.deleteFailed"), description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
       const res = await apiRequest("PATCH", `/api/users/${id}`, { isActive });
@@ -88,6 +143,40 @@ export default function UsersPage() {
       email: newEmail || undefined,
       role: newRole,
     });
+  };
+
+  const openEditDialog = (user: SafeUser) => {
+    setEditUser(user);
+    setEditFullName(user.fullName);
+    setEditEmail(user.email || "");
+    setEditRole(user.role);
+    setEditPassword("");
+    setEditDialogOpen(true);
+  };
+
+  const handleEdit = () => {
+    if (!editUser || !editFullName) return;
+    const data: any = {
+      fullName: editFullName,
+      email: editEmail || undefined,
+      role: editRole,
+    };
+    if (editPassword) {
+      data.password = editPassword;
+    }
+    updateMutation.mutate({ id: editUser.id, data });
+  };
+
+  const handleDelete = (user: SafeUser) => {
+    if (user.id === currentUser?.id) {
+      toast({
+        title: t("users.deleteFailed"),
+        description: t("users.cannotDeleteSelf"),
+        variant: "destructive",
+      });
+      return;
+    }
+    setDeleteConfirm(user);
   };
 
   if (isLoading) {
@@ -225,18 +314,23 @@ export default function UsersPage() {
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-medium">{user.fullName}</p>
+                      <p className="text-sm font-medium" data-testid={`text-user-fullname-${user.id}`}>{user.fullName}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs text-muted-foreground">@{user.username}</span>
                         {user.email && (
                           <span className="text-xs text-muted-foreground">{user.email}</span>
                         )}
+                        {user.lastLoginAt && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("users.lastLogin")}: {new Date(user.lastLoginAt).toLocaleDateString()}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="capitalize">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="capitalize" data-testid={`badge-role-${user.id}`}>
                       {user.role}
                     </Badge>
                     <Badge variant={user.isActive ? "default" : "secondary"}>
@@ -250,6 +344,25 @@ export default function UsersPage() {
                     >
                       {user.isActive ? t("users.deactivate") : t("users.activate")}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openEditDialog(user)}
+                      data-testid={`button-edit-${user.id}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(user)}
+                      disabled={user.id === currentUser?.id}
+                      data-testid={`button-delete-${user.id}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -257,6 +370,110 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("users.editUser")}</DialogTitle>
+          </DialogHeader>
+          {editUser && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>{t("users.username")}</Label>
+                <Input value={editUser.username} disabled className="bg-muted" />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("users.fullName")}</Label>
+                <Input
+                  data-testid="input-edit-fullname"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t("users.email")}</Label>
+                  <Input
+                    data-testid="input-edit-email"
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="email@example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("users.role")}</Label>
+                  <Select value={editRole} onValueChange={setEditRole}>
+                    <SelectTrigger data-testid="select-edit-role">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">{t("users.admin")}</SelectItem>
+                      <SelectItem value="operator">{t("users.operator")}</SelectItem>
+                      <SelectItem value="viewer">{t("users.viewer")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("users.newPassword")}</Label>
+                <Input
+                  data-testid="input-edit-password"
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder={t("users.passwordPlaceholder")}
+                />
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleEdit}
+                  disabled={updateMutation.isPending || !editFullName}
+                  data-testid="button-save-edit"
+                >
+                  {updateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  {t("users.saveChanges")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("users.confirmDelete")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm && t("users.confirmDeleteDesc")
+                .replace("{name}", deleteConfirm.fullName)
+                .replace("{username}", deleteConfirm.username)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("syncDash.cancelAction")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteConfirm) {
+                  const userToDelete = deleteConfirm;
+                  setDeleteConfirm(null);
+                  deleteMutation.mutate(userToDelete.id);
+                }
+              }}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              {t("users.deleteUser")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

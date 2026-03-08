@@ -27,6 +27,8 @@ import {
   Moon,
   Languages,
   Store,
+  HelpCircle,
+  Lock,
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -40,6 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 
 const mainNavKeys = [
@@ -49,10 +52,12 @@ const mainNavKeys = [
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
   { key: "sidebar.shopView", url: "/shop-view", icon: Store, testId: "shop-view" },
   { key: "sidebar.backups", url: "/backups", icon: HardDrive, testId: "backups" },
+  { key: "sidebar.help", url: "/help", icon: HelpCircle, testId: "help" },
 ];
 
+const vaultItem = { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor" };
+
 const adminNavKeys = [
-  { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor" },
   { key: "sidebar.users", url: "/users", icon: Users, testId: "users" },
   { key: "sidebar.auditLog", url: "/audit-log", icon: Shield, testId: "audit-log" },
 ];
@@ -80,12 +85,14 @@ function LiveClock() {
 }
 
 export function AppSidebar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { t, language, toggleLanguage } = useLanguage();
   const { state } = useSidebar();
+  const { toast } = useToast();
   const collapsed = state === "collapsed";
+  const isAdmin = user?.role === "admin";
 
   const initials = user?.fullName
     ?.split(" ")
@@ -93,6 +100,18 @@ export function AppSidebar() {
     .join("")
     .toUpperCase()
     .slice(0, 2) || "U";
+
+  const handleVaultClick = (e: React.MouseEvent) => {
+    if (!isAdmin) {
+      e.preventDefault();
+      e.stopPropagation();
+      toast({
+        title: t("sidebar.vault"),
+        description: t("sidebar.vaultAdminOnly"),
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -164,11 +183,57 @@ export function AppSidebar() {
                   )}
                 </SidebarMenuItem>
               ))}
+
+              <SidebarMenuItem>
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <SidebarMenuButton
+                        asChild
+                        data-active={location === vaultItem.url}
+                        className={!isAdmin ? "opacity-60" : ""}
+                      >
+                        {isAdmin ? (
+                          <Link href={vaultItem.url} data-testid={`link-nav-${vaultItem.testId}`}>
+                            <vaultItem.icon className="h-4 w-4" />
+                          </Link>
+                        ) : (
+                          <button onClick={handleVaultClick} data-testid={`link-nav-${vaultItem.testId}`}>
+                            <vaultItem.icon className="h-4 w-4" />
+                          </button>
+                        )}
+                      </SidebarMenuButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {t(vaultItem.key)}{!isAdmin && ` (${t("sidebar.vaultAdminOnly")})`}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <SidebarMenuButton
+                    asChild
+                    data-active={location === vaultItem.url}
+                    className={!isAdmin ? "opacity-60" : ""}
+                  >
+                    {isAdmin ? (
+                      <Link href={vaultItem.url} data-testid={`link-nav-${vaultItem.testId}`}>
+                        <vaultItem.icon className="h-4 w-4" />
+                        <span>{t(vaultItem.key)}</span>
+                      </Link>
+                    ) : (
+                      <button onClick={handleVaultClick} className="flex items-center gap-2 w-full" data-testid={`link-nav-${vaultItem.testId}`}>
+                        <vaultItem.icon className="h-4 w-4" />
+                        <span>{t(vaultItem.key)}</span>
+                        <Lock className="h-3 w-3 ml-auto text-muted-foreground" />
+                      </button>
+                    )}
+                  </SidebarMenuButton>
+                )}
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {user?.role === "admin" && (
+        {isAdmin && (
           <SidebarGroup>
             <SidebarGroupLabel>{collapsed ? "" : t("sidebar.administration")}</SidebarGroupLabel>
             <SidebarGroupContent>

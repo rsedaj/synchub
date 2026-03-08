@@ -286,3 +286,13 @@
     inset: -1px;
   }
 }
+
+@media print {
+  body { background: white !important; color: black !important; }
+  header, nav, aside, footer, [data-testid="button-sidebar-toggle"] { display: none !important; }
+  .print\:hidden { display: none !important; }
+  .print\:block { display: block !important; }
+  main { overflow: visible !important; height: auto !important; }
+  .flex.h-screen { height: auto !important; display: block !important; }
+  * { box-shadow: none !important; }
+}
