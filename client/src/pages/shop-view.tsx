@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/components/language-provider";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -26,12 +27,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  ImageOff,
   SlidersHorizontal,
   X,
   RefreshCw,
   Box,
   FolderOpen,
+  ChevronDown,
+  ChevronUp,
+  Truck,
 } from "lucide-react";
 
 type Module = {
@@ -51,28 +54,56 @@ type DataPreview = {
   error?: string;
 };
 
+type FeedKey = string;
+
+type FeedDef = {
+  key: FeedKey;
+  moduleCode: string;
+  moduleName: string;
+  moduleId: string;
+  source: string;
+  sourceLabel: string;
+};
+
+type NormalizedProduct = {
+  _feedKey: string;
+  _supplierName: string;
+  _supplierCode: string;
+  _raw: Record<string, any>;
+  _fields: string[];
+  name: string;
+  sku: string;
+  price: string;
+  category: string;
+  brand: string;
+  stock: string;
+  description: string;
+  color: string;
+  imageUrl: string | null;
+};
+
 const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
   PROMOTRON: [
-    { value: "feed", label: "XML Feed (Products)" },
+    { value: "feed", label: "XML Feed" },
   ],
   ANDA: [
-    { value: "products", label: "Products (XML)" },
+    { value: "products", label: "Products XML" },
   ],
   MID: [
     { value: "products", label: "Products v2.0" },
   ],
   XDCONNECT: [
     { value: "products", label: "Product Data V5" },
-    { value: "combined", label: "Combined Data V5" },
+    { value: "combined", label: "Combined V5" },
   ],
   EASYGIFTS: [
-    { value: "sku", label: "SKU (Products)" },
+    { value: "sku", label: "SKU Products" },
   ],
   MACMA: [
-    { value: "sku", label: "SKU (Products)" },
+    { value: "sku", label: "SKU Products" },
   ],
   PFCONCEPT: [
-    { value: "products", label: "Product Feed (katalóg)" },
+    { value: "products", label: "Product Feed" },
   ],
   STICKER: [
     { value: "products", label: "Products" },
@@ -89,7 +120,7 @@ const IMAGE_PATTERNS = [
 ];
 
 const NAME_PATTERNS = [
-  "name", "title", "product_name", "ProductName", "short_description",
+  "name", "title", "product_name", "ProductName",
   "Name", "Title", "description_short", "ProductTitle",
 ];
 
@@ -139,18 +170,6 @@ function findField(fields: string[], patterns: string[]): string | null {
   return null;
 }
 
-function findAllFields(fields: string[], patterns: string[]): string[] {
-  const result: string[] = [];
-  for (const f of fields) {
-    for (const p of patterns) {
-      if (f.toLowerCase().includes(p.toLowerCase()) && !result.includes(f)) {
-        result.push(f);
-      }
-    }
-  }
-  return result;
-}
-
 function isImageUrl(val: any): boolean {
   if (typeof val !== "string") return false;
   const lower = val.toLowerCase();
@@ -161,10 +180,13 @@ function isImageUrl(val: any): boolean {
 }
 
 function detectImageValue(record: Record<string, any>, fields: string[]): string | null {
-  const imgFields = findAllFields(fields, IMAGE_PATTERNS);
-  for (const f of imgFields) {
-    const val = record[f];
-    if (val && typeof val === "string" && isImageUrl(val)) return val;
+  for (const p of IMAGE_PATTERNS) {
+    for (const f of fields) {
+      if (f.toLowerCase().includes(p.toLowerCase())) {
+        const val = record[f];
+        if (val && typeof val === "string" && isImageUrl(val)) return val;
+      }
+    }
   }
   for (const f of fields) {
     const val = record[f];
@@ -180,19 +202,68 @@ function formatPrice(val: any): string {
   return num.toFixed(2) + " €";
 }
 
+function normalizeProducts(
+  data: DataPreview,
+  feedDef: FeedDef
+): NormalizedProduct[] {
+  const fields = data.fields;
+  const nameF = findField(fields, NAME_PATTERNS);
+  const priceF = findField(fields, PRICE_PATTERNS);
+  const skuF = findField(fields, SKU_PATTERNS);
+  const catF = findField(fields, CATEGORY_PATTERNS);
+  const brandF = findField(fields, BRAND_PATTERNS);
+  const stockF = findField(fields, STOCK_PATTERNS);
+  const descF = findField(fields, DESC_PATTERNS);
+  const colorF = findField(fields, COLOR_PATTERNS);
+
+  return data.preview.map(item => ({
+    _feedKey: feedDef.key,
+    _supplierName: feedDef.moduleName,
+    _supplierCode: feedDef.moduleCode,
+    _raw: item,
+    _fields: fields,
+    name: nameF ? String(item[nameF] || "") : "",
+    sku: skuF ? String(item[skuF] || "") : "",
+    price: priceF ? String(item[priceF] || "") : "",
+    category: catF ? String(item[catF] || "").trim() : "",
+    brand: brandF ? String(item[brandF] || "") : "",
+    stock: stockF ? String(item[stockF] || "") : "",
+    description: descF ? String(item[descF] || "") : "",
+    color: colorF ? String(item[colorF] || "") : "",
+    imageUrl: detectImageValue(item, fields),
+  }));
+}
+
 const ITEMS_PER_PAGE = 24;
+
+const SUPPLIER_COLORS: Record<string, string> = {
+  MACMA: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  EASYGIFTS: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  PFCONCEPT: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  MID: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+  ANDA: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
+  XDCONNECT: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
+  STICKER: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+  GIVING: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+  PROMOTRON: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+};
 
 export default function ShopViewPage() {
   const { t } = useLanguage();
-  const [selectedModuleId, setSelectedModuleId] = useState<string>("");
-  const [selectedSource, setSelectedSource] = useState<string>("products");
+  const [selectedFeeds, setSelectedFeeds] = useState<Set<FeedKey>>(new Set());
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedSupplier, setSelectedSupplier] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<string>("name");
   const [showFilters, setShowFilters] = useState(true);
-  const [imgErrors, setImgErrors] = useState<Set<number>>(new Set());
+  const [showFeedSelector, setShowFeedSelector] = useState(true);
+  const [imgErrors, setImgErrors] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadedProducts, setLoadedProducts] = useState<NormalizedProduct[]>([]);
+  const [loadErrors, setLoadErrors] = useState<{ feed: string; error: string }[]>([]);
+  const [feedStats, setFeedStats] = useState<Record<FeedKey, number>>({});
 
   const handleSortChange = (val: string) => {
     setSortBy(val);
@@ -203,100 +274,161 @@ export default function ShopViewPage() {
     queryKey: ["/api/modules"],
   });
 
-  const productModules = useMemo(() => {
+  const availableFeeds: FeedDef[] = useMemo(() => {
     if (!modules) return [];
-    return modules.filter(m => PRODUCT_SOURCES[m.code]);
-  }, [modules]);
-
-  const selectedModule = useMemo(() => {
-    return productModules.find(m => m.id === selectedModuleId);
-  }, [productModules, selectedModuleId]);
-
-  const availableSources = useMemo(() => {
-    if (!selectedModule) return [];
-    return PRODUCT_SOURCES[selectedModule.code] || [];
-  }, [selectedModule]);
-
-  const fetchMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest(
-        "GET",
-        `/api/modules/${selectedModuleId}/data-preview?limit=500&source=${selectedSource}`
-      );
-      return res.json() as Promise<DataPreview>;
-    },
-  });
-
-  const data = fetchMutation.data;
-
-  const fieldMapping = useMemo(() => {
-    if (!data?.fields) return null;
-    const fields = data.fields;
-    return {
-      name: findField(fields, NAME_PATTERNS),
-      price: findField(fields, PRICE_PATTERNS),
-      sku: findField(fields, SKU_PATTERNS),
-      category: findField(fields, CATEGORY_PATTERNS),
-      brand: findField(fields, BRAND_PATTERNS),
-      stock: findField(fields, STOCK_PATTERNS),
-      description: findField(fields, DESC_PATTERNS),
-      color: findField(fields, COLOR_PATTERNS),
-      allPrices: findAllFields(fields, PRICE_PATTERNS),
-      allImages: findAllFields(fields, IMAGE_PATTERNS),
-    };
-  }, [data]);
-
-  const categories = useMemo(() => {
-    if (!data?.preview || !fieldMapping?.category) return [];
-    const catField = fieldMapping.category;
-    const catSet = new Set<string>();
-    for (const item of data.preview) {
-      const val = item[catField];
-      if (val && typeof val === "string" && val.trim()) {
-        catSet.add(val.trim());
+    const feeds: FeedDef[] = [];
+    for (const mod of modules) {
+      const sources = PRODUCT_SOURCES[mod.code];
+      if (!sources) continue;
+      for (const src of sources) {
+        feeds.push({
+          key: `${mod.code}:${src.value}`,
+          moduleCode: mod.code,
+          moduleName: mod.name,
+          moduleId: mod.id,
+          source: src.value,
+          sourceLabel: src.label,
+        });
       }
     }
+    return feeds;
+  }, [modules]);
+
+  const feedsByModule = useMemo(() => {
+    const map: Record<string, FeedDef[]> = {};
+    for (const f of availableFeeds) {
+      if (!map[f.moduleCode]) map[f.moduleCode] = [];
+      map[f.moduleCode].push(f);
+    }
+    return map;
+  }, [availableFeeds]);
+
+  const toggleFeed = (key: FeedKey) => {
+    setSelectedFeeds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAllFeeds = () => {
+    setSelectedFeeds(new Set(availableFeeds.map(f => f.key)));
+  };
+
+  const clearAllFeeds = () => {
+    setSelectedFeeds(new Set());
+  };
+
+  const handleImageError = (key: string) => {
+    setImgErrors(prev => new Set(prev).add(key));
+  };
+
+  const handleLoadFeeds = useCallback(async () => {
+    if (selectedFeeds.size === 0) return;
+    setIsLoading(true);
+    setLoadedProducts([]);
+    setLoadErrors([]);
+    setFeedStats({});
+    setCurrentPage(1);
+    setSelectedCategory("all");
+    setSelectedSupplier("all");
+    setSearchQuery("");
+    setImgErrors(new Set());
+
+    const feedsToLoad = availableFeeds.filter(f => selectedFeeds.has(f.key));
+    const allProducts: NormalizedProduct[] = [];
+    const errors: { feed: string; error: string }[] = [];
+    const stats: Record<FeedKey, number> = {};
+
+    const results = await Promise.allSettled(
+      feedsToLoad.map(async (feed) => {
+        const res = await apiRequest(
+          "GET",
+          `/api/modules/${feed.moduleId}/data-preview?limit=500&source=${feed.source}`
+        );
+        const data = await res.json() as DataPreview;
+        return { feed, data };
+      })
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const feedDef = feedsToLoad[i];
+      if (result.status === "fulfilled") {
+        const { data } = result.value;
+        if (data.success && data.preview?.length > 0) {
+          const normalized = normalizeProducts(data, feedDef);
+          allProducts.push(...normalized);
+          stats[feedDef.key] = normalized.length;
+        } else if (data.error) {
+          errors.push({ feed: `${feedDef.moduleName} — ${feedDef.sourceLabel}`, error: data.error });
+        } else {
+          stats[feedDef.key] = 0;
+        }
+      } else {
+        errors.push({
+          feed: `${feedDef.moduleName} — ${feedDef.sourceLabel}`,
+          error: result.reason?.message || "Neznáma chyba",
+        });
+      }
+    }
+
+    setLoadedProducts(allProducts);
+    setLoadErrors(errors);
+    setFeedStats(stats);
+    setIsLoading(false);
+    setShowFeedSelector(false);
+  }, [selectedFeeds, availableFeeds]);
+
+  const suppliers = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of loadedProducts) {
+      set.add(p._supplierCode);
+    }
+    return Array.from(set).sort();
+  }, [loadedProducts]);
+
+  const categories = useMemo(() => {
+    const catSet = new Set<string>();
+    for (const p of loadedProducts) {
+      if (p.category) catSet.add(p.category);
+    }
     return Array.from(catSet).sort();
-  }, [data, fieldMapping]);
+  }, [loadedProducts]);
 
   const filteredItems = useMemo(() => {
-    if (!data?.preview) return [];
-    let items = [...data.preview];
+    let items = [...loadedProducts];
 
-    if (selectedCategory !== "all" && fieldMapping?.category) {
-      items = items.filter(item => {
-        const val = item[fieldMapping.category!];
-        return val && String(val).trim() === selectedCategory;
-      });
+    if (selectedSupplier !== "all") {
+      items = items.filter(p => p._supplierCode === selectedSupplier);
+    }
+
+    if (selectedCategory !== "all") {
+      items = items.filter(p => p.category === selectedCategory);
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      items = items.filter(item => {
-        const nameVal = fieldMapping?.name ? item[fieldMapping.name] : "";
-        const skuVal = fieldMapping?.sku ? item[fieldMapping.sku] : "";
-        const descVal = fieldMapping?.description ? item[fieldMapping.description] : "";
-        const brandVal = fieldMapping?.brand ? item[fieldMapping.brand] : "";
-        return [nameVal, skuVal, descVal, brandVal]
+      items = items.filter(p =>
+        [p.name, p.sku, p.description, p.brand, p.color]
           .filter(Boolean)
-          .some(v => String(v).toLowerCase().includes(q));
-      });
+          .some(v => v.toLowerCase().includes(q))
+      );
     }
 
-    if (sortBy === "name" && fieldMapping?.name) {
-      items.sort((a, b) => String(a[fieldMapping.name!] || "").localeCompare(String(b[fieldMapping.name!] || "")));
-    } else if (sortBy === "price" && fieldMapping?.price) {
-      items.sort((a, b) => {
-        const pa = parseFloat(a[fieldMapping.price!]) || 0;
-        const pb = parseFloat(b[fieldMapping.price!]) || 0;
-        return pa - pb;
-      });
-    } else if (sortBy === "sku" && fieldMapping?.sku) {
-      items.sort((a, b) => String(a[fieldMapping.sku!] || "").localeCompare(String(b[fieldMapping.sku!] || "")));
+    if (sortBy === "name") {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === "price") {
+      items.sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
+    } else if (sortBy === "sku") {
+      items.sort((a, b) => a.sku.localeCompare(b.sku));
+    } else if (sortBy === "supplier") {
+      items.sort((a, b) => a._supplierName.localeCompare(b._supplierName));
     }
 
     return items;
-  }, [data, selectedCategory, searchQuery, sortBy, fieldMapping]);
+  }, [loadedProducts, selectedSupplier, selectedCategory, searchQuery, sortBy]);
 
   const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
   const paginatedItems = filteredItems.slice(
@@ -304,30 +436,7 @@ export default function ShopViewPage() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  const handleImageError = (idx: number) => {
-    setImgErrors(prev => new Set(prev).add(idx));
-  };
-
-  const handleModuleChange = (moduleId: string) => {
-    setSelectedModuleId(moduleId);
-    const mod = productModules.find(m => m.id === moduleId);
-    if (mod && PRODUCT_SOURCES[mod.code]) {
-      setSelectedSource(PRODUCT_SOURCES[mod.code][0].value);
-    }
-    setSearchQuery("");
-    setSelectedCategory("all");
-    setCurrentPage(1);
-    setImgErrors(new Set());
-    fetchMutation.reset();
-  };
-
-  const handleFetch = () => {
-    if (!selectedModuleId) return;
-    setCurrentPage(1);
-    setSearchQuery("");
-    setSelectedCategory("all");
-    fetchMutation.mutate();
-  };
+  const hasData = loadedProducts.length > 0;
 
   return (
     <div className="flex flex-col h-full" data-testid="page-shop-view">
@@ -343,41 +452,24 @@ export default function ShopViewPage() {
           <Separator orientation="vertical" className="h-6 hidden sm:block" />
 
           <div className="flex items-center gap-2 flex-wrap flex-1">
-            <Select value={selectedModuleId} onValueChange={handleModuleChange}>
-              <SelectTrigger className="h-9 w-[200px] text-sm" data-testid="select-shop-module">
-                <SelectValue placeholder={t("shopView.selectModule")} />
-              </SelectTrigger>
-              <SelectContent>
-                {productModules.map(m => (
-                  <SelectItem key={m.id} value={m.id} data-testid={`option-module-${m.code}`}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {availableSources.length > 1 && (
-              <Select value={selectedSource} onValueChange={setSelectedSource}>
-                <SelectTrigger className="h-9 w-[180px] text-sm" data-testid="select-shop-source">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableSources.map(s => (
-                    <SelectItem key={s.value} value={s.value} data-testid={`option-source-${s.value}`}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFeedSelector(!showFeedSelector)}
+              data-testid="button-toggle-feed-selector"
+            >
+              <Package className="h-4 w-4 mr-1" />
+              {t("shopView.feeds")} ({selectedFeeds.size})
+              {showFeedSelector ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
+            </Button>
 
             <Button
               size="sm"
-              onClick={handleFetch}
-              disabled={!selectedModuleId || fetchMutation.isPending}
+              onClick={handleLoadFeeds}
+              disabled={selectedFeeds.size === 0 || isLoading}
               data-testid="button-fetch-shop"
             >
-              {fetchMutation.isPending ? (
+              {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />
               ) : (
                 <RefreshCw className="h-4 w-4 mr-1" />
@@ -385,23 +477,30 @@ export default function ShopViewPage() {
               {t("shopView.loadProducts")}
             </Button>
 
-            {data && (
+            {hasData && (
               <Badge variant="secondary" className="text-xs" data-testid="text-product-count">
-                {filteredItems.length} / {data.preview.length} {t("shopView.products")}
+                {filteredItems.length} / {loadedProducts.length} {t("shopView.products")}
+                {Object.keys(feedStats).length > 1 && (
+                  <span className="ml-1 text-muted-foreground">
+                    ({Object.keys(feedStats).length} {t("shopView.feedsLoaded")})
+                  </span>
+                )}
               </Badge>
             )}
           </div>
 
           <div className="flex items-center gap-1 ml-auto">
-            <Button
-              variant={showFilters ? "default" : "outline"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setShowFilters(!showFilters)}
-              data-testid="button-toggle-filters"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
+            {hasData && (
+              <Button
+                variant={showFilters ? "default" : "outline"}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowFilters(!showFilters)}
+                data-testid="button-toggle-filters"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               variant={viewMode === "grid" ? "default" : "outline"}
               size="icon"
@@ -422,10 +521,69 @@ export default function ShopViewPage() {
             </Button>
           </div>
         </div>
+
+        {showFeedSelector && (
+          <div className="mt-3 border rounded-lg p-3 bg-muted/30" data-testid="panel-feed-selector">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium">{t("shopView.selectFeeds")}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAllFeeds}
+                  className="text-[10px] text-primary hover:underline"
+                  data-testid="button-select-all-feeds"
+                >
+                  {t("shopView.selectAll")}
+                </button>
+                <button
+                  onClick={clearAllFeeds}
+                  className="text-[10px] text-muted-foreground hover:underline"
+                  data-testid="button-clear-all-feeds"
+                >
+                  {t("shopView.clearAll")}
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {Object.entries(feedsByModule).map(([code, feeds]) => (
+                <div key={code} className="border rounded p-2 bg-background">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Badge
+                      variant="outline"
+                      className={`text-[9px] px-1.5 py-0 ${SUPPLIER_COLORS[code] || ""}`}
+                    >
+                      {code}
+                    </Badge>
+                    <span className="text-[11px] font-medium truncate">{feeds[0].moduleName}</span>
+                  </div>
+                  {feeds.map(feed => (
+                    <label
+                      key={feed.key}
+                      className="flex items-center gap-2 py-0.5 cursor-pointer"
+                      data-testid={`checkbox-feed-${feed.key}`}
+                    >
+                      <Checkbox
+                        checked={selectedFeeds.has(feed.key)}
+                        onCheckedChange={() => toggleFeed(feed.key)}
+                      />
+                      <span className="text-xs">
+                        {feed.sourceLabel}
+                        {feedStats[feed.key] !== undefined && (
+                          <span className="text-muted-foreground ml-1">
+                            ({feedStats[feed.key]})
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {showFilters && data && (
+        {showFilters && hasData && (
           <div className="w-56 border-r bg-muted/30 overflow-y-auto flex-shrink-0 p-3 space-y-4" data-testid="panel-filters">
             <div>
               <div className="flex items-center gap-1.5 mb-2">
@@ -468,9 +626,56 @@ export default function ShopViewPage() {
                   <SelectItem value="name">{t("shopView.sortName")}</SelectItem>
                   <SelectItem value="price">{t("shopView.sortPrice")}</SelectItem>
                   <SelectItem value="sku">{t("shopView.sortSku")}</SelectItem>
+                  <SelectItem value="supplier">{t("shopView.sortSupplier")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {suppliers.length > 1 && (
+              <>
+                <Separator />
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-medium">
+                      {t("shopView.supplier")} ({suppliers.length})
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <button
+                      onClick={() => { setSelectedSupplier("all"); setCurrentPage(1); }}
+                      className={`w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${
+                        selectedSupplier === "all"
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-muted"
+                      }`}
+                      data-testid="button-supplier-all"
+                    >
+                      {t("shopView.allSuppliers")}
+                    </button>
+                    {suppliers.map((code) => {
+                      const mod = availableFeeds.find(f => f.moduleCode === code);
+                      const count = loadedProducts.filter(p => p._supplierCode === code).length;
+                      return (
+                        <button
+                          key={code}
+                          onClick={() => { setSelectedSupplier(code); setCurrentPage(1); }}
+                          className={`w-full text-left text-xs px-2 py-1.5 rounded transition-colors flex items-center justify-between ${
+                            selectedSupplier === code
+                              ? "bg-primary text-primary-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                          data-testid={`button-supplier-${code}`}
+                        >
+                          <span className="truncate">{mod?.moduleName || code}</span>
+                          <Badge variant="secondary" className="text-[9px] px-1 py-0 ml-1">{count}</Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
 
             {categories.length > 0 && (
               <>
@@ -482,7 +687,7 @@ export default function ShopViewPage() {
                       {t("shopView.categories")} ({categories.length})
                     </span>
                   </div>
-                  <div className="space-y-0.5 max-h-[300px] overflow-y-auto">
+                  <div className="space-y-0.5 max-h-[250px] overflow-y-auto">
                     <button
                       onClick={() => { setSelectedCategory("all"); setCurrentPage(1); }}
                       className={`w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${
@@ -514,22 +719,17 @@ export default function ShopViewPage() {
               </>
             )}
 
-            {fieldMapping && (
+            {loadErrors.length > 0 && (
               <>
                 <Separator />
                 <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-xs font-medium">{t("shopView.detectedFields")}</span>
-                  </div>
-                  <div className="space-y-1 text-[10px] text-muted-foreground">
-                    {fieldMapping.name && <div>Názov: <span className="font-mono">{fieldMapping.name}</span></div>}
-                    {fieldMapping.price && <div>Cena: <span className="font-mono">{fieldMapping.price}</span></div>}
-                    {fieldMapping.sku && <div>SKU: <span className="font-mono">{fieldMapping.sku}</span></div>}
-                    {fieldMapping.category && <div>Kategória: <span className="font-mono">{fieldMapping.category}</span></div>}
-                    {fieldMapping.brand && <div>Značka: <span className="font-mono">{fieldMapping.brand}</span></div>}
-                    {fieldMapping.stock && <div>Sklad: <span className="font-mono">{fieldMapping.stock}</span></div>}
-                    {fieldMapping.color && <div>Farba: <span className="font-mono">{fieldMapping.color}</span></div>}
+                  <span className="text-xs font-medium text-destructive">{t("shopView.loadErrors")}</span>
+                  <div className="space-y-1 mt-1">
+                    {loadErrors.map((err, i) => (
+                      <div key={i} className="text-[10px] text-destructive/80">
+                        <span className="font-medium">{err.feed}:</span> {err.error}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </>
@@ -538,7 +738,7 @@ export default function ShopViewPage() {
         )}
 
         <div className="flex-1 overflow-y-auto">
-          {!data && !fetchMutation.isPending && (
+          {!hasData && !isLoading && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-4 p-8" data-testid="text-shop-empty">
               <Store className="h-16 w-16 opacity-20" />
               <div className="text-center space-y-2">
@@ -547,11 +747,28 @@ export default function ShopViewPage() {
                   {t("shopView.emptyDesc")}
                 </p>
               </div>
+              {loadErrors.length > 0 && (
+                <div className="mt-4 w-full max-w-lg space-y-2" data-testid="panel-load-errors">
+                  <p className="text-xs font-medium text-destructive">{t("shopView.loadErrors")}</p>
+                  {loadErrors.map((err, i) => (
+                    <Card key={i} className="border-destructive/30 p-3">
+                      <p className="text-xs">
+                        <span className="font-medium">{err.feed}:</span>{" "}
+                        <span className="text-destructive/80">{err.error}</span>
+                      </p>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {fetchMutation.isPending && (
+          {isLoading && (
             <div className="p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">{t("shopView.loadingFeeds")}</span>
+              </div>
               <div className={viewMode === "grid"
                 ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"
                 : "space-y-2"
@@ -583,7 +800,7 @@ export default function ShopViewPage() {
             </div>
           )}
 
-          {data && !fetchMutation.isPending && (
+          {hasData && !isLoading && (
             <>
               {paginatedItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-2">
@@ -595,69 +812,66 @@ export default function ShopViewPage() {
                   {viewMode === "grid" ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                       {paginatedItems.map((item, idx) => {
-                        const imageUrl = detectImageValue(item, data.fields);
-                        const name = fieldMapping?.name ? item[fieldMapping.name] : null;
-                        const price = fieldMapping?.price ? item[fieldMapping.price] : null;
-                        const sku = fieldMapping?.sku ? item[fieldMapping.sku] : null;
-                        const category = fieldMapping?.category ? item[fieldMapping.category] : null;
-                        const brand = fieldMapping?.brand ? item[fieldMapping.brand] : null;
-                        const stock = fieldMapping?.stock ? item[fieldMapping.stock] : null;
-                        const color = fieldMapping?.color ? item[fieldMapping.color] : null;
-
+                        const imgKey = `grid-${currentPage}-${idx}`;
                         return (
                           <Card
-                            key={idx}
-                            className="overflow-hidden group hover:shadow-md transition-shadow cursor-default"
+                            key={imgKey}
+                            className="overflow-hidden group cursor-default"
                             data-testid={`card-product-${idx}`}
                           >
                             <div className="relative aspect-square bg-muted/50 flex items-center justify-center overflow-hidden">
-                              {imageUrl && !imgErrors.has(idx) ? (
+                              {item.imageUrl && !imgErrors.has(imgKey) ? (
                                 <img
-                                  src={imageUrl}
-                                  alt={name || "Product"}
+                                  src={item.imageUrl}
+                                  alt={item.name || "Product"}
                                   className="w-full h-full object-contain p-2"
                                   loading="lazy"
-                                  onError={() => handleImageError(idx)}
+                                  onError={() => handleImageError(imgKey)}
                                 />
                               ) : (
                                 <Box className="h-8 w-8 text-muted-foreground/20" />
                               )}
-                              {stock !== null && stock !== undefined && stock !== "" && (
+                              <Badge
+                                className={`absolute top-1.5 left-1.5 text-[8px] px-1 py-0 ${SUPPLIER_COLORS[item._supplierCode] || ""}`}
+                              >
+                                {item._supplierCode}
+                              </Badge>
+                              {item.stock && (
                                 <Badge
-                                  variant={Number(stock) > 0 ? "default" : "secondary"}
+                                  variant={Number(item.stock) > 0 ? "default" : "secondary"}
                                   className="absolute top-1.5 right-1.5 text-[9px] px-1.5 py-0"
                                 >
-                                  {Number(stock) > 0 ? `${stock} ks` : "0"}
+                                  {Number(item.stock) > 0 ? `${item.stock} ks` : "0"}
                                 </Badge>
                               )}
                             </div>
                             <CardContent className="p-2.5 space-y-1">
                               <p className="text-xs font-medium line-clamp-2 leading-tight min-h-[2rem]" data-testid={`text-product-name-${idx}`}>
-                                {name || t("shopView.noName")}
+                                {item.name || t("shopView.noName")}
                               </p>
-                              {sku && (
+                              {item.sku && (
                                 <p className="text-[10px] text-muted-foreground font-mono truncate" data-testid={`text-product-sku-${idx}`}>
-                                  {sku}
+                                  {item.sku}
                                 </p>
                               )}
-                              {brand && (
+                              {item.brand && (
                                 <Badge variant="outline" className="text-[9px] px-1 py-0">
-                                  {brand}
+                                  {item.brand}
                                 </Badge>
                               )}
-                              {category && (
+                              {item.category && (
                                 <p className="text-[10px] text-muted-foreground truncate">
-                                  {category}
+                                  {item.category}
                                 </p>
                               )}
-                              {color && (
+                              {item.color && (
                                 <p className="text-[10px] text-muted-foreground truncate">
-                                  {color}
+                                  {item.color}
                                 </p>
                               )}
-                              {price !== null && price !== undefined && price !== "" && (
+                              {item.price && (
                                 <p className="text-sm font-bold" data-testid={`text-product-price-${idx}`}>
-                                  {formatPrice(price)}
+                                  {formatPrice(item.price)}
                                 </p>
                               )}
                             </CardContent>
@@ -668,31 +882,22 @@ export default function ShopViewPage() {
                   ) : (
                     <div className="space-y-2">
                       {paginatedItems.map((item, idx) => {
-                        const imageUrl = detectImageValue(item, data.fields);
-                        const name = fieldMapping?.name ? item[fieldMapping.name] : null;
-                        const price = fieldMapping?.price ? item[fieldMapping.price] : null;
-                        const sku = fieldMapping?.sku ? item[fieldMapping.sku] : null;
-                        const category = fieldMapping?.category ? item[fieldMapping.category] : null;
-                        const brand = fieldMapping?.brand ? item[fieldMapping.brand] : null;
-                        const stock = fieldMapping?.stock ? item[fieldMapping.stock] : null;
-                        const desc = fieldMapping?.description ? item[fieldMapping.description] : null;
-                        const color = fieldMapping?.color ? item[fieldMapping.color] : null;
-
+                        const imgKey = `list-${currentPage}-${idx}`;
                         return (
                           <Card
-                            key={idx}
-                            className="p-3 hover:shadow-sm transition-shadow"
+                            key={imgKey}
+                            className="p-3"
                             data-testid={`card-product-${idx}`}
                           >
                             <div className="flex gap-3">
-                              <div className="w-20 h-20 rounded bg-muted/50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                {imageUrl && !imgErrors.has(idx + 10000) ? (
+                              <div className="w-20 h-20 rounded bg-muted/50 flex items-center justify-center flex-shrink-0 overflow-hidden relative">
+                                {item.imageUrl && !imgErrors.has(imgKey) ? (
                                   <img
-                                    src={imageUrl}
-                                    alt={name || "Product"}
+                                    src={item.imageUrl}
+                                    alt={item.name || "Product"}
                                     className="w-full h-full object-contain p-1"
                                     loading="lazy"
-                                    onError={() => handleImageError(idx + 10000)}
+                                    onError={() => handleImageError(imgKey)}
                                   />
                                 ) : (
                                   <Box className="h-6 w-6 text-muted-foreground/20" />
@@ -701,45 +906,52 @@ export default function ShopViewPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0">
-                                    <p className="text-sm font-medium truncate" data-testid={`text-product-name-${idx}`}>
-                                      {name || t("shopView.noName")}
-                                    </p>
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                      <Badge
+                                        className={`text-[8px] px-1 py-0 ${SUPPLIER_COLORS[item._supplierCode] || ""}`}
+                                      >
+                                        {item._supplierCode}
+                                      </Badge>
+                                      <p className="text-sm font-medium truncate" data-testid={`text-product-name-${idx}`}>
+                                        {item.name || t("shopView.noName")}
+                                      </p>
+                                    </div>
                                     <div className="flex items-center gap-2 mt-0.5">
-                                      {sku && (
+                                      {item.sku && (
                                         <span className="text-[10px] text-muted-foreground font-mono" data-testid={`text-product-sku-${idx}`}>
-                                          {sku}
+                                          {item.sku}
                                         </span>
                                       )}
-                                      {brand && (
+                                      {item.brand && (
                                         <Badge variant="outline" className="text-[9px] px-1 py-0">
-                                          {brand}
+                                          {item.brand}
                                         </Badge>
                                       )}
-                                      {category && (
-                                        <span className="text-[10px] text-muted-foreground">{category}</span>
+                                      {item.category && (
+                                        <span className="text-[10px] text-muted-foreground">{item.category}</span>
                                       )}
-                                      {color && (
-                                        <span className="text-[10px] text-muted-foreground">{color}</span>
+                                      {item.color && (
+                                        <span className="text-[10px] text-muted-foreground">{item.color}</span>
                                       )}
                                     </div>
-                                    {desc && (
+                                    {item.description && (
                                       <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1">
-                                        {desc}
+                                        {item.description}
                                       </p>
                                     )}
                                   </div>
                                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                    {price !== null && price !== undefined && price !== "" && (
+                                    {item.price && (
                                       <p className="text-sm font-bold whitespace-nowrap" data-testid={`text-product-price-${idx}`}>
-                                        {formatPrice(price)}
+                                        {formatPrice(item.price)}
                                       </p>
                                     )}
-                                    {stock !== null && stock !== undefined && stock !== "" && (
+                                    {item.stock && (
                                       <Badge
-                                        variant={Number(stock) > 0 ? "default" : "secondary"}
+                                        variant={Number(item.stock) > 0 ? "default" : "secondary"}
                                         className="text-[9px] px-1.5 py-0"
                                       >
-                                        {Number(stock) > 0 ? `${stock} ks` : "0 ks"}
+                                        {Number(item.stock) > 0 ? `${item.stock} ks` : "0 ks"}
                                       </Badge>
                                     )}
                                   </div>
@@ -780,14 +992,6 @@ export default function ShopViewPage() {
                 </div>
               )}
             </>
-          )}
-
-          {data && data.error && (
-            <div className="p-4">
-              <Card className="border-destructive/50 bg-destructive/5 p-4">
-                <p className="text-sm text-destructive">{data.error}</p>
-              </Card>
-            </div>
           )}
         </div>
       </div>
