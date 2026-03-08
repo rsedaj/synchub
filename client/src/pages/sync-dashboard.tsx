@@ -54,6 +54,9 @@ import {
   ArrowUpFromLine,
   Filter,
   FileText,
+  Cloud,
+  FolderOpen,
+  Settings,
 } from "lucide-react";
 import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -464,6 +467,37 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     onSuccess: () => {
       toast({ title: t("syncDash.allBackupsDeleted") });
       queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
+    },
+  });
+
+  const { data: configDriveBackups = [], refetch: refetchConfigDriveBackups, isLoading: isLoadingConfigDrive } = useQuery<any[]>({
+    queryKey: ["/api/backups/config-drive-list"],
+  });
+
+  const configToDriveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/backups/config-to-drive");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: t("syncDash.configBackupSuccess"),
+        description: `${data.fileName} (${data.stats.configs} ${t("syncDash.configs")}, ${data.stats.modules} ${t("syncDash.modules")})`,
+      });
+      refetchConfigDriveBackups();
+    },
+    onError: (err: any) => {
+      toast({ title: t("syncDash.configBackupFailed"), description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteConfigDriveBackupMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      await apiRequest("DELETE", `/api/backups/config-drive/${fileId}`);
+    },
+    onSuccess: () => {
+      toast({ title: t("syncDash.configBackupDeleted") });
+      refetchConfigDriveBackups();
     },
   });
 
@@ -1424,6 +1458,103 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             </div>
           </div>
 
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Cloud className="h-4 w-4" />
+                  {t("syncDash.configDriveBackup")}
+                </CardTitle>
+                <Button
+                  variant="default" size="sm"
+                  onClick={() => configToDriveMutation.mutate()}
+                  disabled={configToDriveMutation.isPending}
+                  data-testid="button-config-to-drive"
+                >
+                  {configToDriveMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Cloud className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  {configToDriveMutation.isPending ? t("syncDash.backupRunning") : t("syncDash.backupConfigToDrive")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">{t("syncDash.configDriveBackupDesc")}</p>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
+                <FolderOpen className="h-3.5 w-3.5" />
+                <span>Google Drive: SyncHub_Backups / Config /</span>
+              </div>
+              {isLoadingConfigDrive ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : configDriveBackups.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">{t("syncDash.noConfigBackups")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {configDriveBackups.map((file: any) => (
+                    <div key={file.id} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`row-config-drive-backup-${file.id}`}>
+                      <div className="flex items-center gap-3">
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">{file.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {file.createdTime ? formatDistanceToNow(new Date(file.createdTime), { addSuffix: true }) : "—"}
+                            {file.size ? ` · ${formatBytes(parseInt(file.size))}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost" size="sm"
+                          onClick={async () => {
+                            try {
+                              const res = await apiRequest("GET", `/api/backups/config-drive-download/${file.id}`);
+                              const data = await res.json();
+                              const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = file.name;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            } catch (err: any) {
+                              toast({ title: t("syncDash.error"), description: err.message, variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`button-download-config-drive-${file.id}`}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="sm"
+                          onClick={() => setConfirmDialog({ type: "deleteConfigDrive", id: file.id, name: file.name })}
+                          data-testid={`button-delete-config-drive-${file.id}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Separator />
+
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            {t("syncDash.dataBackupsTitle")}
+          </h3>
+
+          <div className="text-xs text-muted-foreground flex items-center gap-2 -mt-2">
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>Google Drive: SyncHub_Backups / Data / {new Date().toISOString().slice(0, 10)} / [Modul] /</span>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card>
               <CardContent className="p-4">
@@ -1601,6 +1732,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                 if (confirmDialog.type === "restore") restoreBackupMutation.mutate(confirmDialog.id);
                 else if (confirmDialog.type === "delete") deleteBackupMutation.mutate(confirmDialog.id);
                 else if (confirmDialog.type === "deleteAll") deleteAllBackupsMutation.mutate(confirmDialog.id);
+                else if (confirmDialog.type === "deleteConfigDrive") deleteConfigDriveBackupMutation.mutate(confirmDialog.id);
                 setConfirmDialog(null);
               }}
             >

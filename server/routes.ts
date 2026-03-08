@@ -5,7 +5,7 @@ import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData } from "./seed";
 import { testModuleConnection, fetchModuleData } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
-import { deleteBackupFile, getStorageStats } from "./google-drive";
+import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup } from "./google-drive";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
@@ -734,7 +734,7 @@ export async function registerRoutes(
       } catch {}
 
       const { uploadBackup: doUpload, rotateBackups: doRotate } = await import("./google-drive");
-      const driveResult = await doUpload(config.id, config.name, backupData, "manual");
+      const driveResult = await doUpload(config.id, config.name, backupData, "manual", targetModule.name);
 
       const backup = await storage.createSyncBackup({
         syncConfigId: config.id,
@@ -773,6 +773,99 @@ export async function registerRoutes(
       return res.json({ success: true, backup });
     } catch (err: any) {
       return res.status(500).json({ message: `Manual backup failed: ${err.message}` });
+    }
+  });
+
+  app.post("/api/backups/config-to-drive", requireRole("admin"), async (req, res) => {
+    try {
+      const configs = await storage.getAllSyncConfigs();
+      const modules = await storage.getAllModules();
+
+      const configData = {
+        version: "1.0",
+        appVersion: (await import("@shared/version")).APP_VERSION,
+        syncConfigs: configs.map(c => ({
+          id: c.id,
+          name: c.name,
+          sourceModuleId: c.sourceModuleId,
+          targetModuleId: c.targetModuleId,
+          fieldMappings: c.fieldMappings,
+          schedule: c.schedule,
+          isActive: c.isActive,
+          syncMode: c.syncMode,
+          batchSize: c.batchSize,
+          retryAttempts: c.retryAttempts,
+          backupBeforeSync: c.backupBeforeSync,
+        })),
+        modules: modules.map(m => ({
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          description: m.description,
+          baseUrl: m.baseUrl,
+          status: m.status,
+          config: m.config,
+          dataFields: m.dataFields,
+          docsUrl: m.docsUrl,
+          sortOrder: m.sortOrder,
+        })),
+        totalConfigs: configs.length,
+        totalModules: modules.length,
+      };
+
+      const driveResult = await uploadConfigBackup(configData);
+
+      await storage.createAuditLog({
+        userId: (req.user as any)?.id || "system",
+        action: "create",
+        entity: "config_backup_drive",
+        details: {
+          fileName: driveResult.fileName,
+          fileSize: driveResult.fileSize,
+          totalConfigs: configs.length,
+          totalModules: modules.length,
+        },
+      });
+
+      return res.json({
+        success: true,
+        fileName: driveResult.fileName,
+        fileSize: driveResult.fileSize,
+        webViewLink: driveResult.webViewLink,
+        stats: {
+          configs: configs.length,
+          modules: modules.length,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Config backup to Drive failed: ${err.message}` });
+    }
+  });
+
+  app.get("/api/backups/config-drive-list", requireRole("admin"), async (_req, res) => {
+    try {
+      const files = await listConfigBackups();
+      return res.json(files);
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to list config backups: ${err.message}` });
+    }
+  });
+
+  app.get("/api/backups/config-drive-download/:fileId", requireRole("admin"), async (req, res) => {
+    try {
+      const data = await downloadBackup(req.params.fileId);
+      return res.json(data);
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to download config backup: ${err.message}` });
+    }
+  });
+
+  app.delete("/api/backups/config-drive/:fileId", requireRole("admin"), async (req, res) => {
+    try {
+      await deleteBackupFile(req.params.fileId);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to delete config backup: ${err.message}` });
     }
   });
 

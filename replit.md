@@ -80,7 +80,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 ## Sync Execution Engine (v1.7.1)
 - **4-phase pipeline**: preflight → backup → fetch → sync (tracked in run details.phase)
 - **Backup default ON**: backupBeforeSync defaults to true; user must explicitly disable
-- **Google Drive backups**: Stored in shared drive folder `0AJCiYKbj09exUk9PVA` → SyncHub_Backups/{configId}/
+- **Google Drive backups**: Stored in shared drive folder `0AJCiYKbj09exUk9PVA` → SyncHub_Backups/Data/{YYYY-MM-DD}/{ModuleName}/ for data backups, SyncHub_Backups/Config/ for config backups
 - **Backup rotation**: Max 10 backups per config, auto-delete oldest when exceeded
 - **Real Pipedrive push**: `server/target-push.ts` — POST (create) / PUT (update via `_pipedrive_id`) to Pipedrive API; source `id` stripped to avoid incorrect PUT
 - **Dot-notation field mapping**: `getNestedValue()` in sync-engine supports nested XML/JSON paths like `price.vat` without flattening, preserving original data types
@@ -106,7 +106,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Created/Updated/Failed**: Live counters during sync, breakdown in run history row
 - **Step phase indicator**: Horizontal 4-step indicator showing preflight→backup→fetch→sync with green checkmarks for completed, spinner for active, gray for pending, red X for error
 - **Compact styling**: Reduced font weights (semibold/medium vs bold), tighter padding (p-3/p-4), smaller gaps, professional look
-- **Consolidated menu**: Only 2 sync items in sidebar: "Konfigurácie" (/sync) and "Synchronizácia" (/sync-dashboard with overview/logs/backups tabs)
+- **Consolidated menu**: 3 sync items in sidebar: "Konfigurácie" (/sync), "Synchronizácia" (/sync-dashboard), "Zálohy" (/backups — opens backup management directly)
 - **Multi-select batch sync**: Checkboxes on Quick Sync configs, Select All, "Run Selected (N)" button runs all sequentially with queued/done badges
 - **Command Center dashboard**: Spy-film inspired design — COMMAND CENTER header, live clock, pulsing status dots, network topology map, monospace styling, timeline-style recent syncs
 - **2-column test panel**: Test Connection results in 2-column grid to avoid scrolling
@@ -115,6 +115,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Timeline range tabs**: 1D/3D/7D/14D/28D selector above timeline chart, default 7D, smart label density for wider ranges
 - **Vault blue highlights**: Connected modules show blue badge + blue card border in Vault/Trezor page
 - **Config export/import**: Export all modules + sync configs as JSON, import from JSON file (Backups tab)
+- **Config backup to Drive**: Full application config (modules + sync configs) backed up to Google Drive SyncHub_Backups/Config/ with download and delete
 - **Manual backup**: Per-config manual backup button creates Google Drive backup without running sync
 - **GitHub integration**: Repo at github.com/rsedaj/synchub (private), pushed via GitHub API connector
 - **Donut chart**: Success vs Error vs Other breakdown
@@ -144,4 +145,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.7.1
+- App version: v1.11.0

@@ -196,7 +196,7 @@ async function executeAsync(
           log(`Warning: Could not fetch target data for backup: ${err.message}`);
         }
 
-        const driveResult = await uploadBackup(config.id, config.name, backupData, runId);
+        const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name);
 
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,

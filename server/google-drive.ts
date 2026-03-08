@@ -73,14 +73,33 @@ async function ensureBackupFolder(configId: string): Promise<string> {
   return configFolderId;
 }
 
+async function ensureDataBackupFolder(moduleName: string): Promise<string> {
+  const rootFolderId = await findOrCreateFolder(SYNCHUB_SUBFOLDER, TARGET_FOLDER_ID);
+  const dataFolderId = await findOrCreateFolder("Data", rootFolderId);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const dateFolderId = await findOrCreateFolder(dateStr, dataFolderId);
+  const safeName = moduleName.replace(/[^a-zA-Z0-9_\-. ]/g, "_");
+  const moduleFolderId = await findOrCreateFolder(safeName, dateFolderId);
+  return moduleFolderId;
+}
+
+async function ensureConfigBackupFolder(): Promise<string> {
+  const rootFolderId = await findOrCreateFolder(SYNCHUB_SUBFOLDER, TARGET_FOLDER_ID);
+  const configFolderId = await findOrCreateFolder("Config", rootFolderId);
+  return configFolderId;
+}
+
 export async function uploadBackup(
   configId: string,
   configName: string,
   data: any[],
-  runId: string
+  runId: string,
+  moduleName?: string
 ): Promise<{ fileId: string; fileName: string; fileSize: number; webViewLink: string }> {
   return withRetry(async () => {
-    const folderId = await ensureBackupFolder(configId);
+    const folderId = moduleName
+      ? await ensureDataBackupFolder(moduleName)
+      : await ensureBackupFolder(configId);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `backup_${configName.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`;
     const jsonContent = JSON.stringify({
@@ -136,6 +155,83 @@ export async function uploadBackup(
       webViewLink: uploadData.webViewLink || "",
     };
   }, `uploadBackup(${configName})`);
+}
+
+export async function uploadConfigBackup(
+  configData: any
+): Promise<{ fileId: string; fileName: string; fileSize: number; webViewLink: string }> {
+  return withRetry(async () => {
+    const folderId = await ensureConfigBackupFolder();
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const timeStr = new Date().toISOString().slice(11, 19).replace(/:/g, "-");
+    const fileName = `synchub_config_${dateStr}_${timeStr}.json`;
+    const jsonContent = JSON.stringify({
+      type: "full_config_backup",
+      exportedAt: new Date().toISOString(),
+      ...configData,
+    }, null, 2);
+    const fileSize = Buffer.byteLength(jsonContent, "utf-8");
+
+    const boundary = "synchub_cfg_boundary_" + Date.now();
+    const metadata = JSON.stringify({
+      name: fileName,
+      parents: [folderId],
+      mimeType: "application/json",
+    });
+
+    const multipartBody = [
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      metadata,
+      `--${boundary}`,
+      "Content-Type: application/json",
+      "",
+      jsonContent,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const uploadRes = await connectors.proxy(
+      "google-drive",
+      `/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink&${SD}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+        body: multipartBody,
+      }
+    );
+
+    const uploadData = await uploadRes.json();
+    console.log(`[google-drive] Config backup upload:`, JSON.stringify({ id: uploadData.id, name: uploadData.name }));
+
+    if (!uploadData.id) {
+      throw new Error(`Config backup upload failed: ${JSON.stringify(uploadData)}`);
+    }
+
+    return {
+      fileId: uploadData.id,
+      fileName,
+      fileSize,
+      webViewLink: uploadData.webViewLink || "",
+    };
+  }, "uploadConfigBackup");
+}
+
+export async function listConfigBackups(): Promise<Array<{ id: string; name: string; size: string; createdTime: string }>> {
+  try {
+    const folderId = await ensureConfigBackupFolder();
+    const q = `'${folderId}' in parents and trashed=false`;
+    const res = await connectors.proxy(
+      "google-drive",
+      `/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,createdTime)&orderBy=createdTime desc&${SD}`,
+      { method: "GET" }
+    );
+    const data = await res.json();
+    return data.files || [];
+  } catch (err: any) {
+    console.error(`[google-drive] listConfigBackups failed:`, err.message);
+    return [];
+  }
 }
 
 export async function downloadBackup(fileId: string): Promise<any> {
