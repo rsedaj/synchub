@@ -26,6 +26,7 @@ import {
   Sun,
   Moon,
   Languages,
+  Store,
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -46,6 +47,7 @@ const mainNavKeys = [
   { key: "sidebar.modules", url: "/modules", icon: Puzzle, testId: "modules" },
   { key: "sidebar.syncConfig", url: "/sync", icon: GitBranch, testId: "sync-config" },
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
+  { key: "sidebar.shopView", url: "/shop-view", icon: Store, testId: "shop-view" },
   { key: "sidebar.backups", url: "/backups", icon: HardDrive, testId: "backups" },
 ];
 

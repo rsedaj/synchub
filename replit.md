@@ -118,6 +118,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Config backup to Drive**: Full application config (modules + sync configs + users — passwords excluded) backed up to Google Drive SyncHub_Backups/Config/ with download, delete, and restore. Restore updates modules (by code), sync configs (by id/name, upsert), users (by username, no password overwrite). Backup format v2.0.
 - **Manual backup**: Per-config manual backup button creates Google Drive backup without running sync
 - **GitHub integration**: Repo at github.com/rsedaj/synchub (private), pushed via GitHub API connector
+- **Shop View**: E-shop simulator showing product data from supplier XML/API feeds with grid/list view, categories, search, sort, pagination; route `/shop-view`
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count
@@ -145,4 +146,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.12.0
+- App version: v1.13.0
