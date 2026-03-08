@@ -107,6 +107,10 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - **Step phase indicator**: Horizontal 4-step indicator showing preflight→backup→fetch→sync with green checkmarks for completed, spinner for active, gray for pending, red X for error
 - **Compact styling**: Reduced font weights (semibold/medium vs bold), tighter padding (p-3/p-4), smaller gaps, professional look
 - **Consolidated menu**: Only 2 sync items in sidebar: "Konfigurácie" (/sync) and "Synchronizácia" (/sync-dashboard with overview/logs/backups tabs)
+- **Multi-select batch sync**: Checkboxes on Quick Sync configs, Select All, "Run Selected (N)" button runs all sequentially with queued/done badges
+- **Command Center dashboard**: Spy-film inspired design — COMMAND CENTER header, live clock, pulsing status dots, network topology map, monospace styling, timeline-style recent syncs
+- **2-column test panel**: Test Connection results in 2-column grid to avoid scrolling
+- **Centralized version**: `shared/version.ts` — single source for APP_VERSION used on login page and sidebar
 - **Donut chart**: Success vs Error vs Other breakdown
 - **Timeline chart**: Sync runs over last 7 days
 - **Per-config stats table**: Last run, status, total synced, backup count

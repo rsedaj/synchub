@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Play,
   Square,
@@ -283,6 +284,10 @@ export default function SyncDashboardPage() {
   const [recordsPage, setRecordsPage] = useState(0);
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<string[]>([]);
+  const [batchCompleted, setBatchCompleted] = useState<string[]>([]);
 
   const { data: configs = [] } = useQuery<(SyncConfig & { sourceModule?: any; targetModule?: any })[]>({
     queryKey: ["/api/sync-configs"],
@@ -404,6 +409,66 @@ export default function SyncDashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
     },
   });
+
+  const toggleConfig = (id: string) => {
+    setSelectedConfigs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedConfigs.size === configs.length) {
+      setSelectedConfigs(new Set());
+    } else {
+      setSelectedConfigs(new Set(configs.map(c => c.id)));
+    }
+  };
+
+  const anyRunning = activeRuns.length > 0 || batchRunning;
+
+  const runBatchSync = async () => {
+    const queue = configs.filter(c => selectedConfigs.has(c.id)).map(c => c.id);
+    if (queue.length === 0) return;
+    setBatchRunning(true);
+    setBatchQueue(queue);
+    setBatchCompleted([]);
+
+    for (const configId of queue) {
+      try {
+        const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`);
+        const data = await res.json();
+        setTrackingRunId(data.runId);
+        queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+
+        await new Promise<void>((resolve) => {
+          const check = setInterval(async () => {
+            const runsRes = await fetch("/api/sync-runs");
+            const allRuns: SyncRun[] = await runsRes.json();
+            const thisRun = allRuns.find(r => r.id === data.runId);
+            if (thisRun && (thisRun.status === "success" || thisRun.status === "error" || thisRun.status === "partial")) {
+              clearInterval(check);
+              queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+              resolve();
+            }
+          }, 2000);
+        });
+      } catch (err: any) {
+        toast({ title: t("syncDash.error"), description: err.message, variant: "destructive" });
+      }
+      setBatchCompleted(prev => [...prev, configId]);
+    }
+
+    setBatchRunning(false);
+    setBatchQueue([]);
+    setBatchCompleted([]);
+    setSelectedConfigs(new Set());
+    toast({ title: t("syncDash.batchComplete"), description: t("syncDash.batchCompleteDesc") });
+    queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
+  };
 
   const todayRuns = runs.filter(r => {
     const d = new Date(r.startedAt);
@@ -632,22 +697,67 @@ export default function SyncDashboardPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <Card className="lg:col-span-2">
-              <CardHeader className="pb-2 pt-3 px-4">
+              <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between gap-2 space-y-0">
                 <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
+                {configs.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    {selectedConfigs.size > 0 && (
+                      <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
+                        {t("syncDash.selected").replace("{count}", String(selectedConfigs.size))}
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={runBatchSync}
+                      disabled={selectedConfigs.size === 0 || anyRunning}
+                      data-testid="button-run-selected"
+                    >
+                      {batchRunning ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      {batchRunning
+                        ? t("syncDash.batchRunning").replace("{done}", String(batchCompleted.length)).replace("{total}", String(batchQueue.length))
+                        : t("syncDash.runSelected").replace("{count}", String(selectedConfigs.size))}
+                    </Button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent>
                 {configs.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4">{t("syncDash.noConfigs")}</p>
                 ) : (
                   <div className="space-y-2">
+                    <div className="flex items-center gap-3 px-3 py-1.5">
+                      <Checkbox
+                        checked={configs.length > 0 && selectedConfigs.size === configs.length}
+                        onCheckedChange={toggleAll}
+                        data-testid="checkbox-select-all"
+                      />
+                      <span className="text-xs text-muted-foreground">{t("syncDash.selectAll")}</span>
+                    </div>
                     {configs.map(config => {
                       const lastRun = runs.find(r => r.syncConfigId === config.id);
                       const isRunning = activeRuns.some(r => r.syncConfigId === config.id);
+                      const isInBatch = batchQueue.includes(config.id);
+                      const isBatchDone = batchCompleted.includes(config.id);
                       const schedule = config.schedule as any;
+                      const isSelected = selectedConfigs.has(config.id);
                       return (
-                        <div key={config.id} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`card-config-${config.id}`}>
+                        <div
+                          key={config.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${isSelected ? "bg-muted/40 border-foreground/20" : ""}`}
+                          data-testid={`card-config-${config.id}`}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleConfig(config.id)}
+                            disabled={batchRunning}
+                            data-testid={`checkbox-config-${config.id}`}
+                          />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium truncate">{config.name}</span>
                               {schedule?.backupBeforeSync !== false && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
@@ -655,8 +765,20 @@ export default function SyncDashboardPage() {
                                   {t("syncDash.backup")}
                                 </Badge>
                               )}
+                              {isInBatch && !isBatchDone && !isRunning && (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                  <Clock className="h-3 w-3 mr-0.5" />
+                                  {t("syncDash.queued")}
+                                </Badge>
+                              )}
+                              {isBatchDone && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
+                                  <CheckCircle2 className="h-3 w-3 mr-0.5" />
+                                  {t("syncDash.done")}
+                                </Badge>
+                              )}
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
                               {config.sourceModule && <span>{config.sourceModule.name}</span>}
                               <span>→</span>
                               {config.targetModule && <span>{config.targetModule.name}</span>}
@@ -672,7 +794,7 @@ export default function SyncDashboardPage() {
                           <Button
                             size="sm"
                             onClick={() => startSyncMutation.mutate(config.id)}
-                            disabled={isRunning || startSyncMutation.isPending}
+                            disabled={isRunning || startSyncMutation.isPending || batchRunning}
                             data-testid={`button-run-sync-${config.id}`}
                           >
                             {isRunning ? (

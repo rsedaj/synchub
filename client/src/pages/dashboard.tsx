@@ -17,10 +17,16 @@ import {
   ArrowUpFromLine,
   Zap,
   Minus,
+  Activity,
+  Radio,
+  Shield,
+  Wifi,
+  Server,
+  Globe,
 } from "lucide-react";
 import type { ApiModule, SyncLog } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
 
@@ -42,34 +48,206 @@ interface TestResult {
   responseTime?: number;
 }
 
+function LiveClock() {
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hours = String(time.getHours()).padStart(2, "0");
+  const minutes = String(time.getMinutes()).padStart(2, "0");
+  const seconds = String(time.getSeconds()).padStart(2, "0");
+
+  return (
+    <span className="font-mono text-sm tabular-nums tracking-wider" data-testid="text-live-clock">
+      {hours}
+      <span className="animate-pulse text-emerald-500 dark:text-emerald-400">:</span>
+      {minutes}
+      <span className="animate-pulse text-emerald-500 dark:text-emerald-400">:</span>
+      {seconds}
+    </span>
+  );
+}
+
+function PulsingDot({ color = "emerald" }: { color?: "emerald" | "red" | "amber" }) {
+  const colorClasses = {
+    emerald: "bg-emerald-500",
+    red: "bg-red-500",
+    amber: "bg-amber-500",
+  };
+  const glowClasses = {
+    emerald: "bg-emerald-500/40",
+    red: "bg-red-500/40",
+    amber: "bg-amber-500/40",
+  };
+
+  return (
+    <span className="relative flex h-2 w-2">
+      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${glowClasses[color]}`} />
+      <span className={`relative inline-flex rounded-full h-2 w-2 ${colorClasses[color]}`} />
+    </span>
+  );
+}
+
+function CommandCenterHeader({ data }: { data: DashboardData }) {
+  const { t } = useLanguage();
+  const systemOk = data.errorSyncs === 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/10 dark:bg-emerald-500/15">
+            <Shield className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight font-mono uppercase" data-testid="text-dashboard-title">
+              {t("dashboard.commandCenter")}
+            </h1>
+            <p className="text-[11px] text-muted-foreground font-mono tracking-wide">
+              {t("dashboard.subtitle")}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 border border-border">
+            <PulsingDot color={systemOk ? "emerald" : "red"} />
+            <span className="text-xs font-mono tracking-wide text-muted-foreground" data-testid="text-system-status">
+              {systemOk ? t("dashboard.systemOnline") : t("dashboard.systemAlert")}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 border border-border">
+            <Clock className="h-3 w-3 text-muted-foreground" />
+            <LiveClock />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({
   title,
   value,
   icon: Icon,
   subtitle,
   testId,
+  accentColor = "default",
 }: {
   title: string;
   value: string | number;
   icon: any;
   subtitle?: string;
   testId: string;
+  accentColor?: "default" | "emerald" | "red" | "amber";
 }) {
+  const iconBgClasses = {
+    default: "bg-muted",
+    emerald: "bg-emerald-500/10 dark:bg-emerald-500/15",
+    red: "bg-red-500/10 dark:bg-red-500/15",
+    amber: "bg-amber-500/10 dark:bg-amber-500/15",
+  };
+  const iconColorClasses = {
+    default: "text-muted-foreground",
+    emerald: "text-emerald-600 dark:text-emerald-400",
+    red: "text-red-600 dark:text-red-400",
+    amber: "text-amber-600 dark:text-amber-400",
+  };
+  const dotColor = accentColor === "emerald" ? "emerald" : accentColor === "red" ? "red" : accentColor === "amber" ? "amber" : "emerald";
+
   return (
     <Card>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-xl font-semibold mt-0.5 tracking-tight" data-testid={testId}>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">{title}</p>
+              <PulsingDot color={dotColor} />
+            </div>
+            <p className="text-2xl font-bold mt-1 font-mono tabular-nums tracking-tight" data-testid={testId}>
               {value}
             </p>
             {subtitle && (
-              <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">{subtitle}</p>
             )}
           </div>
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          <div className={`flex h-8 w-8 items-center justify-center rounded-md ${iconBgClasses[accentColor]}`}>
+            <Icon className={`h-3.5 w-3.5 ${iconColorClasses[accentColor]}`} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NetworkTopology({ modules }: { modules: ApiModule[] }) {
+  const { t } = useLanguage();
+  const connected = modules.filter(m => m.status === "connected").length;
+  const total = modules.length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Globe className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.networkMap")}</h2>
+          </div>
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {connected}/{total} {t("dashboard.nodesActive")}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 pb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+          {modules.map((mod) => {
+            const isConnected = mod.status === "connected";
+            const isError = mod.status === "error";
+            return (
+              <div
+                key={mod.id}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-md border border-border"
+                data-testid={`node-${mod.code}`}
+              >
+                <div className={`relative flex h-8 w-8 items-center justify-center rounded-full ${
+                  isConnected
+                    ? "bg-emerald-500/10 dark:bg-emerald-500/15"
+                    : isError
+                      ? "bg-red-500/10 dark:bg-red-500/15"
+                      : "bg-muted"
+                }`}>
+                  {isConnected ? (
+                    <Wifi className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : isError ? (
+                    <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  ) : (
+                    <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className="absolute -top-0.5 -right-0.5">
+                    <PulsingDot color={isConnected ? "emerald" : isError ? "red" : "amber"} />
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground text-center truncate w-full">
+                  {mod.code}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-center gap-6 mt-3 pt-3 border-t border-border">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-[10px] text-muted-foreground font-mono">{t("dashboard.signalOnline")}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            <span className="text-[10px] text-muted-foreground font-mono">{t("dashboard.signalError")}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            <span className="text-[10px] text-muted-foreground font-mono">{t("dashboard.signalOffline")}</span>
           </div>
         </div>
       </CardContent>
@@ -92,7 +270,7 @@ function StatusBadge({ status }: { status: string }) {
 function SyncStatusIcon({ status }: { status: string }) {
   switch (status) {
     case "success":
-      return <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />;
+      return <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
     case "error":
       return <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />;
     case "running":
@@ -100,14 +278,14 @@ function SyncStatusIcon({ status }: { status: string }) {
     case "pending":
       return <Clock className="h-4 w-4 text-muted-foreground" />;
     default:
-      return <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />;
+      return <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />;
   }
 }
 
 function TestResultIcon({ status }: { status: TestResult["status"] }) {
   switch (status) {
     case "success":
-      return <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />;
+      return <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
     case "error":
       return <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />;
     case "testing":
@@ -115,6 +293,159 @@ function TestResultIcon({ status }: { status: TestResult["status"] }) {
     default:
       return <Minus className="h-4 w-4 text-muted-foreground/40" />;
   }
+}
+
+function ModuleStatusPanel({ modules }: { modules: ApiModule[] }) {
+  const { t } = useLanguage();
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.moduleStatus")}</h2>
+          </div>
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {modules.filter(m => m.status === "connected").length} / {modules.length}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-0.5">
+          {modules.map((mod, idx) => {
+            const isConnected = mod.status === "connected";
+            const isError = mod.status === "error";
+            return (
+              <div
+                key={mod.id}
+                className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-md hover-elevate"
+                data-testid={`row-module-${mod.code}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`relative flex h-8 w-8 items-center justify-center rounded-md flex-shrink-0 ${
+                    isConnected
+                      ? "bg-emerald-500/10 dark:bg-emerald-500/15"
+                      : isError
+                        ? "bg-red-500/10 dark:bg-red-500/15"
+                        : "bg-muted"
+                  }`}>
+                    {isConnected ? (
+                      <Link2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    ) : mod.status === "configuring" ? (
+                      <Settings2 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <Puzzle className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                        {String(mod.sortOrder).padStart(2, "0")}
+                      </span>
+                      <p className="text-sm font-medium truncate">{mod.name}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">{mod.code}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <PulsingDot color={isConnected ? "emerald" : isError ? "red" : "amber"} />
+                  <StatusBadge status={mod.status} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentSyncsPanel({ syncs, modules }: { syncs: SyncLog[]; modules: ApiModule[] }) {
+  const { t } = useLanguage();
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.recentSync")}</h2>
+          </div>
+          {syncs.length > 0 && (
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {syncs.length} {t("dashboard.signals")}
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {syncs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Radio className="h-8 w-8 text-muted-foreground/20 mb-3" />
+            <p className="text-sm text-muted-foreground font-mono">{t("dashboard.noSyncActivity")}</p>
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              {t("dashboard.syncWillAppear")}
+            </p>
+          </div>
+        ) : (
+          <div className="relative">
+            <div className="absolute left-[19px] top-2 bottom-2 w-px bg-border" />
+            <div className="space-y-0.5">
+              {syncs.map((log) => {
+                const mod = modules.find(m => m.id === log.moduleId);
+                const isSuccess = log.status === "success";
+                const isError = log.status === "error";
+                return (
+                  <div
+                    key={log.id}
+                    className="flex items-center gap-3 py-2.5 px-3 rounded-md relative"
+                    data-testid={`row-sync-${log.id}`}
+                  >
+                    <div className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full flex-shrink-0 ${
+                      isSuccess
+                        ? "bg-emerald-500/10 dark:bg-emerald-500/15"
+                        : isError
+                          ? "bg-red-500/10 dark:bg-red-500/15"
+                          : "bg-muted"
+                    }`}>
+                      <SyncStatusIcon status={log.status} />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 flex-1 min-w-0">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium truncate">
+                            {mod?.name || "Unknown"}
+                          </p>
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            {log.direction === "import" ? (
+                              <ArrowDownToLine className="h-3 w-3" />
+                            ) : (
+                              <ArrowUpFromLine className="h-3 w-3" />
+                            )}
+                            <span className="text-[10px] uppercase font-mono">{log.direction}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {log.recordsProcessed} {t("dashboard.records")}
+                          {log.recordsFailed ? ` (${log.recordsFailed} ${t("dashboard.failed")})` : ""}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+                        {log.startedAt
+                          ? formatDistanceToNow(new Date(log.startedAt), { addSuffix: true })
+                          : "\u2014"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function TestAllPanel({ modules }: { modules: ApiModule[] }) {
@@ -184,10 +515,10 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
   return (
     <Card data-testid="card-test-all">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">{t("dashboard.testAll")}</h2>
+            <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.testAll")}</h2>
           </div>
           <Button
             size="sm"
@@ -219,10 +550,10 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
         {results.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <Zap className="h-8 w-8 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground font-mono">
               {t("dashboard.testAllDesc", { count: total })}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
               {t("dashboard.testAllProgress")}
             </p>
           </div>
@@ -230,7 +561,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground font-medium">
+                <span className="text-muted-foreground font-mono tracking-wide">
                   {isRunning
                     ? `${t("dashboard.testing")} ${sorted[currentIndex]?.name || ""}...`
                     : isDone
@@ -241,13 +572,13 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                 <div className="flex items-center gap-3">
                   {testedCount > 0 && (
                     <>
-                      <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                         <CheckCircle2 className="h-3 w-3" />
-                        {successCount}
+                        <span className="font-mono">{successCount}</span>
                       </span>
                       <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
                         <XCircle className="h-3 w-3" />
-                        {errorCount}
+                        <span className="font-mono">{errorCount}</span>
                       </span>
                     </>
                   )}
@@ -263,8 +594,8 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                   style={{
                     width: `${progressPercent}%`,
                     background: errorCount > 0 && !isRunning
-                      ? `linear-gradient(90deg, hsl(142 76% 36%) ${(successCount / testedCount) * 100}%, hsl(0 84% 60%) ${(successCount / testedCount) * 100}%)`
-                      : "hsl(142 76% 36%)",
+                      ? `linear-gradient(90deg, hsl(152 82% 39%) ${(successCount / testedCount) * 100}%, hsl(0 84% 60%) ${(successCount / testedCount) * 100}%)`
+                      : "hsl(152 82% 39%)",
                   }}
                   data-testid="progress-bar-fill"
                 />
@@ -280,7 +611,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
               </div>
             </div>
 
-            <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-[400px] overflow-y-auto">
               {results.map((result, idx) => (
                 <div
                   key={result.id}
@@ -288,7 +619,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                     result.status === "testing"
                       ? "bg-muted/80 ring-1 ring-foreground/10"
                       : result.status === "success"
-                        ? "bg-green-500/5"
+                        ? "bg-emerald-500/5"
                         : result.status === "error"
                           ? "bg-red-500/5"
                           : ""
@@ -299,7 +630,7 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                     <TestResultIcon status={result.status} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-mono w-5">
+                        <span className="text-[10px] text-muted-foreground font-mono tabular-nums w-5">
                           {String(idx + 1).padStart(2, "0")}
                         </span>
                         <span className={`text-sm font-medium truncate ${
@@ -308,12 +639,12 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
                         }`}>
                           {result.name}
                         </span>
-                        <span className="text-xs text-muted-foreground font-mono">
+                        <span className="text-[10px] text-muted-foreground font-mono">
                           {result.code}
                         </span>
                       </div>
                       {result.message && (result.status === "success" || result.status === "error") && (
-                        <p className={`text-xs mt-0.5 truncate max-w-[300px] ${
+                        <p className={`text-xs mt-0.5 truncate max-w-[300px] font-mono ${
                           result.status === "error"
                             ? "text-red-600 dark:text-red-400"
                             : "text-muted-foreground"
@@ -326,18 +657,18 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
 
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {result.responseTime !== undefined && result.responseTime > 0 && (
-                      <span className="text-xs text-muted-foreground tabular-nums font-mono">
+                      <span className="text-[10px] text-muted-foreground tabular-nums font-mono">
                         {result.responseTime}ms
                       </span>
                     )}
                     {result.status === "success" && (
-                      <Badge variant="default" className="text-[10px] h-5">OK</Badge>
+                      <Badge variant="default" className="text-[10px] h-5 font-mono">OK</Badge>
                     )}
                     {result.status === "error" && (
-                      <Badge variant="destructive" className="text-[10px] h-5">FAIL</Badge>
+                      <Badge variant="destructive" className="text-[10px] h-5 font-mono">FAIL</Badge>
                     )}
                     {result.status === "testing" && (
-                      <Badge variant="outline" className="text-[10px] h-5 animate-pulse">TESTING</Badge>
+                      <Badge variant="outline" className="text-[10px] h-5 animate-pulse font-mono">SCAN</Badge>
                     )}
                   </div>
                 </div>
@@ -345,9 +676,9 @@ function TestAllPanel({ modules }: { modules: ApiModule[] }) {
             </div>
 
             {isDone && (
-              <div className={`flex items-center justify-center gap-2 py-3 px-4 rounded-md text-sm font-medium ${
+              <div className={`flex items-center justify-center gap-2 py-3 px-4 rounded-md text-sm font-medium font-mono ${
                 errorCount === 0
-                  ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                   : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
               }`} data-testid="test-all-summary">
                 {errorCount === 0 ? (
@@ -400,14 +731,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-[1400px]">
-      <div>
-        <h1 className="text-lg font-medium tracking-tight" data-testid="text-dashboard-title">
-          {t("dashboard.title")}
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {t("dashboard.subtitle")}
-        </p>
-      </div>
+      <CommandCenterHeader data={data} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
@@ -415,6 +739,7 @@ export default function DashboardPage() {
           value={data.totalModules}
           icon={Puzzle}
           testId="stat-total-modules"
+          accentColor="emerald"
         />
         <StatCard
           title={t("dashboard.connected")}
@@ -422,12 +747,14 @@ export default function DashboardPage() {
           icon={Link2}
           subtitle={`${data.totalModules - data.connectedModules} ${t("dashboard.disconnected")}`}
           testId="stat-connected-modules"
+          accentColor="emerald"
         />
         <StatCard
           title={t("dashboard.todaySyncs")}
           value={data.todaySyncs}
           icon={ArrowLeftRight}
           testId="stat-today-syncs"
+          accentColor="default"
         />
         <StatCard
           title={t("dashboard.errorsToday")}
@@ -435,109 +762,17 @@ export default function DashboardPage() {
           icon={AlertTriangle}
           subtitle={data.errorSyncs > 0 ? t("dashboard.requiresAttention") : t("dashboard.allClear")}
           testId="stat-error-syncs"
+          accentColor={data.errorSyncs > 0 ? "red" : "emerald"}
         />
       </div>
+
+      <NetworkTopology modules={data.moduleStatuses} />
 
       <TestAllPanel modules={data.moduleStatuses} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2 pt-3 px-4">
-            <div className="flex items-center gap-2">
-              <Puzzle className="h-3.5 w-3.5 text-muted-foreground" />
-              <h2 className="text-sm font-medium">{t("dashboard.moduleStatus")}</h2>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-1">
-              {data.moduleStatuses.map((mod) => (
-                <div
-                  key={mod.id}
-                  className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-md hover-elevate"
-                  data-testid={`row-module-${mod.code}`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted flex-shrink-0">
-                      {mod.status === "connected" ? (
-                        <Link2 className="h-3.5 w-3.5 text-foreground" />
-                      ) : mod.status === "configuring" ? (
-                        <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
-                        <Puzzle className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{mod.sortOrder.toString().padStart(2, "0")}. {mod.name}</p>
-                      <p className="text-xs text-muted-foreground">{mod.code}</p>
-                    </div>
-                  </div>
-                  <StatusBadge status={mod.status} />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2 pt-3 px-4">
-            <div className="flex items-center gap-2">
-              <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
-              <h2 className="text-sm font-medium">{t("dashboard.recentSync")}</h2>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {data.recentSyncs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <ArrowLeftRight className="h-8 w-8 text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">{t("dashboard.noSyncActivity")}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t("dashboard.syncWillAppear")}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {data.recentSyncs.map((log) => {
-                  const mod = data.moduleStatuses.find(m => m.id === log.moduleId);
-                  return (
-                    <div
-                      key={log.id}
-                      className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-md"
-                      data-testid={`row-sync-${log.id}`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <SyncStatusIcon status={log.status} />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium truncate">
-                              {mod?.name || "Unknown"}
-                            </p>
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              {log.direction === "import" ? (
-                                <ArrowDownToLine className="h-3 w-3" />
-                              ) : (
-                                <ArrowUpFromLine className="h-3 w-3" />
-                              )}
-                              <span className="text-xs capitalize">{log.direction}</span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {log.recordsProcessed} {t("dashboard.records")}
-                            {log.recordsFailed ? ` (${log.recordsFailed} ${t("dashboard.failed")})` : ""}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {log.startedAt
-                          ? formatDistanceToNow(new Date(log.startedAt), { addSuffix: true })
-                          : "\u2014"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <ModuleStatusPanel modules={data.moduleStatuses} />
+        <RecentSyncsPanel syncs={data.recentSyncs} modules={data.moduleStatuses} />
       </div>
     </div>
   );

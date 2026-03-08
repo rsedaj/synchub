@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/components/language-provider";
+import { APP_VERSION } from "@shared/version";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -45,7 +46,7 @@ export default function LoginPage() {
               SyncHub
             </h1>
             <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded" data-testid="text-login-version">
-              v1.6.3
+              {APP_VERSION}
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
