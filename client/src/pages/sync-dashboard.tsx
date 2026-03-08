@@ -1502,7 +1502,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             <CardContent>
               <div className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
                 <FolderOpen className="h-3.5 w-3.5" />
-                <span>Google Drive: SyncHub_Backups / Config /</span>
+                <span>SEDAJ Cloud: SyncHub_Backups / Config /</span>
               </div>
               {isLoadingConfigDrive ? (
                 <div className="flex items-center justify-center py-6">
@@ -1583,7 +1583,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
           <div className="text-xs text-muted-foreground flex items-center gap-2 -mt-2">
             <FolderOpen className="h-3.5 w-3.5" />
-            <span>Google Drive: SyncHub_Backups / Data / {new Date().toISOString().slice(0, 10)} / [Modul] /</span>
+            <span>SEDAJ Cloud: SyncHub_Backups / Data / {new Date().toISOString().slice(0, 10)} / [Modul] /</span>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1701,7 +1701,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                     data-testid={`link-drive-${backup.id}`}
                                   >
                                     <ExternalLink className="h-3 w-3" />
-                                    Google Drive
+                                    SEDAJ Cloud
                                   </a>
                                 </>
                               )}

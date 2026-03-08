@@ -71,14 +71,14 @@ export default function HelpPage() {
         <section data-testid="section-help-about">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">O aplikácii SyncHub</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            SyncHub je modulárna integračná platforma pre spoločnosť SEDAJ s.r.o. / Hauerland.
+            SyncHub je modulárna integračná platforma.
             Slúži na prepojenie interného ERP systému ONIX s externými dodávateľskými systémami,
             CRM (Pipedrive) a e-shopom. Aplikácia umožňuje konfiguráciu, synchronizáciu a monitoring
             dátových tokov medzi systémami v reálnom čase.
           </p>
           <p className="text-sm leading-relaxed text-muted-foreground mt-2">
             Aktuálna verzia: <strong className="text-foreground font-mono">{APP_VERSION}</strong> ·
-            Platforma: Replit · Databáza: PostgreSQL ·
+            Databáza: PostgreSQL ·
             Počet modulov: <strong className="text-foreground">{modules?.length || 0}</strong> ·
             Pripojených: <strong className="text-foreground">{connectedModules.length}</strong>
           </p>
@@ -97,7 +97,6 @@ export default function HelpPage() {
                   <th className="text-left px-3 py-2 font-medium">Modul</th>
                   <th className="text-left px-3 py-2 font-medium">Kód</th>
                   <th className="text-left px-3 py-2 font-medium">API / Auth</th>
-                  <th className="text-left px-3 py-2 font-medium">Stav</th>
                   <th className="text-left px-3 py-2 font-medium">Dokumentácia</th>
                 </tr>
               </thead>
@@ -109,13 +108,6 @@ export default function HelpPage() {
                       <td className="px-3 py-2 font-medium">{mod.name}</td>
                       <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{mod.code}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{mod.apiType} · {mod.authType}</td>
-                      <td className="px-3 py-2">
-                        <span className={`inline-block text-xs px-1.5 py-0.5 rounded ${
-                          mod.status === "connected" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
-                          mod.status === "error" ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" :
-                          "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                        }`}>{mod.status}</span>
-                      </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           {mod.docsUrl && (
@@ -176,7 +168,7 @@ export default function HelpPage() {
             </p>
             <p>
               <strong className="text-foreground">Zálohy</strong> — správa dátových záloh a záloh
-              konfigurácie na Google Drive. Automatické zálohovanie pred synchronizáciou,
+              konfigurácie na SEDAJ Cloud. Automatické zálohovanie pred synchronizáciou,
               možnosť manuálnej zálohy a obnovy.
             </p>
             <p>
