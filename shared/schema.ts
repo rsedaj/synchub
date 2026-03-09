@@ -51,7 +51,7 @@ export const syncLogs = pgTable("sync_logs", {
   triggeredBy: varchar("triggered_by").references(() => users.id),
 });
 
-export const auditActionEnum = pgEnum("audit_action", ["login", "logout", "create", "update", "delete", "sync", "config_change", "sync_run", "restore_backup", "delete_backup"]);
+export const auditActionEnum = pgEnum("audit_action", ["login", "logout", "create", "update", "delete", "sync", "config_change", "sync_run", "sync_complete", "restore_backup", "delete_backup"]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

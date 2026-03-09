@@ -170,6 +170,15 @@ async function executeAsync(
         completedAt: new Date(),
         details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
       });
+      try {
+        await storage.createAuditLog({
+          userId: config.createdBy || "system",
+          action: "sync_complete",
+          entity: "sync_config",
+          entityId: config.id,
+          details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: "No field mappings configured", duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+        });
+      } catch {}
       activeRuns.delete(runId);
       return;
     }
@@ -235,6 +244,15 @@ async function executeAsync(
           completedAt: new Date(),
           details: { phase: "error", backupError: err.message, phaseHistory: buildErrorPhaseHistory("backup") },
         });
+        try {
+          await storage.createAuditLog({
+            userId: config.createdBy || "system",
+            action: "sync_complete",
+            entity: "sync_config",
+            entityId: config.id,
+            details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: `Backup failed: ${err.message}`, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+          });
+        } catch {}
         activeRuns.delete(runId);
         return;
       }
@@ -260,12 +278,22 @@ async function executeAsync(
     }
 
     if (!sourceResult?.success || !sourceResult.preview?.length) {
+      const fetchError = sourceResult?.error || "No source data available after 3 attempts";
       await storage.updateSyncRun(runId, {
         status: "error",
-        errorMessage: sourceResult?.error || "No source data available after 3 attempts",
+        errorMessage: fetchError,
         completedAt: new Date(),
         details: { phase: "error", phaseHistory: buildErrorPhaseHistory("fetch") },
       });
+      try {
+        await storage.createAuditLog({
+          userId: config.createdBy || "system",
+          action: "sync_complete",
+          entity: "sync_config",
+          entityId: config.id,
+          details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: fetchError, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+        });
+      } catch {}
       activeRuns.delete(runId);
       return;
     }
@@ -371,6 +399,28 @@ async function executeAsync(
             syncedRecords,
           },
         });
+        try {
+          await storage.createAuditLog({
+            userId: config.createdBy || "system",
+            action: "sync_complete",
+            entity: "sync_config",
+            entityId: config.id,
+            details: {
+              runId,
+              configName: config.name,
+              sourceModule: sourceModule.code,
+              targetModule: targetModule.code,
+              status: "error",
+              error: `Early stop: ${consecutiveFailBatches} consecutive batches failed`,
+              recordsProcessed: totalCreated + totalUpdated,
+              recordsFailed: totalFailed,
+              totalCreated,
+              totalUpdated,
+              duration: Date.now() - startTime,
+              durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s`,
+            },
+          });
+        } catch {}
         activeRuns.delete(runId);
         return;
       }
@@ -439,6 +489,28 @@ async function executeAsync(
         triggeredBy: null,
       });
     } catch {}
+
+    try {
+      await storage.createAuditLog({
+        userId: config.createdBy || "system",
+        action: "sync_complete",
+        entity: "sync_config",
+        entityId: config.id,
+        details: {
+          runId,
+          configName: config.name,
+          sourceModule: sourceModule.code,
+          targetModule: targetModule.code,
+          status: finalStatus,
+          recordsProcessed: processedOk,
+          recordsFailed: totalFailed,
+          totalCreated,
+          totalUpdated,
+          duration,
+          durationFormatted: `${Math.round(duration / 1000)}s`,
+        },
+      });
+    } catch {}
   } catch (err: any) {
     console.error(`[sync-engine] Run ${runId}: Unhandled error:`, err);
     await storage.updateSyncRun(runId, {
@@ -447,6 +519,25 @@ async function executeAsync(
       completedAt: new Date(),
       details: { phase: "error", phaseHistory: buildErrorPhaseHistory("sync") },
     });
+
+    try {
+      await storage.createAuditLog({
+        userId: config.createdBy || "system",
+        action: "sync_complete",
+        entity: "sync_config",
+        entityId: config.id,
+        details: {
+          runId,
+          configName: config.name,
+          sourceModule: sourceModule.code,
+          targetModule: targetModule.code,
+          status: "error",
+          error: err.message || "Unknown error",
+          duration: Date.now() - startTime,
+          durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s`,
+        },
+      });
+    } catch {}
   } finally {
     activeRuns.delete(runId);
   }

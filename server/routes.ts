@@ -13,6 +13,27 @@ import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
 
+const SENSITIVE_PATTERNS = ["password", "apikey", "api_key", "secret", "token", "accesskey", "clientsecret", "authorization", "bearer", "credential"];
+
+function isSensitiveKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return SENSITIVE_PATTERNS.some(p => lower.includes(p));
+}
+
+function redactSensitive(key: string, value: any): any {
+  if (value === undefined || value === null) return value;
+  if (isSensitiveKey(key)) return "***";
+  if (typeof value === "string" && value.length > 20 && /[a-f0-9]{20,}/i.test(value)) return "***";
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const redacted: Record<string, any> = {};
+    for (const k of Object.keys(value)) {
+      redacted[k] = redactSensitive(k, value[k]);
+    }
+    return redacted;
+  }
+  return value;
+}
+
 const updateModuleSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -214,14 +235,41 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Invalid module data" });
     }
     try {
+      const before = await storage.getModule(req.params.id);
+      if (!before) return res.status(404).json({ message: "Module not found" });
+      const changedFields: string[] = [];
+      const beforeValues: Record<string, any> = {};
+      const afterValues: Record<string, any> = {};
+      for (const key of Object.keys(parsed.data) as Array<keyof typeof parsed.data>) {
+        const oldVal = (before as any)[key];
+        const newVal = parsed.data[key];
+        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+          changedFields.push(key);
+          if (key === "config") {
+            const oldConfig = (oldVal || {}) as Record<string, any>;
+            const newConfig = (newVal || {}) as Record<string, any>;
+            const allKeys = new Set([...Object.keys(oldConfig), ...Object.keys(newConfig)]);
+            beforeValues[key] = {};
+            afterValues[key] = {};
+            for (const ck of allKeys) {
+              if (JSON.stringify(oldConfig[ck]) !== JSON.stringify(newConfig[ck])) {
+                (beforeValues[key] as any)[ck] = redactSensitive(ck, oldConfig[ck]);
+                (afterValues[key] as any)[ck] = redactSensitive(ck, newConfig[ck]);
+              }
+            }
+          } else {
+            beforeValues[key] = oldVal;
+            afterValues[key] = newVal;
+          }
+        }
+      }
       const mod = await storage.updateModule(req.params.id, parsed.data);
-      if (!mod) return res.status(404).json({ message: "Module not found" });
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "config_change",
         entity: "module",
-        entityId: mod.id,
-        details: { code: mod.code, changes: parsed.data },
+        entityId: mod!.id,
+        details: { code: before.code, name: before.name, changedFields, before: beforeValues, after: afterValues },
         ipAddress: req.ip || null,
       });
       return res.json(mod);
@@ -240,6 +288,16 @@ export async function registerRoutes(
       } else if (!result.success && mod.status === "connected") {
         await storage.updateModule(mod.id, { status: "error" });
       }
+      try {
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "update",
+          entity: "module_test",
+          entityId: mod.id,
+          details: { code: mod.code, name: mod.name, success: result.success, message: result.message, statusCode: result.statusCode, responseTime: result.responseTime },
+          ipAddress: req.ip || null,
+        });
+      } catch {}
       return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ message: "Connection test failed" });
@@ -319,6 +377,7 @@ export async function registerRoutes(
         action: "create",
         entity: "user",
         entityId: user.id,
+        details: { username: user.username, fullName: user.fullName, role: user.role, email: user.email },
         ipAddress: req.ip || null,
       });
       const { password, ...safeUser } = user;
@@ -332,17 +391,33 @@ export async function registerRoutes(
     const parsed = updateUserSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid user data" });
     try {
+      const beforeUser = await storage.getUser(req.params.id);
       const data: any = { ...parsed.data };
+      const passwordChanged = !!data.password;
       if (data.password) {
         data.password = await bcrypt.hash(data.password, 12);
       }
       const user = await storage.updateUser(req.params.id, data);
       if (!user) return res.status(404).json({ message: "User not found" });
+      const changedFields: string[] = [];
+      const beforeValues: Record<string, any> = {};
+      const afterValues: Record<string, any> = {};
+      if (beforeUser) {
+        for (const key of ["username", "fullName", "email", "role", "isActive"] as const) {
+          if (parsed.data[key] !== undefined && (beforeUser as any)[key] !== (user as any)[key]) {
+            changedFields.push(key);
+            beforeValues[key] = (beforeUser as any)[key];
+            afterValues[key] = (user as any)[key];
+          }
+        }
+      }
+      if (passwordChanged) changedFields.push("password");
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "update",
         entity: "user",
         entityId: user.id,
+        details: { username: user.username, changedFields, before: beforeValues, after: afterValues, passwordChanged },
         ipAddress: req.ip || null,
       });
       const { password, ...safeUser } = user;
@@ -354,12 +429,14 @@ export async function registerRoutes(
 
   app.delete("/api/users/:id", requireRole("admin"), async (req, res) => {
     try {
+      const deletedUser = await storage.getUser(req.params.id);
       await storage.deleteUser(req.params.id);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "delete",
         entity: "user",
         entityId: req.params.id,
+        details: deletedUser ? { username: deletedUser.username, fullName: deletedUser.fullName, role: deletedUser.role } : {},
         ipAddress: req.ip || null,
       });
       return res.json({ message: "User deleted" });
@@ -370,9 +447,16 @@ export async function registerRoutes(
 
   app.get("/api/audit-logs", requireRole("admin"), async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
+      const limit = parseInt(req.query.limit as string) || 200;
       const logs = await storage.getAuditLogs(limit);
-      return res.json(logs);
+      const action = req.query.action as string | undefined;
+      const entity = req.query.entity as string | undefined;
+      const userId = req.query.userId as string | undefined;
+      let filtered = logs;
+      if (action) filtered = filtered.filter(l => l.action === action);
+      if (entity) filtered = filtered.filter(l => l.entity === entity);
+      if (userId) filtered = filtered.filter(l => l.userId === userId);
+      return res.json(filtered);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load audit logs" });
     }
@@ -426,7 +510,7 @@ export async function registerRoutes(
         action: "create",
         entity: "sync_config",
         entityId: config.id,
-        details: { name: config.name },
+        details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId, direction: config.direction },
         ipAddress: req.ip || null,
       });
       return res.status(201).json(config);
@@ -441,14 +525,29 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
       }
+      const beforeConfig = await storage.getSyncConfig(req.params.id);
       const config = await storage.updateSyncConfig(req.params.id, parsed.data);
       if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const changedFields: string[] = [];
+      const beforeValues: Record<string, any> = {};
+      const afterValues: Record<string, any> = {};
+      if (beforeConfig) {
+        for (const key of Object.keys(parsed.data)) {
+          const oldVal = (beforeConfig as any)[key];
+          const newVal = (config as any)[key];
+          if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+            changedFields.push(key);
+            beforeValues[key] = oldVal;
+            afterValues[key] = newVal;
+          }
+        }
+      }
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "update",
         entity: "sync_config",
         entityId: config.id,
-        details: { name: config.name },
+        details: { name: config.name, changedFields, before: beforeValues, after: afterValues },
         ipAddress: req.ip || null,
       });
       return res.json(config);
@@ -459,12 +558,14 @@ export async function registerRoutes(
 
   app.delete("/api/sync-configs/:id", requireRole("admin", "operator"), async (req, res) => {
     try {
+      const deletedConfig = await storage.getSyncConfig(req.params.id);
       await storage.deleteSyncConfig(req.params.id);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "delete",
         entity: "sync_config",
         entityId: req.params.id,
+        details: deletedConfig ? { name: deletedConfig.name, sourceModuleId: deletedConfig.sourceModuleId, targetModuleId: deletedConfig.targetModuleId } : {},
         ipAddress: req.ip || null,
       });
       return res.json({ message: "Sync config deleted" });
