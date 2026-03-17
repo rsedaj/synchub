@@ -1,0 +1,2 @@
+API dokumentácia k RAYNET:
+https://app.raynet.cz/api/doc/
