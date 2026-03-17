@@ -22,6 +22,7 @@ const ALLOWED_HOSTS = new Set([
   "www.stricker-europe.com",
   "xml.andapresent.com",
   "feeds.xindao.com",
+  "onix-api.hauerland.sk",
 ]);
 
 function isUrlAllowed(urlStr: string): boolean {
@@ -87,6 +88,15 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         testUrl = config.skuFeedUrl;
       } else if (mod.baseUrl) {
         testUrl = mod.baseUrl;
+      }
+    } else if (mod.code === "ONIX") {
+      const token = config?.apiToken;
+      if (token) {
+        testUrl = `${mod.baseUrl || "https://onix-api.hauerland.sk/onix_api"}/api/SkladoveKarty?pageSize=1`;
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["Accept"] = "application/json";
+      } else if (mod.baseUrl) {
+        testUrl = `${mod.baseUrl}/swagger/ui/index`;
       }
     } else if (mod.code === "STICKER") {
       const accessKey = config?.accessKey;
@@ -177,6 +187,22 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       ? `Connection successful (HTTP ${res.status})`
       : `Server responded with HTTP ${res.status}`;
 
+    if (mod.code === "ONIX" && config?.apiToken) {
+      if (res.ok) {
+        try {
+          const data = await res.json();
+          const count = Array.isArray(data) ? data.length : (data?.totalCount || data?.length || "N/A");
+          message = `Connection successful — ONIX ERP API ready. Stock cards: ${count}`;
+        } catch {
+          message = `Connection successful — ONIX ERP API accessible (HTTP ${res.status})`;
+        }
+      } else if (res.status === 401) {
+        message = `Authentication failed — Invalid API token (HTTP 401)`;
+      } else if (res.status === 503) {
+        message = `ONIX API service unavailable (HTTP 503) — service may not be running on the server`;
+      }
+    }
+
     if (mod.code === "STICKER" && res.ok && config?.accessKey) {
       try {
         const data = await res.json();
@@ -242,6 +268,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
         return fetchPromotronApiData(config, mod.baseUrl || "https://api-ts-westeu.promotron.com", limit);
       }
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
+    case "ONIX":
+      return fetchOnixData(config, mod.baseUrl || "https://onix-api.hauerland.sk/onix_api", source, limit);
     case "STICKER":
       return fetchStrickerData(config, source, limit);
     case "ANDA":
@@ -1650,6 +1678,110 @@ function extractLocalized(arr: any, locale: string): string {
     return match?.value || arr[0]?.value || "";
   }
   return "";
+}
+
+const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
+  skladovekarty: { endpoint: "/api/SkladoveKarty", label: "Skladové karty" },
+  cenypredajne: { endpoint: "/api/CenyPredajne", label: "Ceny predajné" },
+  cenynakupne: { endpoint: "/api/CenyNakupne", label: "Ceny nákupné" },
+  cenymanazerskekarty: { endpoint: "/api/CenyManazerskeKarty", label: "Ceny manažérske (karty)" },
+  stavzasob: { endpoint: "/api/StavZasob", label: "Stav zásob" },
+  pohybydoklady: { endpoint: "/api/PohybyDoklady", label: "Pohyby - doklady" },
+  intrastat: { endpoint: "/api/Intrastat", label: "Intrastat" },
+};
+
+async function fetchOnixData(config: Record<string, any>, baseUrl: string, source?: string, limit = 20): Promise<FetchResult> {
+  const token = config?.apiToken;
+  if (!token) {
+    return {
+      success: false,
+      source: "ONIX ERP",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "No API token configured. Add your ONIX API token in the Configuration tab.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const srcKey = source || "skladovekarty";
+  const src = ONIX_SOURCES[srcKey] || ONIX_SOURCES.skladovekarty;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const url = `${baseUrl}${src.endpoint}?pageSize=${limit}`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub/1.0",
+      },
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => "");
+      return {
+        success: false,
+        source: `ONIX ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `ONIX API responded with HTTP ${res.status}${res.status === 401 ? " — Invalid token" : res.status === 503 ? " — Service unavailable" : ""}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const rawData = await res.json();
+    let items: any[] = [];
+
+    if (Array.isArray(rawData)) {
+      items = rawData;
+    } else if (rawData && typeof rawData === "object") {
+      if (rawData.items && Array.isArray(rawData.items)) {
+        items = rawData.items;
+      } else if (rawData.data && Array.isArray(rawData.data)) {
+        items = rawData.data;
+      } else {
+        const firstArrayKey = Object.keys(rawData).find((k) => Array.isArray(rawData[k]));
+        if (firstArrayKey) {
+          items = rawData[firstArrayKey];
+        } else {
+          items = [rawData];
+        }
+      }
+    }
+
+    const totalCount = items.length;
+    const limited = items.slice(0, limit);
+    const fields = collectAllFields(limited);
+    const preview = limited.map((item) => flattenObject(item));
+
+    return {
+      success: true,
+      source: `ONIX ${src.label}`,
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: `ONIX ${src.label}`,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (30s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 }
 
 function stripPrefix(name: string): string {
