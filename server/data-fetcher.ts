@@ -23,6 +23,9 @@ const ALLOWED_HOSTS = new Set([
   "xml.andapresent.com",
   "feeds.xindao.com",
   "onix-api.hauerland.sk",
+  "app.raynet.cz",
+  "app.raynetcrm.sk",
+  "app.raynetcrm.com",
 ]);
 
 function isUrlAllowed(urlStr: string): boolean {
@@ -97,6 +100,19 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Accept"] = "application/json";
       } else if (mod.baseUrl) {
         testUrl = `${mod.baseUrl}/swagger/ui/index`;
+      }
+    } else if (mod.code === "RAYNET") {
+      const username = config?.username;
+      const apiKey = config?.apiKey;
+      const instanceName = config?.instanceName;
+      if (username && apiKey && instanceName) {
+        testUrl = `https://app.raynet.cz/api/v2/company/?rowCount=true&limit=1`;
+        const credentials = Buffer.from(`${username}:${apiKey}`).toString("base64");
+        headers["Authorization"] = `Basic ${credentials}`;
+        headers["X-Instance-Name"] = instanceName;
+        headers["Accept"] = "application/json";
+      } else if (mod.baseUrl) {
+        testUrl = mod.baseUrl;
       }
     } else if (mod.code === "STICKER") {
       const accessKey = config?.accessKey;
@@ -187,6 +203,22 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       ? `Connection successful (HTTP ${res.status})`
       : `Server responded with HTTP ${res.status}`;
 
+    if (mod.code === "RAYNET" && config?.username && config?.apiKey && config?.instanceName) {
+      if (res.ok) {
+        try {
+          const data = await res.json();
+          const totalCount = data.totalCount ?? data.data?.length ?? "N/A";
+          message = `Connection successful — Raynet CRM instance "${config.instanceName}" ready. Companies: ${totalCount}`;
+        } catch {
+          message = `Connection successful — Raynet CRM accessible (HTTP ${res.status})`;
+        }
+      } else if (res.status === 401) {
+        message = `Authentication failed — Invalid username or API key (HTTP 401)`;
+      } else if (res.status === 403) {
+        message = `Access denied — Check instance name "${config.instanceName}" (HTTP 403)`;
+      }
+    }
+
     if (mod.code === "ONIX" && config?.apiToken) {
       if (res.ok) {
         try {
@@ -270,6 +302,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchXmlFeedData(mod.code, config?.xmlFeedUrl, limit);
     case "ONIX":
       return fetchOnixData(config, mod.baseUrl || "https://onix-api.hauerland.sk/onix_api", source, limit);
+    case "RAYNET":
+      return fetchRaynetData(config, source, limit);
     case "STICKER":
       return fetchStrickerData(config, source, limit);
     case "ANDA":
@@ -1678,6 +1712,109 @@ function extractLocalized(arr: any, locale: string): string {
     return match?.value || arr[0]?.value || "";
   }
   return "";
+}
+
+const RAYNET_SOURCES: Record<string, { endpoint: string; label: string }> = {
+  company: { endpoint: "/company/", label: "Klienti (Companies)" },
+  person: { endpoint: "/person/", label: "Kontakty (Persons)" },
+  businessCase: { endpoint: "/businessCase/", label: "Obchodné prípady (Deals)" },
+  lead: { endpoint: "/lead/", label: "Leady" },
+  activity: { endpoint: "/activity/", label: "Aktivity" },
+  invoice: { endpoint: "/invoice/", label: "Faktúry" },
+  product: { endpoint: "/product/", label: "Produkty" },
+};
+
+async function fetchRaynetData(config: Record<string, any>, source?: string, limit = 20): Promise<FetchResult> {
+  const username = config?.username;
+  const apiKey = config?.apiKey;
+  const instanceName = config?.instanceName;
+  if (!username || !apiKey || !instanceName) {
+    return {
+      success: false,
+      source: "Raynet CRM",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "Missing credentials. Configure Username, API Key, and Instance Name in the Configuration tab.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const srcKey = source || "company";
+  const src = RAYNET_SOURCES[srcKey] || RAYNET_SOURCES.company;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const credentials = Buffer.from(`${username}:${apiKey}`).toString("base64");
+    const url = `https://app.raynet.cz/api/v2${src.endpoint}?limit=${limit}&offset=0`;
+
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Basic ${credentials}`,
+        "X-Instance-Name": instanceName,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub/1.0",
+      },
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => "");
+      return {
+        success: false,
+        source: `Raynet ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: `Raynet API responded with HTTP ${res.status}${res.status === 401 ? " — Invalid credentials" : res.status === 403 ? " — Access denied (check instance name)" : ""}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const rawData = await res.json();
+    let items: any[] = [];
+    let totalCount = 0;
+
+    if (rawData.data && Array.isArray(rawData.data)) {
+      items = rawData.data;
+      totalCount = rawData.totalCount ?? items.length;
+    } else if (Array.isArray(rawData)) {
+      items = rawData;
+      totalCount = items.length;
+    } else {
+      items = [rawData];
+      totalCount = 1;
+    }
+
+    const limited = items.slice(0, limit);
+    const fields = collectAllFields(limited);
+    const preview = limited.map((item) => flattenObject(item));
+
+    return {
+      success: true,
+      source: `Raynet ${src.label}`,
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: `Raynet ${src.label}`,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError"
+        ? "Request timed out (20s)"
+        : `Failed to fetch data: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 }
 
 const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {

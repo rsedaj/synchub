@@ -82,6 +82,13 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "shopId", label: "Shop ID", type: "text", placeholder: "Enter shop identifier", helpText: "Promotron shop/tenant ID" },
     { key: "xmlFeedUrl", label: "XML Feed URL", type: "url", placeholder: "https://shop.hauerland.sk/feed/...", required: false, helpText: "URL XML product feedu pre prezeranie produktov v Data Preview" },
   ],
+  RAYNET: [
+    { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
+    { key: "authType", label: "Auth Type", type: "text", placeholder: "basic_api_key" },
+    { key: "username", label: "Username", type: "text", placeholder: "vas@email.cz", required: true, helpText: "Prihlasovacie meno do Raynet CRM" },
+    { key: "apiKey", label: "API Key", type: "password", placeholder: "Enter Raynet API key", required: true, helpText: "API kľúč z Raynet → Nastavenia → API" },
+    { key: "instanceName", label: "Instance Name", type: "text", placeholder: "nazov-firmy", required: true, helpText: "Názov inštancie z URL vášho Raynet účtu (napr. 'sedaj')" },
+  ],
   PIPEDRIVE: [
     { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
     { key: "authType", label: "Auth Type", type: "text", placeholder: "api_key" },
@@ -555,10 +562,30 @@ export default function ModuleDetailPage() {
                 <div className="flex items-center gap-2">
                   {(() => {
                     const sources: Record<string, { value: string; label: string }[]> = {
+                      ONIX: [
+                        { value: "auto", label: "Auto (Skladové karty)" },
+                        { value: "skladovekarty", label: "Skladové karty" },
+                        { value: "cenypredajne", label: "Ceny predajné" },
+                        { value: "cenynakupne", label: "Ceny nákupné" },
+                        { value: "cenymanazerskekarty", label: "Ceny manažérske" },
+                        { value: "stavzasob", label: "Stav zásob" },
+                        { value: "pohybydoklady", label: "Pohyby - doklady" },
+                        { value: "intrastat", label: "Intrastat" },
+                      ],
                       PROMOTRON: [
                         { value: "auto", label: "Auto (API / Feed)" },
                         { value: "api", label: "REST API (Orders)" },
                         { value: "feed", label: "XML Feed (Products)" },
+                      ],
+                      RAYNET: [
+                        { value: "auto", label: "Auto (Companies)" },
+                        { value: "company", label: "Klienti (Companies)" },
+                        { value: "person", label: "Kontakty (Persons)" },
+                        { value: "businessCase", label: "Obch. prípady (Deals)" },
+                        { value: "lead", label: "Leady" },
+                        { value: "activity", label: "Aktivity" },
+                        { value: "invoice", label: "Faktúry" },
+                        { value: "product", label: "Produkty" },
                       ],
                       PIPEDRIVE: [
                         { value: "auto", label: "Auto (Deals)" },

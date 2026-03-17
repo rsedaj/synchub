@@ -64,9 +64,23 @@ const MODULE_DEFINITIONS = [
     },
   },
   {
+    code: "RAYNET",
+    name: "Raynet CRM",
+    sortOrder: 4,
+    description: "CRM systém Raynet — správa klientov, obchodných prípadov, kontaktov, leadov a aktivít. REST API v2 s Basic Auth autentifikáciou.",
+    baseUrl: "https://app.raynet.cz/api/v2",
+    status: "disconnected" as const,
+    docsUrl: "https://app.raynet.cz/api/doc/",
+    dataFields: ["Companies", "Persons (Contacts)", "Business Cases (Deals)", "Leads", "Activities", "Invoices", "Products"],
+    config: {
+      apiType: "REST",
+      authType: "basic_api_key",
+    },
+  },
+  {
     code: "GIVING",
     name: "Giving Europe",
-    sortOrder: 4,
+    sortOrder: 5,
     description: "Supplier - promotional products catalog, prices, and stock via Debtor API.",
     baseUrl: "https://debtorapi-sandbox.givingeurope.com",
     docsUrl: "https://debtorapi-sandbox.givingeurope.com/spec/index.html",
@@ -81,7 +95,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "MID",
     name: "Midocean",
-    sortOrder: 5,
+    sortOrder: 6,
     description: "Supplier — products, pricing, stock, print data & orders via REST API v2.0.",
     baseUrl: "https://api.midocean.com",
     status: "disconnected" as const,
@@ -95,7 +109,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "STICKER",
     name: "Stricker Europe",
-    sortOrder: 6,
+    sortOrder: 7,
     description: "Dodávateľ reklamných predmetov Stricker Europe (Paul Stricker). REST API v2.20 s autentifikáciou cez Access Key + session token. Produkty, ceny, sklady, personalizácia, objednávky.",
     baseUrl: "http://ws.stricker-europe.com",
     status: "disconnected" as const,
@@ -109,7 +123,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "MACMA",
     name: "Macma",
-    sortOrder: 7,
+    sortOrder: 8,
     description: "Supplier - JSON feeds (SKU, Pricelist, Stock). MACMA Werbeartikel OHG, macma.sk API v2.",
     baseUrl: "https://macma.sk/api/v2",
     status: "connected" as const,
@@ -125,7 +139,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "XDCONNECT",
     name: "XD Connects",
-    sortOrder: 8,
+    sortOrder: 9,
     description: "Dodávateľ reklamných predmetov XD Connects (predtým Xindao, Holandsko). 6 dátových feedov (XML/CSV/JSON): produkty, ceny, sklady, potlačové dáta, potlačové ceny a kombinovaný feed. Zákaznícky špecifické URL linky na feeds.xindao.com.",
     baseUrl: "https://feeds.xindao.com",
     status: "disconnected" as const,
@@ -140,7 +154,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "ANDA",
     name: "Anda Present",
-    sortOrder: 9,
+    sortOrder: 10,
     description: "Dodávateľ reklamných predmetov Anda Present. XML a CSV feedy pre produkty, ceny, sklady, potlač a kategórie. Prístup cez unikátne feed ID + IP whitelist.",
     baseUrl: "https://xml.andapresent.com",
     status: "disconnected" as const,
@@ -154,7 +168,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "EASYGIFTS",
     name: "Easy Gifts",
-    sortOrder: 10,
+    sortOrder: 11,
     description: "Supplier - JSON/XML feeds (SKU, Pricelist, Stock). API v2.",
     baseUrl: "https://easygifts.sk/api/v2",
     status: "connected" as const,
@@ -170,7 +184,7 @@ const MODULE_DEFINITIONS = [
   {
     code: "PFCONCEPT",
     name: "PF Concept",
-    sortOrder: 11,
+    sortOrder: 12,
     description: "Supplier - Data Feeds Gateway v3 (XML) for product, price, stock and print data.",
     baseUrl: "https://www.pfconcept.com",
     status: "connected" as const,
@@ -205,7 +219,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);

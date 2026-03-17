@@ -18,7 +18,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - `server/auth.ts` - Passport authentication setup, requireAuth/requireRole middleware
 - `server/storage.ts` - Database storage layer (IStorage interface + DatabaseStorage)
 - `server/db.ts` - PostgreSQL connection pool + Drizzle instance
-- `server/seed.ts` - Database seed data (admin user + all 11 modules with sortOrder)
+- `server/seed.ts` - Database seed data (admin user + all 12 modules with sortOrder)
 - `server/data-fetcher.ts` - Real API data fetching service (XML feeds, REST APIs) with SSRF protection
 - `server/sync-engine.ts` - 4-phase sync execution engine (preflight→backup→fetch→sync), real push, cancellation
 - `server/target-push.ts` - Target API push (Pipedrive REST create/update, ONIX placeholder)
@@ -60,15 +60,16 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 ## Integration Modules
 1. **ONIX** - Central ERP (products, prices, stock) - PRIMARY
 2. **PROMOTRON** - E-shop (shop.hauerland.sk)
-3. **PIPEDRIVE** - CRM system
-4. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
-5. **MID** - Supplier (Midocean) - REST API v2.0, x-Gateway-APIKey auth, 5 active endpoints
-6. **STICKER** - Supplier (Stricker Europe) - REST API v2.20, AccessKey session auth
-7. **MACMA** - Supplier (JSON API v2 on macma.sk) - 3 feeds: SKU, Pricelist, Stock
-8. **XDCONNECT** - Supplier (XD Connects) - 6 data feeds, auto-detect XML/CSV/JSON format
-9. **ANDA** - Supplier (Anda Present) - XML/CSV feeds, 9 data sources
-10. **EASYGIFTS** - Supplier (XML feeds with SKU/pricelist URLs)
-11. **PFCONCEPT** - Supplier (PF Concept B.V.) - Data Feeds Gateway v3, XML format, 4 feeds
+3. **PIPEDRIVE** - CRM system (Pipedrive)
+4. **RAYNET** - CRM system (Raynet CRM) - REST API v2, Basic Auth + X-Instance-Name, 7 data sources
+5. **GIVING** - Supplier (Giving Europe) - Debtor API REST, Bearer token auth, sandbox/production environments
+6. **MID** - Supplier (Midocean) - REST API v2.0, x-Gateway-APIKey auth, 5 active endpoints
+7. **STICKER** - Supplier (Stricker Europe) - REST API v2.20, AccessKey session auth
+8. **MACMA** - Supplier (JSON API v2 on macma.sk) - 3 feeds: SKU, Pricelist, Stock
+9. **XDCONNECT** - Supplier (XD Connects) - 6 data feeds, auto-detect XML/CSV/JSON format
+10. **ANDA** - Supplier (Anda Present) - XML/CSV feeds, 9 data sources
+11. **EASYGIFTS** - Supplier (XML feeds with SKU/pricelist URLs)
+12. **PFCONCEPT** - Supplier (PF Concept B.V.) - Data Feeds Gateway v3, XML format, 4 feeds
 
 ## Sync Configuration (v1.6.x)
 - **Target modules**: Only ONIX and PIPEDRIVE can be sync targets
@@ -146,4 +147,4 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - Slovak-speaking user
 - SK/EN language switching (default: SK, persisted in localStorage)
 - Copyright: SEDAJ s.r.o.
-- App version: v1.17.1
+- App version: v1.18.0
