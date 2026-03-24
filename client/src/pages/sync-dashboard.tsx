@@ -1182,7 +1182,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                             <thead>
                                               <tr className="border-b text-muted-foreground bg-muted/20">
                                                 <th className="p-1.5 text-left w-12">{t("syncDash.recordIndex")}</th>
-                                                <th className="p-1.5 text-left">{t("syncDash.pipedrive_id")}</th>
+                                                <th className="p-1.5 text-left">{t("syncDash.target_id")}</th>
                                                 <th className="p-1.5 text-left">{t("syncDash.recordStatus")}</th>
                                                 <th className="p-1.5 text-left">Info</th>
                                               </tr>
@@ -1192,16 +1192,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                                 <tr key={i} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-record-${rec.sourceIndex}`}>
                                                   <td className="p-1.5 text-muted-foreground">{rec.sourceIndex + 1}</td>
                                                   <td className="p-1.5">
-                                                    {rec.pipedrive_id ? (
-                                                      <a
-                                                        href={`https://app.pipedrive.com`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="text-foreground hover:underline font-mono"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                      >
-                                                        {rec.pipedrive_id}
-                                                      </a>
+                                                    {rec.target_id ? (
+                                                      <span className="font-mono">{rec.target_id}</span>
                                                     ) : (
                                                       <span className="text-muted-foreground">—</span>
                                                     )}

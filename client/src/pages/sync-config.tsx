@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
-const TARGET_MODULE_CODES = ["ONIX", "PIPEDRIVE"];
+const TARGET_MODULE_CODES = ["ONIX", "PIPEDRIVE", "RAYNET"];
 
 const FREQUENCY_OPTIONS = [
   { value: "15min", labelSk: "Každých 15 minút", labelEn: "Every 15 minutes" },
@@ -91,6 +91,15 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
     { value: "activities", label: "Activities" },
     { value: "leads", label: "Leads" },
     { value: "products", label: "Products" },
+  ],
+  RAYNET: [
+    { value: "company", label: "Klienti (Companies)" },
+    { value: "person", label: "Kontakty (Persons)" },
+    { value: "businessCase", label: "Obchodné prípady (Deals)" },
+    { value: "lead", label: "Leady" },
+    { value: "activity", label: "Aktivity" },
+    { value: "invoice", label: "Faktúry" },
+    { value: "product", label: "Produkty" },
   ],
   GIVING: [
     { value: "products", label: "Products" },

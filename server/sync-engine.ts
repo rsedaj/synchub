@@ -341,7 +341,7 @@ async function executeAsync(
           totalFailed++;
           allErrors.push({ batch: currentBatch, index: i + mappedBatch.length, message: `Mapping error: ${err.message}` });
           if (syncedRecords.length < MAX_SYNCED_RECORDS_STORED) {
-            syncedRecords.push({ sourceIndex: i + mappedBatch.length, pipedrive_id: null, status: "error", errorMsg: `Mapping: ${err.message}` });
+            syncedRecords.push({ sourceIndex: i + mappedBatch.length, target_id: null, status: "error", errorMsg: `Mapping: ${err.message}` });
           }
         }
       }

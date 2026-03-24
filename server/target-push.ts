@@ -1,5 +1,15 @@
 import type { ApiModule } from "@shared/schema";
 
+const RAYNET_SOURCES: Record<string, string> = {
+  company: "/company/",
+  person: "/person/",
+  businessCase: "/businessCase/",
+  lead: "/lead/",
+  activity: "/activity/",
+  invoice: "/invoice/",
+  product: "/product/",
+};
+
 const PIPEDRIVE_SOURCES: Record<string, string> = {
   deals: "/v1/deals",
   persons: "/v1/persons",
@@ -11,7 +21,7 @@ const PIPEDRIVE_SOURCES: Record<string, string> = {
 
 export interface PushRecordResult {
   sourceIndex: number;
-  pipedrive_id: number | null;
+  target_id: number | null;
   status: "created" | "updated" | "error";
   errorMsg?: string;
 }
@@ -106,6 +116,10 @@ export async function pushToTarget(
     return pushToPipedrive(targetModule, targetDataSource, records, batchIndex);
   }
 
+  if (code === "RAYNET") {
+    return pushToRaynet(targetModule, targetDataSource, records, batchIndex);
+  }
+
   if (code === "ONIX") {
     console.log(`[target-push] ONIX write API not yet implemented — ${records.length} records would be pushed`);
     return {
@@ -116,7 +130,7 @@ export async function pushToTarget(
       errors: [],
       records: records.map((_, i) => ({
         sourceIndex: batchIndex * 50 + i,
-        pipedrive_id: null,
+        target_id: null,
         status: "created" as const,
       })),
     };
@@ -220,16 +234,16 @@ async function pushToPipedrive(
         const newId = data.data?.id || null;
         if (isUpdate) {
           updated++;
-          recordResults.push({ sourceIndex: globalIndex, pipedrive_id: newId, status: "updated" });
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "updated" });
         } else {
           created++;
-          recordResults.push({ sourceIndex: globalIndex, pipedrive_id: newId, status: "created" });
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "created" });
         }
       } else {
         errorCount++;
         const errMsg = data.error || data.error_info || `HTTP ${res.status}`;
         errors.push({ index: globalIndex, message: errMsg });
-        recordResults.push({ sourceIndex: globalIndex, pipedrive_id: null, status: "error", errorMsg: errMsg });
+        recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
         if (i < 5 || errorCount <= 3) {
           console.error(`[target-push] Pipedrive ${method} ${source} record ${i} failed:`, errMsg);
         }
@@ -238,7 +252,7 @@ async function pushToPipedrive(
       errorCount++;
       const errMsg = err.message || "Unknown error";
       errors.push({ index: globalIndex, message: errMsg });
-      recordResults.push({ sourceIndex: globalIndex, pipedrive_id: null, status: "error", errorMsg: errMsg });
+      recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
       if (errorCount <= 3) {
         console.error(`[target-push] Pipedrive record ${i} exception:`, errMsg);
       }
@@ -250,6 +264,188 @@ async function pushToPipedrive(
   }
 
   console.log(`[target-push] Pipedrive ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount}`);
+
+  return {
+    success: errorCount === 0,
+    createdCount: created,
+    updatedCount: updated,
+    errorCount,
+    errors: errors.slice(0, 20),
+    records: recordResults,
+  };
+}
+
+function sanitizeRaynetBody(body: Record<string, any>, entityType: string): Record<string, any> {
+  delete body.id;
+  delete body._raynet_id;
+
+  for (const [key, val] of Object.entries(body)) {
+    if (typeof val === "string" && /^\[\d+ items?\]$/.test(val)) {
+      delete body[key];
+    }
+  }
+
+  const numericFields = ["rating", "price", "totalAmount", "estimatedValue"];
+  for (const field of numericFields) {
+    if (field in body) {
+      if (body[field] === null || body[field] === undefined || body[field] === "") {
+        delete body[field];
+      } else {
+        const num = Number(body[field]);
+        body[field] = isNaN(num) ? undefined : num;
+        if (body[field] === undefined) delete body[field];
+      }
+    }
+  }
+
+  if (entityType === "company" || entityType === "person") {
+    if ("owner" in body && body.owner !== null && typeof body.owner === "object" && body.owner.id) {
+      body.owner = body.owner.id;
+    }
+  }
+
+  for (const [key, val] of Object.entries(body)) {
+    if (val === null || val === undefined) {
+      delete body[key];
+    }
+  }
+
+  return body;
+}
+
+async function pushToRaynet(
+  module: ApiModule,
+  dataSource: string | null,
+  records: Record<string, any>[],
+  batchIndex: number
+): Promise<PushResult> {
+  const config = module.config as Record<string, any> | null;
+  const username = config?.username;
+  const apiKey = config?.apiKey;
+  const instanceName = config?.instanceName;
+
+  if (!username || !apiKey || !instanceName) {
+    return {
+      success: false,
+      createdCount: 0,
+      updatedCount: 0,
+      errorCount: records.length,
+      errors: [{ index: 0, message: "Raynet credentials not configured (username, apiKey, instanceName required)" }],
+      records: [],
+    };
+  }
+
+  const source = (!dataSource || dataSource === "auto") ? "company" : dataSource;
+  const endpoint = RAYNET_SOURCES[source];
+  if (!endpoint) {
+    return {
+      success: false,
+      createdCount: 0,
+      updatedCount: 0,
+      errorCount: records.length,
+      errors: [{ index: 0, message: `Unknown Raynet data source: '${source}'` }],
+      records: [],
+    };
+  }
+
+  const baseUrl = "https://app.raynet.cz/api/v2";
+  const authHeader = "Basic " + Buffer.from(`${username}:${apiKey}`).toString("base64");
+
+  let created = 0;
+  let updated = 0;
+  let errorCount = 0;
+  const errors: Array<{ index: number; message: string }> = [];
+  const recordResults: PushRecordResult[] = [];
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    const globalIndex = batchIndex * 50 + i;
+
+    try {
+      const raynetId = record._raynet_id;
+      const isUpdate = raynetId && !isNaN(Number(raynetId));
+
+      const method = isUpdate ? "POST" : "PUT";
+      const url = isUpdate
+        ? `${baseUrl}${endpoint}${raynetId}`
+        : `${baseUrl}${endpoint}`;
+
+      const body = { ...record };
+      sanitizeRaynetBody(body, source);
+
+      if (i < 3 && batchIndex === 0) {
+        console.log(`[target-push] DEBUG Raynet record ${i}: ${method} ${url}`);
+        console.log(`[target-push] DEBUG Raynet body:`, JSON.stringify(body).slice(0, 500));
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": authHeader,
+          "X-Instance-Name": instanceName,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (res.status === 429) {
+        const retryAfter = res.headers.get("Retry-After");
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+        console.warn(`[target-push] Raynet rate limit hit, waiting ${waitMs}ms`);
+        await sleep(waitMs);
+        i--;
+        continue;
+      }
+
+      let data: any = {};
+      const responseText = await res.text();
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = { rawResponse: responseText.slice(0, 200) };
+      }
+
+      if (res.ok) {
+        const newId = data?.data?.id || null;
+        if (isUpdate) {
+          updated++;
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "updated" });
+        } else {
+          created++;
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "created" });
+        }
+      } else {
+        errorCount++;
+        const errMsg = data?.message || data?.error || `HTTP ${res.status}`;
+        errors.push({ index: globalIndex, message: errMsg });
+        recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
+        if (i < 5 || errorCount <= 3) {
+          console.error(`[target-push] Raynet ${method} ${source} record ${i} failed:`, errMsg);
+        }
+      }
+    } catch (err: any) {
+      errorCount++;
+      const errMsg = err.message || "Unknown error";
+      errors.push({ index: globalIndex, message: errMsg });
+      recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
+      if (errorCount <= 3) {
+        console.error(`[target-push] Raynet record ${i} exception:`, errMsg);
+      }
+    }
+
+    if ((i + 1) % 5 === 0) {
+      await sleep(500);
+    }
+  }
+
+  console.log(`[target-push] Raynet ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount}`);
 
   return {
     success: errorCount === 0,
