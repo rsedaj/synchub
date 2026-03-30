@@ -14,15 +14,30 @@ declare global {
   }
 }
 
+async function ensureSessionTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "user_sessions" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "user_sessions_pkey" PRIMARY KEY ("sid")
+    ) WITH (OIDS=FALSE);
+    CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
+  `);
+}
+
 export function setupAuth(app: Express) {
   const PgStore = connectPgSimple(session);
+
+  ensureSessionTable().catch((err) => {
+    console.error("Failed to ensure session table:", err);
+  });
 
   app.use(
     session({
       store: new PgStore({
         pool,
         tableName: "user_sessions",
-        createTableIfMissing: true,
       }),
       secret: process.env.SESSION_SECRET!,
       resave: false,
