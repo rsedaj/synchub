@@ -237,12 +237,15 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       } else if (res.status === 500) {
         try {
           const errorText = await res.text();
-          if (errorText.includes("database") && errorText.includes("does not exist")) {
-            message = `ONIX API connected but database not found — configure DatabasePath in settings (HTTP 500)`;
-          } else if (errorText.includes("DatabasePath")) {
-            message = `ONIX API connected but DatabasePath header missing or invalid (HTTP 500)`;
+          const dbMatch = errorText.match(/database "([^"]+)" does not exist/);
+          if (dbMatch) {
+            message = `ONIX API connected, but PostgreSQL database "${dbMatch[1]}" does not exist on the server. Check that the database name matches your DatabasePath (port 20457).`;
+          } else if (errorText.includes("OpenFirm_CantConnect")) {
+            message = `ONIX API connected, but cannot open database — verify DatabasePath and that PostgreSQL service is running (port 20457).`;
+          } else if (!config?.databasePath) {
+            message = `ONIX API connected, but DatabasePath is not configured — add the path to your ONIX database in Configuration tab.`;
           } else {
-            message = `ONIX API server error (HTTP 500) — ${errorText.slice(0, 150)}`;
+            message = `ONIX API server error (HTTP 500) — ${errorText.slice(0, 200)}`;
           }
         } catch {
           message = `ONIX API server error (HTTP 500)`;
@@ -1890,7 +1893,7 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
         recordCount: 0,
         fields: [],
         preview: [],
-        error: `ONIX API responded with HTTP ${res.status}${res.status === 401 ? " — Invalid token" : res.status === 503 ? " — Service unavailable" : ""}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
+        error: `ONIX API responded with HTTP ${res.status}${res.status === 401 ? " — Invalid token" : res.status === 503 ? " — Service unavailable" : res.status === 500 && errorText.includes("does not exist") ? ` — PostgreSQL database not found. Verify DatabasePath.` : ""}${errorText && !errorText.includes("does not exist") ? `: ${errorText.slice(0, 200)}` : ""}`,
         fetchedAt: new Date().toISOString(),
       };
     }
