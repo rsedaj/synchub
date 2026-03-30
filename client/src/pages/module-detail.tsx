@@ -72,6 +72,7 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "authType", label: "Auth Type", type: "text", placeholder: "token" },
     { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "http://195.146.148.139/onix_api/swagger/ui/index" },
     { key: "apiToken", label: "API Token", type: "password", placeholder: "Enter ONIX API token", required: true, helpText: "Authentication token for ONIX API" },
+    { key: "databasePath", label: "Database Path", type: "text", placeholder: "C:\\ONIX\\DATABASE.NDB", required: true, helpText: "Cesta k ONIX databáze na serveri (header DatabasePath). Poskytne vám ju Kros a.s." },
     { key: "companyId", label: "Company ID", type: "text", placeholder: "Enter company identifier", helpText: "ONIX company/database identifier" },
   ],
   PROMOTRON: [
@@ -564,13 +565,13 @@ export default function ModuleDetailPage() {
                     const sources: Record<string, { value: string; label: string }[]> = {
                       ONIX: [
                         { value: "auto", label: "Auto (Skladové karty)" },
-                        { value: "skladovekarty", label: "Skladové karty" },
-                        { value: "cenypredajne", label: "Ceny predajné" },
-                        { value: "cenynakupne", label: "Ceny nákupné" },
-                        { value: "cenymanazerskekarty", label: "Ceny manažérske" },
-                        { value: "stavzasob", label: "Stav zásob" },
-                        { value: "pohybydoklady", label: "Pohyby - doklady" },
-                        { value: "intrastat", label: "Intrastat" },
+                        { value: "stockitems", label: "Skladové karty" },
+                        { value: "stocks", label: "Sklady" },
+                        { value: "balances", label: "Stav zásob" },
+                        { value: "partners", label: "Partneri" },
+                        { value: "catalogprices", label: "Cenníky" },
+                        { value: "stockitemgroups", label: "Skupiny kariet" },
+                        { value: "documents", label: "Typy dokladov" },
                       ],
                       PROMOTRON: [
                         { value: "auto", label: "Auto (API / Feed)" },

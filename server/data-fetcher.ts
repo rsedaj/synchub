@@ -95,9 +95,13 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
     } else if (mod.code === "ONIX") {
       const token = config?.apiToken;
       if (token) {
-        testUrl = `${mod.baseUrl || "https://onix-api.hauerland.sk/onix_api"}/api/SkladoveKarty?pageSize=1`;
+        const base = (mod.baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
+        testUrl = `${base}/api/v1/stocks`;
         headers["Authorization"] = `Bearer ${token}`;
         headers["Accept"] = "application/json";
+        if (config?.databasePath) {
+          headers["DatabasePath"] = config.databasePath;
+        }
       } else if (mod.baseUrl) {
         testUrl = `${mod.baseUrl}/swagger/ui/index`;
       }
@@ -224,12 +228,25 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         try {
           const data = await res.json();
           const count = Array.isArray(data) ? data.length : (data?.totalCount || data?.length || "N/A");
-          message = `Connection successful — ONIX ERP API ready. Stock cards: ${count}`;
+          message = `Connection successful — ONIX ERP API ready. Stocks: ${count}`;
         } catch {
           message = `Connection successful — ONIX ERP API accessible (HTTP ${res.status})`;
         }
       } else if (res.status === 401) {
         message = `Authentication failed — Invalid API token (HTTP 401)`;
+      } else if (res.status === 500) {
+        try {
+          const errorText = await res.text();
+          if (errorText.includes("database") && errorText.includes("does not exist")) {
+            message = `ONIX API connected but database not found — configure DatabasePath in settings (HTTP 500)`;
+          } else if (errorText.includes("DatabasePath")) {
+            message = `ONIX API connected but DatabasePath header missing or invalid (HTTP 500)`;
+          } else {
+            message = `ONIX API server error (HTTP 500) — ${errorText.slice(0, 150)}`;
+          }
+        } catch {
+          message = `ONIX API server error (HTTP 500)`;
+        }
       } else if (res.status === 503) {
         message = `ONIX API service unavailable (HTTP 503) — service may not be running on the server`;
       }
@@ -1818,13 +1835,13 @@ async function fetchRaynetData(config: Record<string, any>, source?: string, lim
 }
 
 const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
-  skladovekarty: { endpoint: "/api/SkladoveKarty", label: "Skladové karty" },
-  cenypredajne: { endpoint: "/api/CenyPredajne", label: "Ceny predajné" },
-  cenynakupne: { endpoint: "/api/CenyNakupne", label: "Ceny nákupné" },
-  cenymanazerskekarty: { endpoint: "/api/CenyManazerskeKarty", label: "Ceny manažérske (karty)" },
-  stavzasob: { endpoint: "/api/StavZasob", label: "Stav zásob" },
-  pohybydoklady: { endpoint: "/api/PohybyDoklady", label: "Pohyby - doklady" },
-  intrastat: { endpoint: "/api/Intrastat", label: "Intrastat" },
+  stockitems: { endpoint: "/api/v1/stockitems", label: "Skladové karty" },
+  stocks: { endpoint: "/api/v1/stocks", label: "Sklady" },
+  balances: { endpoint: "/api/v1/stockitems/balances", label: "Stav zásob" },
+  partners: { endpoint: "/api/v1/partners", label: "Partneri" },
+  catalogprices: { endpoint: "/api/v1/pricinglists/catalogprices", label: "Cenníky" },
+  stockitemgroups: { endpoint: "/api/v1/stockitemgroups", label: "Skupiny kariet" },
+  documents: { endpoint: "/api/v1/documents/types", label: "Typy dokladov" },
 };
 
 async function fetchOnixData(config: Record<string, any>, baseUrl: string, source?: string, limit = 20): Promise<FetchResult> {
@@ -1841,21 +1858,26 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
     };
   }
 
-  const srcKey = source || "skladovekarty";
-  const src = ONIX_SOURCES[srcKey] || ONIX_SOURCES.skladovekarty;
+  const srcKey = source || "stockitems";
+  const src = ONIX_SOURCES[srcKey] || ONIX_SOURCES.stockitems;
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
-    const url = `${baseUrl}${src.endpoint}?pageSize=${limit}`;
+    const correctedBase = baseUrl.replace(/\/onix_api$/i, "/ONIX_API");
+    const url = `${correctedBase}${src.endpoint}`;
+    const hdrs: Record<string, string> = {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json",
+      "User-Agent": "SyncHub/1.0",
+    };
+    if (config?.databasePath) {
+      hdrs["DatabasePath"] = config.databasePath;
+    }
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Accept": "application/json",
-        "User-Agent": "SyncHub/1.0",
-      },
+      headers: hdrs,
     });
 
     clearTimeout(timeout);

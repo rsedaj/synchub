@@ -219,7 +219,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName", "databasePath"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);
