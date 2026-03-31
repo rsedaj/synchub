@@ -91,6 +91,117 @@ function formatTimeAgo(date: string | Date): string {
   return `pred ${days}d`;
 }
 
+type BackupOp = "manual" | "configToDrive" | "restore" | "restoreConfig";
+
+const BACKUP_PHASES: Record<BackupOp, { key: string; atMs: number }[]> = {
+  manual: [
+    { key: "syncDash.progressPreparing", atMs: 0 },
+    { key: "syncDash.progressFetchingData", atMs: 2000 },
+    { key: "syncDash.progressUploadingCloud", atMs: 8000 },
+    { key: "syncDash.progressRotating", atMs: 20000 },
+    { key: "syncDash.progressFinishing", atMs: 25000 },
+  ],
+  configToDrive: [
+    { key: "syncDash.progressPreparing", atMs: 0 },
+    { key: "syncDash.progressUploadingCloud", atMs: 3000 },
+    { key: "syncDash.progressFinishing", atMs: 15000 },
+  ],
+  restore: [
+    { key: "syncDash.progressPreparing", atMs: 0 },
+    { key: "syncDash.progressRestoringData", atMs: 2000 },
+    { key: "syncDash.progressFinishing", atMs: 15000 },
+  ],
+  restoreConfig: [
+    { key: "syncDash.progressPreparing", atMs: 0 },
+    { key: "syncDash.progressRestoring", atMs: 2000 },
+    { key: "syncDash.progressFinishing", atMs: 10000 },
+  ],
+};
+
+function BackupProgressPanel({ isActive, error, opType, t }: { isActive: boolean; error: string | null; opType: BackupOp; t: (key: string) => string }) {
+  const [elapsed, setElapsed] = useState(0);
+  const [showError, setShowError] = useState(false);
+  const startRef = useRef<number>(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isActive) {
+      startRef.current = Date.now();
+      setElapsed(0);
+      setShowError(false);
+      timerRef.current = setInterval(() => {
+        setElapsed(Date.now() - startRef.current);
+      }, 200);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isActive]);
+
+  if (!isActive && !error) return null;
+
+  const phases = BACKUP_PHASES[opType];
+  let currentPhaseIdx = 0;
+  for (let i = phases.length - 1; i >= 0; i--) {
+    if (elapsed >= phases[i].atMs) { currentPhaseIdx = i; break; }
+  }
+
+  const fmtElapsed = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const rs = s % 60;
+    return `${m}:${rs.toString().padStart(2, "0")}`;
+  };
+
+  if (error) {
+    return (
+      <div className="mt-3 border border-destructive/30 rounded-lg p-3 bg-destructive/5" data-testid="backup-progress-error">
+        <div className="flex items-center gap-2 text-destructive">
+          <XCircle className="h-4 w-4 flex-shrink-0" />
+          <span className="text-sm font-medium">{t("syncDash.progressFailed")}</span>
+          <span className="text-xs text-muted-foreground ml-auto">{fmtElapsed(elapsed)}</span>
+        </div>
+        <button
+          onClick={() => setShowError(!showError)}
+          className="text-xs text-muted-foreground hover:text-foreground mt-1.5 underline cursor-pointer"
+          data-testid="button-toggle-error-detail"
+        >
+          {showError ? t("syncDash.hideErrorDetail") : t("syncDash.showErrorDetail")}
+        </button>
+        {showError && (
+          <pre className="mt-2 text-xs bg-destructive/10 rounded p-2 whitespace-pre-wrap break-all max-h-40 overflow-auto font-mono" data-testid="text-error-detail">
+            {error}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 border rounded-lg p-3 bg-muted/30" data-testid="backup-progress-panel">
+      <div className="flex items-center gap-2 mb-2">
+        <Loader2 className="h-4 w-4 animate-spin text-foreground" />
+        <span className="text-sm font-medium">{t(phases[currentPhaseIdx].key)}</span>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {t("syncDash.progressElapsed")}: {fmtElapsed(elapsed)}
+        </span>
+      </div>
+      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+        <div className="h-full bg-foreground rounded-full animate-pulse" style={{ width: `${Math.min(5 + (currentPhaseIdx / phases.length) * 90, 95)}%`, transition: "width 1s ease" }} />
+      </div>
+      <div className="flex gap-1 mt-2">
+        {phases.map((p, i) => (
+          <div key={i} className={`text-[10px] flex items-center gap-0.5 ${i <= currentPhaseIdx ? "text-foreground" : "text-muted-foreground/40"}`}>
+            {i < currentPhaseIdx ? <CheckCircle2 className="h-3 w-3" /> : i === currentPhaseIdx ? <Loader2 className="h-3 w-3 animate-spin" /> : <Clock className="h-3 w-3" />}
+            <span className="hidden sm:inline">{t(p.key).replace("...", "")}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProgressRing({ progress, size = 120, strokeWidth = 8, isActive = false, recordsTotal = 0, speedPerSec = 0 }: { progress: number; size?: number; strokeWidth?: number; isActive?: boolean; recordsTotal?: number; speedPerSec?: number }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -346,6 +457,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
+  const [backupError, setBackupError] = useState<{ type: BackupOp; message: string } | null>(null);
   const [batchQueue, setBatchQueue] = useState<string[]>([]);
   const [batchCompleted, setBatchCompleted] = useState<string[]>([]);
 
@@ -438,15 +550,23 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const restoreBackupMutation = useMutation({
     mutationFn: async (backupId: string) => {
+      setBackupError(null);
       const res = await apiRequest("POST", `/api/sync-backups/${backupId}/restore`);
       return res.json();
     },
     onSuccess: (data) => {
+      if (!data.success) {
+        setBackupError({ type: "restore", message: data.message || "Restore failed" });
+      }
       toast({
         title: data.success ? t("syncDash.restored") : t("syncDash.error"),
         description: data.message,
         variant: data.success ? "default" : "destructive",
       });
+    },
+    onError: (err: any) => {
+      setBackupError({ type: "restore", message: err.message || "Restore failed" });
+      toast({ title: t("syncDash.error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -476,6 +596,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const configToDriveMutation = useMutation({
     mutationFn: async () => {
+      setBackupError(null);
       const res = await apiRequest("POST", "/api/backups/config-to-drive");
       return res.json();
     },
@@ -487,6 +608,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
       refetchConfigDriveBackups();
     },
     onError: (err: any) => {
+      setBackupError({ type: "configToDrive", message: err.message || "Config backup failed" });
       toast({ title: t("syncDash.configBackupFailed"), description: err.message, variant: "destructive" });
     },
   });
@@ -503,6 +625,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const restoreConfigDriveMutation = useMutation({
     mutationFn: async (fileId: string) => {
+      setBackupError(null);
       const res = await apiRequest("POST", `/api/backups/config-restore-from-drive/${fileId}`);
       return res.json();
     },
@@ -515,12 +638,14 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
       queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
     },
     onError: (err: any) => {
+      setBackupError({ type: "restoreConfig", message: err.message || "Config restore failed" });
       toast({ title: t("syncDash.configRestoreFailed"), description: err.message, variant: "destructive" });
     },
   });
 
   const manualBackupMutation = useMutation({
     mutationFn: async (configId: string) => {
+      setBackupError(null);
       await apiRequest("POST", `/api/backups/manual/${configId}`);
     },
     onSuccess: () => {
@@ -528,6 +653,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
       queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
     },
     onError: (err: any) => {
+      setBackupError({ type: "manual", message: err.message || "Backup failed" });
       toast({ title: err.message || "Backup failed", variant: "destructive" });
     },
   });
@@ -1490,6 +1616,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-1">{t("syncDash.configDriveBackupDesc")}</p>
+              <BackupProgressPanel isActive={configToDriveMutation.isPending} error={backupError?.type === "configToDrive" ? backupError.message : null} opType="configToDrive" t={t} />
+              <BackupProgressPanel isActive={restoreConfigDriveMutation.isPending} error={backupError?.type === "restoreConfig" ? backupError.message : null} opType="restoreConfig" t={t} />
             </CardHeader>
             <CardContent>
               <div className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
@@ -1666,6 +1794,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         </Button>
                       </div>
                     </div>
+                    <BackupProgressPanel isActive={manualBackupMutation.isPending} error={backupError?.type === "manual" ? backupError.message : null} opType="manual" t={t} />
+                    <BackupProgressPanel isActive={restoreBackupMutation.isPending} error={backupError?.type === "restore" ? backupError.message : null} opType="restore" t={t} />
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">

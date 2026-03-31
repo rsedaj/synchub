@@ -47,6 +47,7 @@ import {
   Eye,
   Database,
   Shield,
+  Download,
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -1109,15 +1110,48 @@ export default function SyncConfigPage() {
       </AlertDialog>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-data-preview">
+        <DialogContent className="max-w-[90vw] max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-data-preview">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              {language === "sk" ? "Náhľad dát" : "Data Preview"} — {previewModule?.name || ""}
-              {previewSide === "source" && editor.sourceDataSource && (
-                <Badge variant="outline" className="ml-2 text-xs">{editor.sourceDataSource}</Badge>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                {language === "sk" ? "Náhľad dát" : "Data Preview"} — {previewModule?.name || ""}
+                {previewSide === "source" && editor.sourceDataSource && (
+                  <Badge variant="outline" className="ml-2 text-xs">{editor.sourceDataSource}</Badge>
+                )}
+              </DialogTitle>
+              {previewData?.sample && previewData.sample.length > 0 && (
+                <Button
+                  variant="outline" size="sm"
+                  className="ml-4 flex-shrink-0"
+                  onClick={() => {
+                    const rows = previewData.sample.slice(0, 5);
+                    const fields = previewFields;
+                    let csv = fields.join("\t") + "\n";
+                    for (const row of rows) {
+                      csv += fields.map(f => {
+                        const v = row[f];
+                        if (v === undefined || v === null) return "";
+                        if (typeof v === "object") return JSON.stringify(v);
+                        return String(v);
+                      }).join("\t") + "\n";
+                    }
+                    const BOM = "\uFEFF";
+                    const blob = new Blob([BOM + csv], { type: "text/tab-separated-values;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${previewModule?.name || "data"}_preview.xls`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  data-testid="button-download-excel"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  {t("syncConfig.downloadExcel")}
+                </Button>
               )}
-            </DialogTitle>
+            </div>
           </DialogHeader>
           <div className="overflow-auto flex-1 -mx-6 px-6">
             {previewFields.length === 0 ? (
@@ -1146,36 +1180,28 @@ export default function SyncConfigPage() {
                   <div>
                     <h4 className="text-xs font-semibold text-muted-foreground mb-2">
                       {language === "sk"
-                        ? `Ukážka dát (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "záznam" : "záznamov"})`
-                        : `Sample data (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "record" : "records"})`}
+                        ? `Ukážka dát (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "záznam" : "záznamov"}) — ${previewFields.length} ${t("syncConfig.allColumns").toLowerCase()}`
+                        : `Sample data (${Math.min(previewData.sample.length, 5)} ${previewData.sample.length === 1 ? "record" : "records"}) — ${previewFields.length} ${t("syncConfig.allColumns").toLowerCase()}`}
                     </h4>
-                    <div className="border rounded-lg overflow-auto">
-                      <table className="w-full text-xs" data-testid="table-sample-data">
-                        <thead>
+                    <div className="border rounded-lg overflow-auto max-h-[50vh]">
+                      <table className="text-xs" data-testid="table-sample-data">
+                        <thead className="sticky top-0">
                           <tr className="bg-muted/50 border-b">
-                            {previewFields.slice(0, 10).map(f => (
+                            {previewFields.map(f => (
                               <th key={f} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">{f}</th>
                             ))}
-                            {previewFields.length > 10 && (
-                              <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                                +{previewFields.length - 10}
-                              </th>
-                            )}
                           </tr>
                         </thead>
                         <tbody>
                           {previewData.sample.slice(0, 5).map((row: any, rowIdx: number) => (
                             <tr key={rowIdx} className={rowIdx % 2 === 0 ? "bg-background" : "bg-muted/10"}>
-                              {previewFields.slice(0, 10).map(f => (
-                                <td key={f} className="px-3 py-1.5 whitespace-nowrap max-w-[200px] truncate border-t">
+                              {previewFields.map(f => (
+                                <td key={f} className="px-3 py-1.5 whitespace-nowrap max-w-[300px] truncate border-t">
                                   {row[f] !== undefined && row[f] !== null
-                                    ? (typeof row[f] === "object" ? JSON.stringify(row[f]).slice(0, 50) : String(row[f]).slice(0, 80))
+                                    ? (typeof row[f] === "object" ? JSON.stringify(row[f]).slice(0, 100) : String(row[f]).slice(0, 150))
                                     : <span className="text-muted-foreground italic">null</span>}
                                 </td>
                               ))}
-                              {previewFields.length > 10 && (
-                                <td className="px-3 py-1.5 text-muted-foreground border-t">...</td>
-                              )}
                             </tr>
                           ))}
                         </tbody>
