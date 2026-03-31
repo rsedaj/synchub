@@ -350,6 +350,7 @@ function PhaseIndicator({ phase, phaseHistory, t }: { phase: string; phaseHistor
 function StatusBadge({ status, t }: { status: string; t: (key: string) => string }) {
   const config: Record<string, { labelKey: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
     success: { labelKey: "syncDash.statusSuccess", variant: "default" },
+    partial: { labelKey: "syncDash.statusPartial", variant: "secondary" },
     error: { labelKey: "syncDash.statusError", variant: "destructive" },
     running: { labelKey: "syncDash.statusRunning", variant: "secondary" },
     pending: { labelKey: "syncDash.statusPending", variant: "outline" },
@@ -405,7 +406,7 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
     const key = new Date(run.startedAt).toISOString().slice(0, 10);
     if (days[key]) {
       days[key].total++;
-      if (run.status === "success") days[key].success++;
+      if (run.status === "success" || run.status === "partial") days[key].success++;
       else if (run.status === "error") days[key].error++;
     }
   }
@@ -508,13 +509,55 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const trackedRun = trackingRunId ? runs.find(r => r.id === trackingRunId) || activeRuns.find(r => r.id === trackingRunId) : null;
 
+  const prevTrackedStatusRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (trackedRun && (trackedRun.status === "success" || trackedRun.status === "error")) {
+    if (trackedRun && (trackedRun.status === "success" || trackedRun.status === "error" || trackedRun.status === "partial")) {
+      const prevStatus = prevTrackedStatusRef.current;
+      if (prevStatus === "running" || prevStatus === "pending") {
+        const details = trackedRun.details as any;
+        const summary = details?.completionSummary;
+        const configName = configMap[trackedRun.syncConfigId]?.name || "";
+
+        let notifTitle = "";
+        let notifBody = "";
+        if (trackedRun.status === "success") {
+          notifTitle = t("syncDash.syncCompleted");
+          notifBody = t("syncDash.syncCompletedDesc")
+            .replace("{created}", String(summary?.totalCreated || 0))
+            .replace("{updated}", String(summary?.totalUpdated || 0))
+            .replace("{failed}", String(summary?.totalFailed || 0));
+        } else if (trackedRun.status === "partial") {
+          notifTitle = t("syncDash.syncPartial");
+          notifBody = t("syncDash.syncPartialDesc")
+            .replace("{created}", String(summary?.totalCreated || 0))
+            .replace("{failed}", String(summary?.totalFailed || 0));
+        } else {
+          notifTitle = t("syncDash.syncFailed");
+          notifBody = t("syncDash.syncFailedDesc")
+            .replace("{failed}", String(trackedRun.recordsFailed || 0));
+        }
+
+        toast({
+          title: `${notifTitle} — ${configName}`,
+          description: notifBody,
+          duration: 15000,
+          variant: trackedRun.status === "error" ? "destructive" : undefined,
+        });
+
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification(`SyncHub: ${notifTitle}`, { body: `${configName}\n${notifBody}`, icon: "/favicon.ico" });
+          } catch {}
+        }
+      }
+
       setTimeout(() => {
         setTrackingRunId(null);
         queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
-      }, 3000);
+      }, 30000);
     }
+    prevTrackedStatusRef.current = trackedRun?.status || null;
   }, [trackedRun?.status]);
 
   useEffect(() => {
@@ -525,6 +568,9 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const startSyncMutation = useMutation({
     mutationFn: async (configId: string) => {
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        try { await Notification.requestPermission(); } catch {}
+      }
       const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`);
       return res.json();
     },
@@ -760,7 +806,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     const today = new Date();
     return d.toDateString() === today.toDateString();
   });
-  const successRuns = runs.filter(r => r.status === "success");
+  const successRuns = runs.filter(r => r.status === "success" || r.status === "partial");
   const errorRuns = runs.filter(r => r.status === "error");
   const totalRecordsSynced = runs.reduce((sum, r) => sum + (r.recordsProcessed || 0), 0);
   const avgDuration = successRuns.length > 0
@@ -867,17 +913,21 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
           </div>
 
           {trackedRun && (
-            <Card className={`border-foreground/20 ${trackedRun.status === "error" ? "border-destructive/40" : ""}`}>
+            <Card className={`border-foreground/20 ${trackedRun.status === "error" ? "border-destructive/40" : trackedRun.status === "partial" ? "border-yellow-500/40" : trackedRun.status === "success" ? "border-green-500/40" : ""}`}>
               <CardHeader className="pb-2 pt-3 px-4">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
                   {trackedRun.status === "running" || trackedRun.status === "pending" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : trackedRun.status === "success" ? (
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                  ) : trackedRun.status === "partial" ? (
+                    <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
                   ) : (
                     <XCircle className="h-3.5 w-3.5 text-destructive" />
                   )}
-                  {t("syncDash.liveProgress")}
+                  {(trackedRun.status === "success" || trackedRun.status === "partial" || trackedRun.status === "error")
+                    ? t("syncDash.completionSummary")
+                    : t("syncDash.liveProgress")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-4">
@@ -999,6 +1049,104 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         <p className="text-xs">{trackedRun.errorMessage}</p>
                       </div>
                     )}
+
+                    {(trackedRun.status === "success" || trackedRun.status === "partial" || trackedRun.status === "error") && (trackedRun.details as any)?.completionSummary && (() => {
+                      const cs = (trackedRun.details as any).completionSummary;
+                      const isSuccess = trackedRun.status === "success";
+                      const isPartial = trackedRun.status === "partial";
+                      const borderColor = isSuccess ? "border-green-500/30" : isPartial ? "border-yellow-500/30" : "border-destructive/30";
+                      const bgColor = isSuccess ? "bg-green-500/5" : isPartial ? "bg-yellow-500/5" : "bg-destructive/5";
+                      return (
+                        <div className={`mt-2 border rounded-lg p-3 space-y-3 ${borderColor} ${bgColor}`} data-testid="panel-completion-summary">
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <BarChart3 className="h-4 w-4" />
+                            {t("syncDash.completionSummary")}
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.created")}:</span>
+                              <p className="font-semibold text-green-600 dark:text-green-400" data-testid="text-summary-created">+{cs.totalCreated || 0}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.updated")}:</span>
+                              <p className="font-semibold text-blue-600 dark:text-blue-400" data-testid="text-summary-updated">↻{cs.totalUpdated || 0}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.errors")}:</span>
+                              <p className={`font-semibold ${(cs.totalFailed || 0) > 0 ? "text-destructive" : ""}`} data-testid="text-summary-failed">✗{cs.totalFailed || 0}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.duration")}:</span>
+                              <p className="font-semibold" data-testid="text-summary-duration">{cs.durationFormatted || "—"}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
+                              <p className="font-medium">{cs.sourceRecordCount || 0}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
+                              <p className="font-medium">{cs.fieldCount || 0}</p>
+                            </div>
+                          </div>
+
+                          {cs.fieldMappings && cs.fieldMappings.length > 0 && (
+                            <div className="text-xs">
+                              <span className="text-muted-foreground font-medium">{t("syncDash.fieldMappingsUsed")}:</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {cs.fieldMappings.map((fm: string, idx: number) => (
+                                  <Badge key={idx} variant="secondary" className="text-[10px] h-5 px-1.5 font-mono">{fm}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {cs.backupStats && (
+                            <div className="text-xs border-t pt-2 border-foreground/10">
+                              <span className="text-muted-foreground font-medium">{t("syncDash.backupInfo")}:</span>
+                              <div className="grid grid-cols-2 gap-2 mt-1">
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.backupRecords")}:</span>
+                                  <p className="font-medium">
+                                    {t("syncDash.backupOfTotal")
+                                      .replace("{count}", String(cs.backupStats.uploadedRecordCount))
+                                      .replace("{total}", String(cs.backupStats.totalTargetRecords))}
+                                  </p>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.backupSize")}:</span>
+                                  <p className="font-medium">{(cs.backupStats.fileSize / 1024).toFixed(1)} KB</p>
+                                </div>
+                              </div>
+                              {cs.backupStats.truncated && (
+                                <p className="text-[10px] text-yellow-600 dark:text-yellow-400 mt-1">
+                                  <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                  {t("syncDash.backupTruncated")}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {cs.sampleTargetIds && cs.sampleTargetIds.length > 0 ? (
+                            <div className="text-xs border-t pt-2 border-foreground/10">
+                              <span className="text-muted-foreground font-medium">{t("syncDash.targetIds")}:</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {cs.sampleTargetIds.map((id: any, idx: number) => (
+                                  <Badge key={idx} variant="outline" className="text-[10px] h-5 px-1.5 font-mono">{id}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          ) : cs.totalCreated > 0 && (
+                            <div className="text-xs border-t pt-2 border-foreground/10">
+                              <p className="text-muted-foreground italic">{t("syncDash.noTargetIds")}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (
                       <Button
@@ -1302,6 +1450,42 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                     ))}
                                   </div>
                                 )}
+                              </div>
+                            )}
+
+                            {details?.completionSummary && (
+                              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs" data-testid="panel-history-summary">
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
+                                  <p className="font-medium">{details.completionSummary.sourceRecordCount}</p>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
+                                  <p className="font-medium">{details.completionSummary.fieldCount}</p>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.duration")}:</span>
+                                  <p className="font-medium">{details.completionSummary.durationFormatted}</p>
+                                </div>
+                                {details.completionSummary.backupStats && (
+                                  <div>
+                                    <span className="text-muted-foreground">{t("syncDash.backupRecords")}:</span>
+                                    <p className="font-medium">
+                                      {details.completionSummary.backupStats.uploadedRecordCount} / {details.completionSummary.backupStats.totalTargetRecords}
+                                      {details.completionSummary.backupStats.truncated && (
+                                        <span className="text-yellow-600 ml-1">*</span>
+                                      )}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {details?.completionSummary?.fieldMappings?.length > 0 && (
+                              <div className="flex flex-wrap gap-1 text-xs mt-1">
+                                {details.completionSummary.fieldMappings.map((fm: string, idx: number) => (
+                                  <Badge key={idx} variant="secondary" className="text-[10px] h-5 px-1.5 font-mono">{fm}</Badge>
+                                ))}
                               </div>
                             )}
 

@@ -157,6 +157,7 @@ async function executeAsync(
 ) {
   const startTime = Date.now();
   const log = (msg: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}] ${msg}`);
+  let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean } | null = null;
 
   try {
     log("=== PHASE 1/4: PREFLIGHT ===");
@@ -235,6 +236,13 @@ async function executeAsync(
           }
         }
 
+        backupStats = {
+          uploadedRecordCount: driveResult.uploadedRecordCount,
+          totalTargetRecords: backupData.length,
+          fileSize: driveResult.fileSize,
+          fileName: driveResult.fileName,
+          truncated: driveResult.uploadedRecordCount < backupData.length,
+        };
         log(`Backup created: ${driveResult.fileName} (${driveResult.uploadedRecordCount}/${backupData.length} records, ${driveResult.fileSize} bytes)`);
       } catch (err: any) {
         log(`BACKUP FAILED: ${err.message}`);
@@ -382,6 +390,30 @@ async function executeAsync(
       if (consecutiveFailBatches >= MAX_CONSECUTIVE_FAIL_BATCHES) {
         const lastError = allErrors.length > 0 ? allErrors[allErrors.length - 1].message : "Unknown error";
         const totalProcessed = totalCreated + totalUpdated + totalFailed;
+        const earlyDuration = Date.now() - startTime;
+        const earlyMappingNames = mappings.map(m => `${m.sourceField} → ${m.targetField}`);
+        const earlySampleIds = syncedRecords
+          .filter(r => r.status === "created" && r.target_id != null)
+          .slice(0, 10)
+          .map(r => r.target_id);
+        const earlyCompletionSummary = {
+          totalCreated,
+          totalUpdated,
+          totalFailed,
+          totalProcessed: totalCreated + totalUpdated,
+          sourceRecordCount: totalRecords,
+          fieldMappings: earlyMappingNames,
+          fieldCount: mappings.length,
+          sampleTargetIds: earlySampleIds,
+          backupStats,
+          durationMs: earlyDuration,
+          durationFormatted: earlyDuration >= 60000
+            ? `${Math.floor(earlyDuration / 60000)}m ${Math.round((earlyDuration % 60000) / 1000)}s`
+            : `${Math.round(earlyDuration / 1000)}s`,
+          completedAt: new Date().toISOString(),
+          earlyStop: true,
+          earlyStopReason: `${consecutiveFailBatches} consecutive 100% error batches`,
+        };
         log(`EARLY STOP: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`);
         await storage.updateSyncRun(runId, {
           status: "error",
@@ -399,6 +431,7 @@ async function executeAsync(
             totalFailed,
             batchErrors: allErrors.slice(-50),
             syncedRecords,
+            completionSummary: earlyCompletionSummary,
           },
         });
         try {
@@ -484,8 +517,32 @@ async function executeAsync(
     }
 
     const processedOk = totalCreated + totalUpdated;
-    const finalStatus = totalFailed === 0 ? "success" : "error";
+    const finalStatus = totalFailed === 0 ? "success" : (processedOk > 0 ? "partial" : "error");
     const duration = Date.now() - startTime;
+
+    const sampleTargetIds = syncedRecords
+      .filter(r => r.status === "created" && r.target_id != null)
+      .slice(0, 10)
+      .map(r => r.target_id);
+
+    const mappingNames = mappings.map(m => `${m.sourceField} → ${m.targetField}`);
+
+    const completionSummary = {
+      totalCreated,
+      totalUpdated,
+      totalFailed,
+      totalProcessed: processedOk,
+      sourceRecordCount: totalRecords,
+      fieldMappings: mappingNames,
+      fieldCount: mappings.length,
+      sampleTargetIds,
+      backupStats,
+      durationMs: duration,
+      durationFormatted: duration >= 60000
+        ? `${Math.floor(duration / 60000)}m ${Math.round((duration % 60000) / 1000)}s`
+        : `${Math.round(duration / 1000)}s`,
+      completedAt: new Date().toISOString(),
+    };
 
     await storage.updateSyncRun(runId, {
       status: finalStatus,
@@ -503,6 +560,7 @@ async function executeAsync(
         totalFailed,
         batchErrors: allErrors.slice(-50),
         syncedRecords,
+        completionSummary,
       },
     });
 
@@ -512,7 +570,7 @@ async function executeAsync(
       await storage.createSyncLog({
         moduleId: config.sourceModuleId,
         direction: "import",
-        status: finalStatus === "success" ? "success" : "error",
+        status: finalStatus === "partial" ? "success" : finalStatus,
         recordsProcessed: processedOk,
         recordsFailed: totalFailed,
         errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,

@@ -610,8 +610,28 @@ async function pushToOnix(
       if (res.ok) {
         let newId: number | null = null;
         try {
-          const data = await res.json();
-          newId = data?.Id || data?.id || (typeof data === "number" ? data : null);
+          const resText = await res.text();
+          if (batchIndex === 0 && i < 3) {
+            console.log(`[target-push] ONIX response raw [batch ${batchIndex}, record ${i}]:`, resText.slice(0, 500));
+          }
+          try {
+            const data = JSON.parse(resText);
+            newId = data?.Id || data?.id || data?.StockItemId || data?.stockItemId ||
+                    (typeof data === "number" ? data : null);
+            if (!newId && typeof data === "object" && data !== null) {
+              for (const key of Object.keys(data)) {
+                if (/^(id|Id|ID)$/.test(key) || key.toLowerCase().endsWith("id")) {
+                  const val = data[key];
+                  if (typeof val === "number" && val > 0) { newId = val; break; }
+                  if (typeof val === "string" && /^\d+$/.test(val)) { newId = parseInt(val, 10); break; }
+                }
+              }
+            }
+          } catch {
+            if (/^\d+$/.test(resText.trim())) {
+              newId = parseInt(resText.trim(), 10);
+            }
+          }
         } catch {}
 
         if (isUpdate) {
