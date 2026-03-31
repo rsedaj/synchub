@@ -2114,7 +2114,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                   <CardContent>
                     <div className="space-y-2">
                       {configBackups.map((backup: any) => (
-                        <div key={backup.id} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`row-backup-${backup.id}`}>
+                        <div key={backup.id} className="space-y-2">
+                        <div className="flex items-center justify-between p-3 rounded-lg border" data-testid={`row-backup-${backup.id}`}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <HardDrive className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
@@ -2207,6 +2208,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             ))}
                           </div>
                         )}
+                        </div>
                       ))}
                     </div>
                   </CardContent>

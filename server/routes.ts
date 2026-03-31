@@ -756,7 +756,19 @@ export async function registerRoutes(
         try {
           await deleteBackupFile(backup.googleDriveFileId);
         } catch (err: any) {
-          console.error(`[backups] Failed to delete Google Drive file:`, err.message);
+          console.error(`[backups] Failed to delete Google Drive primary file:`, err.message);
+        }
+      }
+      const snapshot = backup.configSnapshot as any;
+      if (snapshot?.parts && Array.isArray(snapshot.parts)) {
+        for (const part of snapshot.parts) {
+          if (part.fileId && part.fileId !== backup.googleDriveFileId) {
+            try {
+              await deleteBackupFile(part.fileId);
+            } catch (err: any) {
+              console.error(`[backups] Failed to delete part file ${part.fileId}:`, err.message);
+            }
+          }
         }
       }
       await storage.deleteSyncBackup(req.params.id);
@@ -1166,6 +1178,14 @@ export async function registerRoutes(
       for (const b of backups) {
         if (b.googleDriveFileId) {
           try { await deleteBackupFile(b.googleDriveFileId); } catch {}
+        }
+        const snap = b.configSnapshot as any;
+        if (snap?.parts && Array.isArray(snap.parts)) {
+          for (const part of snap.parts) {
+            if (part.fileId && part.fileId !== b.googleDriveFileId) {
+              try { await deleteBackupFile(part.fileId); } catch {}
+            }
+          }
         }
       }
       await storage.deleteSyncBackupsByConfig(req.params.configId);

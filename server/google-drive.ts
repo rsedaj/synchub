@@ -228,7 +228,7 @@ export async function uploadBackup(
       runId,
       totalRecords: data.length,
       partNumber: partNum,
-      totalParts: isSingleFile ? 1 : "multi",
+      totalParts: Math.ceil(allStripped.length / chunkSize),
       recordsInPart: chunk.length,
       exportedAt: new Date().toISOString(),
       data: chunk,
