@@ -33,6 +33,9 @@ export interface PushResult {
   errorCount: number;
   errors: Array<{ index: number; message: string }>;
   records: PushRecordResult[];
+  avgLatencyMs?: number;
+  minLatencyMs?: number;
+  maxLatencyMs?: number;
 }
 
 async function sleep(ms: number) {
@@ -532,6 +535,10 @@ async function pushToOnix(
   let errorCount = 0;
   const errors: Array<{ index: number; message: string }> = [];
   const recordResults: PushRecordResult[] = [];
+  let totalLatencyMs = 0;
+  let latencyCount = 0;
+  let minLatencyMs = Infinity;
+  let maxLatencyMs = 0;
 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
@@ -598,14 +605,21 @@ async function pushToOnix(
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
 
+      const fetchStart = Date.now();
       const res = await fetch(url, {
         method,
         headers: hdrs,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      const fetchLatency = Date.now() - fetchStart;
 
       clearTimeout(timeout);
+
+      totalLatencyMs += fetchLatency;
+      latencyCount++;
+      if (fetchLatency < minLatencyMs) minLatencyMs = fetchLatency;
+      if (fetchLatency > maxLatencyMs) maxLatencyMs = fetchLatency;
 
       if (res.ok) {
         let newId: number | null = null;
@@ -677,7 +691,8 @@ async function pushToOnix(
     }
   }
 
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount}`);
+  const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms`);
 
   return {
     success: errorCount === 0,
@@ -686,5 +701,8 @@ async function pushToOnix(
     errorCount,
     errors: errors.slice(0, 20),
     records: recordResults,
+    avgLatencyMs: avgLatency,
+    minLatencyMs: minLatencyMs === Infinity ? 0 : minLatencyMs,
+    maxLatencyMs,
   };
 }

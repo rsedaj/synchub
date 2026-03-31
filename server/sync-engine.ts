@@ -198,7 +198,7 @@ async function executeAsync(
       try {
         let backupData: any[] = [];
         try {
-          const targetResult = await fetchModuleData(targetModule, 2000, config.targetDataSource || undefined);
+          const targetResult = await fetchModuleData(targetModule, 50000, config.targetDataSource || undefined);
           if (targetResult.success && targetResult.preview) {
             backupData = targetResult.preview;
           }
@@ -211,18 +211,27 @@ async function executeAsync(
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,
           syncRunId: runId,
-          fileName: driveResult.fileName,
-          fileSize: driveResult.fileSize,
-          googleDriveFileId: driveResult.fileId,
-          googleDriveUrl: driveResult.webViewLink,
-          backupRecordCount: driveResult.uploadedRecordCount,
+          fileName: driveResult.primaryFileName,
+          fileSize: driveResult.combinedFileSize,
+          googleDriveFileId: driveResult.primaryFileId,
+          googleDriveUrl: driveResult.primaryWebViewLink,
+          backupRecordCount: driveResult.totalRecords,
           configSnapshot: {
             name: config.name,
             sourceModuleId: config.sourceModuleId,
             targetModuleId: config.targetModuleId,
             fieldMappings: config.fieldMappings,
             totalTargetRecords: backupData.length,
-            truncated: driveResult.uploadedRecordCount < backupData.length,
+            truncated: false,
+            totalFiles: driveResult.totalFiles,
+            parts: driveResult.parts.map(p => ({
+              fileId: p.fileId,
+              fileName: p.fileName,
+              fileSize: p.fileSize,
+              webViewLink: p.webViewLink,
+              recordCount: p.recordCount,
+              partNumber: p.partNumber,
+            })),
           },
         });
 
@@ -239,13 +248,14 @@ async function executeAsync(
         }
 
         backupStats = {
-          uploadedRecordCount: driveResult.uploadedRecordCount,
+          uploadedRecordCount: driveResult.totalRecords,
           totalTargetRecords: backupData.length,
-          fileSize: driveResult.fileSize,
-          fileName: driveResult.fileName,
-          truncated: driveResult.uploadedRecordCount < backupData.length,
+          fileSize: driveResult.combinedFileSize,
+          fileName: driveResult.primaryFileName,
+          truncated: false,
+          totalFiles: driveResult.totalFiles,
         };
-        log(`Backup created: ${driveResult.fileName} (${driveResult.uploadedRecordCount}/${backupData.length} records, ${driveResult.fileSize} bytes)`);
+        log(`Backup created: ${driveResult.totalFiles} file(s), ${driveResult.totalRecords}/${backupData.length} records, ${driveResult.combinedFileSize} bytes`);
       } catch (err: any) {
         log(`BACKUP FAILED: ${err.message}`);
         await storage.updateSyncRun(runId, {
@@ -328,6 +338,10 @@ async function executeAsync(
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = [];
     const syncedRecords: PushRecordResult[] = [];
+    let allLatencyMs = 0;
+    let allLatencyCount = 0;
+    let globalMinLatency = Infinity;
+    let globalMaxLatency = 0;
 
     await storage.updateSyncRun(runId, {
       batchSize: BATCH_SIZE,
@@ -359,6 +373,7 @@ async function executeAsync(
       let batchErrorCount = 0;
       let lastPushRecords: PushRecordResult[] = [];
 
+      let batchAvgLatency = 0;
       if (mappedBatch.length > 0) {
         try {
           const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1, batchRecords);
@@ -367,6 +382,14 @@ async function executeAsync(
           totalFailed += pushResult.errorCount;
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
+          if (pushResult.avgLatencyMs != null && pushResult.avgLatencyMs > 0) {
+            const batchRecordCount = pushResult.createdCount + pushResult.updatedCount + pushResult.errorCount;
+            allLatencyMs += pushResult.avgLatencyMs * batchRecordCount;
+            allLatencyCount += batchRecordCount;
+            batchAvgLatency = pushResult.avgLatencyMs;
+            if (pushResult.minLatencyMs != null && pushResult.minLatencyMs < globalMinLatency) globalMinLatency = pushResult.minLatencyMs;
+            if (pushResult.maxLatencyMs != null && pushResult.maxLatencyMs > globalMaxLatency) globalMaxLatency = pushResult.maxLatencyMs;
+          }
           for (const e of pushResult.errors) {
             allErrors.push({ batch: currentBatch, ...e });
           }
@@ -398,6 +421,8 @@ async function executeAsync(
           .filter(r => r.status === "created" && r.target_id != null)
           .slice(0, 10)
           .map(r => r.target_id);
+        const earlyAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
+        const earlySpeedRating = earlyAvgLatency === 0 ? "unknown" : earlyAvgLatency < 200 ? "fast" : earlyAvgLatency < 1000 ? "normal" : earlyAvgLatency < 3000 ? "slow" : "very_slow";
         const earlyCompletionSummary = {
           totalCreated,
           totalUpdated,
@@ -415,6 +440,10 @@ async function executeAsync(
           completedAt: new Date().toISOString(),
           earlyStop: true,
           earlyStopReason: `${consecutiveFailBatches} consecutive 100% error batches`,
+          avgLatencyMs: earlyAvgLatency,
+          minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
+          maxLatencyMs: globalMaxLatency,
+          speedRating: earlySpeedRating,
         };
         log(`EARLY STOP: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`);
         await storage.updateSyncRun(runId, {
@@ -487,6 +516,8 @@ async function executeAsync(
       const batchCreatedCount = lastPushRecords.filter(r => r.status === "created").length;
       const batchUpdatedCount = lastPushRecords.filter(r => r.status === "updated").length;
 
+      const currentAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
+
       await storage.updateSyncRun(runId, {
         recordsProcessed: totalCreated + totalUpdated,
         recordsFailed: totalFailed,
@@ -510,8 +541,12 @@ async function executeAsync(
             batchCreated: batchCreatedCount,
             batchUpdated: batchUpdatedCount,
             batchErrors: batchErrorCount,
+            batchAvgLatency,
           },
           elapsedMs: elapsed,
+          avgLatencyMs: currentAvgLatency,
+          minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
+          maxLatencyMs: globalMaxLatency,
         },
       });
 
@@ -529,6 +564,9 @@ async function executeAsync(
 
     const mappingNames = mappings.map(m => `${m.sourceField} → ${m.targetField}`);
 
+    const finalAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
+    const speedRating = finalAvgLatency === 0 ? "unknown" : finalAvgLatency < 200 ? "fast" : finalAvgLatency < 1000 ? "normal" : finalAvgLatency < 3000 ? "slow" : "very_slow";
+
     const completionSummary = {
       totalCreated,
       totalUpdated,
@@ -544,6 +582,10 @@ async function executeAsync(
         ? `${Math.floor(duration / 60000)}m ${Math.round((duration % 60000) / 1000)}s`
         : `${Math.round(duration / 1000)}s`,
       completedAt: new Date().toISOString(),
+      avgLatencyMs: finalAvgLatency,
+      minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
+      maxLatencyMs: globalMaxLatency,
+      speedRating,
     };
 
     await storage.updateSyncRun(runId, {

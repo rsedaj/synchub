@@ -57,6 +57,7 @@ import {
   Cloud,
   FolderOpen,
   Settings,
+  Gauge,
 } from "lucide-react";
 import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -391,6 +392,50 @@ function DonutChart({ data, size = 160 }: { data: { label: string; value: number
       })}
     </svg>
   );
+}
+
+function SpeedGauge({ avgLatencyMs, t }: { avgLatencyMs: number; t: (key: string) => string }) {
+  const rating = avgLatencyMs === 0 ? "unknown" : avgLatencyMs < 200 ? "fast" : avgLatencyMs < 1000 ? "normal" : avgLatencyMs < 3000 ? "slow" : "very_slow";
+  const ratingConfig: Record<string, { color: string; bg: string; border: string; label: string; width: string }> = {
+    fast: { color: "text-green-600 dark:text-green-400", bg: "bg-green-500", border: "border-green-500/30", label: t("syncDash.speedFast"), width: "20%" },
+    normal: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500", border: "border-blue-500/30", label: t("syncDash.speedNormal"), width: "45%" },
+    slow: { color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-500", border: "border-yellow-500/30", label: t("syncDash.speedSlow"), width: "70%" },
+    very_slow: { color: "text-red-600 dark:text-red-400", bg: "bg-red-500", border: "border-red-500/30", label: t("syncDash.speedVerySlow"), width: "95%" },
+    unknown: { color: "text-muted-foreground", bg: "bg-muted", border: "border-muted", label: "—", width: "0%" },
+  };
+  const cfg = ratingConfig[rating];
+
+  return (
+    <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border ${cfg.border} bg-background`} data-testid="speed-gauge">
+      <Gauge className={`h-3.5 w-3.5 flex-shrink-0 ${cfg.color}`} />
+      <div className="flex-1 min-w-0">
+        <div className="w-full bg-muted/40 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${cfg.bg}`}
+            style={{ width: cfg.width }}
+          />
+        </div>
+      </div>
+      <span className={`text-[11px] font-semibold whitespace-nowrap ${cfg.color}`}>
+        {avgLatencyMs > 0 ? `${avgLatencyMs}ms` : "—"}
+      </span>
+      <Badge variant="outline" className={`text-[9px] h-4 px-1 ${cfg.color}`} data-testid="badge-speed-rating">
+        {cfg.label}
+      </Badge>
+    </div>
+  );
+}
+
+function SpeedRatingBadge({ rating, t }: { rating: string; t: (key: string) => string }) {
+  const cfg: Record<string, { color: string; label: string }> = {
+    fast: { color: "text-green-600 dark:text-green-400 border-green-500/30", label: t("syncDash.speedFast") },
+    normal: { color: "text-blue-600 dark:text-blue-400 border-blue-500/30", label: t("syncDash.speedNormal") },
+    slow: { color: "text-yellow-600 dark:text-yellow-400 border-yellow-500/30", label: t("syncDash.speedSlow") },
+    very_slow: { color: "text-red-600 dark:text-red-400 border-red-500/30", label: t("syncDash.speedVerySlow") },
+    unknown: { color: "text-muted-foreground", label: "—" },
+  };
+  const c = cfg[rating] || cfg.unknown;
+  return <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${c.color}`} data-testid="badge-speed-rating-summary">{c.label}</Badge>;
 }
 
 function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }) {
@@ -993,6 +1038,13 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             </p>
                           </div>
                         </div>
+
+                        {((trackedRun.details as any)?.avgLatencyMs || 0) > 0 && (
+                          <div className="mt-1">
+                            <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
+                            <SpeedGauge avgLatencyMs={(trackedRun.details as any).avgLatencyMs} t={t} />
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1104,6 +1156,29 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             </div>
                           )}
 
+                          {(cs.avgLatencyMs || 0) > 0 && (
+                            <div className="text-xs border-t pt-2 border-foreground/10">
+                              <span className="text-muted-foreground font-medium">{t("syncDash.serverSpeed")}:</span>
+                              <div className="mt-1">
+                                <SpeedGauge avgLatencyMs={cs.avgLatencyMs} t={t} />
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 mt-1.5 text-[11px]">
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.latencyAvg")}:</span>
+                                  <p className="font-medium">{cs.avgLatencyMs}ms</p>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.latencyMin")}:</span>
+                                  <p className="font-medium">{cs.minLatencyMs || 0}ms</p>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{t("syncDash.latencyMax")}:</span>
+                                  <p className="font-medium">{cs.maxLatencyMs || 0}ms</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           {cs.backupStats && (
                             <div className="text-xs border-t pt-2 border-foreground/10">
                               <span className="text-muted-foreground font-medium">{t("syncDash.backupInfo")}:</span>
@@ -1111,20 +1186,23 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 <div>
                                   <span className="text-muted-foreground">{t("syncDash.backupRecords")}:</span>
                                   <p className="font-medium">
-                                    {t("syncDash.backupOfTotal")
-                                      .replace("{count}", String(cs.backupStats.uploadedRecordCount))
-                                      .replace("{total}", String(cs.backupStats.totalTargetRecords))}
+                                    {cs.backupStats.uploadedRecordCount} {t("syncDash.records")}
+                                    {(cs.backupStats.totalFiles || 0) > 1 && (
+                                      <span className="text-muted-foreground ml-1">
+                                        ({cs.backupStats.totalFiles} {t("syncDash.backupFiles")})
+                                      </span>
+                                    )}
                                   </p>
                                 </div>
                                 <div>
                                   <span className="text-muted-foreground">{t("syncDash.backupSize")}:</span>
-                                  <p className="font-medium">{(cs.backupStats.fileSize / 1024).toFixed(1)} KB</p>
+                                  <p className="font-medium">{formatBytes(cs.backupStats.fileSize || 0)}</p>
                                 </div>
                               </div>
-                              {cs.backupStats.truncated && (
-                                <p className="text-[10px] text-yellow-600 dark:text-yellow-400 mt-1">
-                                  <AlertTriangle className="h-3 w-3 inline mr-1" />
-                                  {t("syncDash.backupTruncated")}
+                              {!cs.backupStats.truncated && (
+                                <p className="text-[10px] text-green-600 dark:text-green-400 mt-1">
+                                  <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                                  {t("syncDash.backupComplete")}
                                 </p>
                               )}
                             </div>
@@ -1454,29 +1532,36 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             )}
 
                             {details?.completionSummary && (
-                              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs" data-testid="panel-history-summary">
-                                <div>
-                                  <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
-                                  <p className="font-medium">{details.completionSummary.sourceRecordCount}</p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
-                                  <p className="font-medium">{details.completionSummary.fieldCount}</p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">{t("syncDash.duration")}:</span>
-                                  <p className="font-medium">{details.completionSummary.durationFormatted}</p>
-                                </div>
-                                {details.completionSummary.backupStats && (
+                              <div className="mt-2 space-y-2" data-testid="panel-history-summary">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                   <div>
-                                    <span className="text-muted-foreground">{t("syncDash.backupRecords")}:</span>
-                                    <p className="font-medium">
-                                      {details.completionSummary.backupStats.uploadedRecordCount} / {details.completionSummary.backupStats.totalTargetRecords}
-                                      {details.completionSummary.backupStats.truncated && (
-                                        <span className="text-yellow-600 ml-1">*</span>
-                                      )}
-                                    </p>
+                                    <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
+                                    <p className="font-medium">{details.completionSummary.sourceRecordCount}</p>
                                   </div>
+                                  <div>
+                                    <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
+                                    <p className="font-medium">{details.completionSummary.fieldCount}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">{t("syncDash.duration")}:</span>
+                                    <p className="font-medium">{details.completionSummary.durationFormatted}</p>
+                                  </div>
+                                  {details.completionSummary.backupStats && (
+                                    <div>
+                                      <span className="text-muted-foreground">{t("syncDash.backupRecords")}:</span>
+                                      <p className="font-medium">
+                                        {details.completionSummary.backupStats.uploadedRecordCount} {t("syncDash.records")}
+                                        {(details.completionSummary.backupStats.totalFiles || 0) > 1 && (
+                                          <span className="text-muted-foreground ml-1">
+                                            ({details.completionSummary.backupStats.totalFiles} {t("syncDash.backupFiles")})
+                                          </span>
+                                        )}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                {(details.completionSummary.avgLatencyMs || 0) > 0 && (
+                                  <SpeedGauge avgLatencyMs={details.completionSummary.avgLatencyMs} t={t} />
                                 )}
                               </div>
                             )}
@@ -2038,17 +2123,17 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               <span>{formatBytes(backup.fileSize || 0)}</span>
                               <span>·</span>
                               <span>
-                                {backup.backupRecordCount || 0}
-                                {(backup.configSnapshot as any)?.totalTargetRecords
-                                  ? ` / ${(backup.configSnapshot as any).totalTargetRecords}`
-                                  : ""} {t("syncDash.records")}
+                                {backup.backupRecordCount || 0} {t("syncDash.records")}
+                                {(backup.configSnapshot as any)?.totalFiles > 1 && (
+                                  <span className="ml-1">({(backup.configSnapshot as any).totalFiles} {t("syncDash.backupFiles")})</span>
+                                )}
                               </span>
-                              {(backup.configSnapshot as any)?.truncated && (
+                              {!(backup.configSnapshot as any)?.truncated && (backup.backupRecordCount || 0) > 0 && (
                                 <>
                                   <span>·</span>
-                                  <span className="text-yellow-600 dark:text-yellow-400 flex items-center gap-0.5">
-                                    <AlertTriangle className="h-3 w-3" />
-                                    {t("syncDash.backupTruncated")}
+                                  <span className="text-green-600 dark:text-green-400 flex items-center gap-0.5">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    {t("syncDash.backupComplete")}
                                   </span>
                                 </>
                               )}
