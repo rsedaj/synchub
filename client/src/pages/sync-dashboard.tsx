@@ -457,7 +457,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
-  const [backupError, setBackupError] = useState<{ type: BackupOp; message: string } | null>(null);
+  const [backupError, setBackupError] = useState<{ type: BackupOp; message: string; targetId?: string } | null>(null);
+  const [activeBackupTarget, setActiveBackupTarget] = useState<{ type: BackupOp; targetId: string } | null>(null);
   const [batchQueue, setBatchQueue] = useState<string[]>([]);
   const [batchCompleted, setBatchCompleted] = useState<string[]>([]);
 
@@ -551,12 +552,14 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const restoreBackupMutation = useMutation({
     mutationFn: async (backupId: string) => {
       setBackupError(null);
+      setActiveBackupTarget({ type: "restore", targetId: backupId });
       const res = await apiRequest("POST", `/api/sync-backups/${backupId}/restore`);
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, backupId: string) => {
+      setActiveBackupTarget(null);
       if (!data.success) {
-        setBackupError({ type: "restore", message: data.message || "Restore failed" });
+        setBackupError({ type: "restore", message: data.message || "Restore failed", targetId: backupId });
       }
       toast({
         title: data.success ? t("syncDash.restored") : t("syncDash.error"),
@@ -564,8 +567,9 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
         variant: data.success ? "default" : "destructive",
       });
     },
-    onError: (err: any) => {
-      setBackupError({ type: "restore", message: err.message || "Restore failed" });
+    onError: (err: any, backupId: string) => {
+      setActiveBackupTarget(null);
+      setBackupError({ type: "restore", message: err.message || "Restore failed", targetId: backupId });
       toast({ title: t("syncDash.error"), description: err.message, variant: "destructive" });
     },
   });
@@ -646,14 +650,17 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const manualBackupMutation = useMutation({
     mutationFn: async (configId: string) => {
       setBackupError(null);
+      setActiveBackupTarget({ type: "manual", targetId: configId });
       await apiRequest("POST", `/api/backups/manual/${configId}`);
     },
     onSuccess: () => {
+      setActiveBackupTarget(null);
       toast({ title: t("syncDash.manualBackupSuccess") });
       queryClient.invalidateQueries({ queryKey: ["/api/sync-backups"] });
     },
-    onError: (err: any) => {
-      setBackupError({ type: "manual", message: err.message || "Backup failed" });
+    onError: (err: any, configId: string) => {
+      setActiveBackupTarget(null);
+      setBackupError({ type: "manual", message: err.message || "Backup failed", targetId: configId });
       toast({ title: err.message || "Backup failed", variant: "destructive" });
     },
   });
@@ -1794,8 +1801,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         </Button>
                       </div>
                     </div>
-                    <BackupProgressPanel isActive={manualBackupMutation.isPending} error={backupError?.type === "manual" ? backupError.message : null} opType="manual" t={t} />
-                    <BackupProgressPanel isActive={restoreBackupMutation.isPending} error={backupError?.type === "restore" ? backupError.message : null} opType="restore" t={t} />
+                    <BackupProgressPanel isActive={activeBackupTarget?.type === "manual" && activeBackupTarget.targetId === configId} error={backupError?.type === "manual" && backupError.targetId === configId ? backupError.message : null} opType="manual" t={t} />
+                    <BackupProgressPanel isActive={activeBackupTarget?.type === "restore" && configBackups.some((b: any) => b.id === activeBackupTarget.targetId)} error={backupError?.type === "restore" && configBackups.some((b: any) => b.id === backupError.targetId) ? backupError.message : null} opType="restore" t={t} />
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">

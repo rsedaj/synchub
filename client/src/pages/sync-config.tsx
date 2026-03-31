@@ -1127,14 +1127,17 @@ export default function SyncConfigPage() {
                   onClick={() => {
                     const rows = previewData.sample.slice(0, 5);
                     const fields = previewFields;
-                    let csv = fields.join("\t") + "\n";
+                    const escapeCell = (val: any): string => {
+                      if (val === undefined || val === null) return "";
+                      const str = typeof val === "object" ? JSON.stringify(val) : String(val);
+                      if (str.includes("\t") || str.includes("\n") || str.includes("\"")) {
+                        return "\"" + str.replace(/"/g, "\"\"") + "\"";
+                      }
+                      return str;
+                    };
+                    let csv = fields.map(escapeCell).join("\t") + "\n";
                     for (const row of rows) {
-                      csv += fields.map(f => {
-                        const v = row[f];
-                        if (v === undefined || v === null) return "";
-                        if (typeof v === "object") return JSON.stringify(v);
-                        return String(v);
-                      }).join("\t") + "\n";
+                      csv += fields.map(f => escapeCell(row[f])).join("\t") + "\n";
                     }
                     const BOM = "\uFEFF";
                     const blob = new Blob([BOM + csv], { type: "text/tab-separated-values;charset=utf-8" });
