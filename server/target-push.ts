@@ -121,19 +121,7 @@ export async function pushToTarget(
   }
 
   if (code === "ONIX") {
-    console.log(`[target-push] ONIX write API not yet implemented — ${records.length} records would be pushed`);
-    return {
-      success: true,
-      createdCount: records.length,
-      updatedCount: 0,
-      errorCount: 0,
-      errors: [],
-      records: records.map((_, i) => ({
-        sourceIndex: batchIndex * 50 + i,
-        target_id: null,
-        status: "created" as const,
-      })),
-    };
+    return pushToOnix(targetModule, targetDataSource, records, batchIndex);
   }
 
   return {
@@ -446,6 +434,172 @@ async function pushToRaynet(
   }
 
   console.log(`[target-push] Raynet ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount}`);
+
+  return {
+    success: errorCount === 0,
+    createdCount: created,
+    updatedCount: updated,
+    errorCount,
+    errors: errors.slice(0, 20),
+    records: recordResults,
+  };
+}
+
+const ONIX_WRITE_SOURCES: Record<string, { endpoint: string; idField: string }> = {
+  stockitems: { endpoint: "/api/v1/stockitems", idField: "Id" },
+  partners: { endpoint: "/api/v1/partners", idField: "Id" },
+  stocks: { endpoint: "/api/v1/stocks", idField: "Id" },
+  catalogprices: { endpoint: "/api/v1/pricinglists/partnerprices", idField: "Id" },
+  stockitemgroups: { endpoint: "/api/v1/stockitemgroups", idField: "Id" },
+};
+
+function sanitizeOnixBody(body: Record<string, any>): Record<string, any> {
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(body)) {
+    if (key === "_onix_id" || key === "id") continue;
+    if (typeof val === "string" && /^\[\d+ items?\]$/.test(val)) continue;
+    if (val === undefined) continue;
+    cleaned[key] = val;
+  }
+  return cleaned;
+}
+
+async function pushToOnix(
+  module: ApiModule,
+  dataSource: string | null,
+  records: Record<string, any>[],
+  batchIndex: number
+): Promise<PushResult> {
+  const config = module.config as Record<string, any> | null;
+  const token = config?.apiToken;
+  const databasePath = config?.databasePath;
+
+  if (!token) {
+    return {
+      success: false,
+      createdCount: 0,
+      updatedCount: 0,
+      errorCount: records.length,
+      errors: [{ index: 0, message: "ONIX API token not configured" }],
+      records: [],
+    };
+  }
+
+  const source = (!dataSource || dataSource === "auto") ? "stockitems" : dataSource;
+  const writeDef = ONIX_WRITE_SOURCES[source];
+  if (!writeDef) {
+    return {
+      success: false,
+      createdCount: 0,
+      updatedCount: 0,
+      errorCount: records.length,
+      errors: [{ index: 0, message: `ONIX data source '${source}' does not support write operations. Supported: ${Object.keys(ONIX_WRITE_SOURCES).join(", ")}` }],
+      records: [],
+    };
+  }
+
+  const rawBase = module.baseUrl || "https://onix-api.hauerland.sk/onix_api";
+  const baseUrl = rawBase.replace(/\/onix_api$/i, "/ONIX_API");
+
+  let created = 0;
+  let updated = 0;
+  let errorCount = 0;
+  const errors: Array<{ index: number; message: string }> = [];
+  const recordResults: PushRecordResult[] = [];
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    const globalIndex = batchIndex * 50 + i;
+
+    try {
+      const onixId = record._onix_id || record[writeDef.idField] || record.Id || record.id;
+      const isUpdate = onixId && !isNaN(Number(onixId)) && Number(onixId) > 0;
+
+      const method = isUpdate ? "PUT" : "POST";
+      const url = isUpdate
+        ? `${baseUrl}${writeDef.endpoint}/${onixId}`
+        : `${baseUrl}${writeDef.endpoint}`;
+
+      const body = sanitizeOnixBody(record);
+
+      if (i < 3 && batchIndex === 0) {
+        console.log(`[target-push] DEBUG ONIX record ${i}: ${method} ${url}`);
+        console.log(`[target-push] DEBUG ONIX body:`, JSON.stringify(body).slice(0, 500));
+      }
+
+      const hdrs: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "User-Agent": "SyncHub/1.0",
+      };
+      if (databasePath) {
+        hdrs["DatabasePath"] = databasePath;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      const res = await fetch(url, {
+        method,
+        headers: hdrs,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        let newId: number | null = null;
+        try {
+          const data = await res.json();
+          newId = data?.Id || data?.id || (typeof data === "number" ? data : null);
+        } catch {}
+
+        if (isUpdate) {
+          updated++;
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated" });
+        } else {
+          created++;
+          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "created" });
+        }
+      } else {
+        errorCount++;
+        let errMsg = `HTTP ${res.status}`;
+        try {
+          const errText = await res.text();
+          if (errText) {
+            if (res.status === 401) {
+              errMsg = "Authentication failed — Invalid ONIX API token";
+            } else if (res.status === 500 && errText.includes("does not exist")) {
+              errMsg = `ONIX database error — verify DatabasePath`;
+            } else {
+              errMsg = `HTTP ${res.status}: ${errText.slice(0, 200)}`;
+            }
+          }
+        } catch {}
+        errors.push({ index: globalIndex, message: errMsg });
+        recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
+        if (i < 5 || errorCount <= 3) {
+          console.error(`[target-push] ONIX ${method} ${source} record ${i} failed:`, errMsg);
+        }
+      }
+    } catch (err: any) {
+      errorCount++;
+      const errMsg = err.name === "AbortError" ? "Request timed out (30s)" : (err.message || "Unknown error");
+      errors.push({ index: globalIndex, message: errMsg });
+      recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
+      if (errorCount <= 3) {
+        console.error(`[target-push] ONIX record ${i} exception:`, errMsg);
+      }
+    }
+
+    if ((i + 1) % 5 === 0) {
+      await sleep(200);
+    }
+  }
+
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount}`);
 
   return {
     success: errorCount === 0,

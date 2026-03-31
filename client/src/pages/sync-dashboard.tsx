@@ -946,6 +946,43 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       </>
                     )}
 
+                    {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.liveBatch && (
+                      <div className="mt-2 border rounded-lg bg-muted/20 p-3" data-testid="panel-live-batch">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Activity className="h-3.5 w-3.5 text-blue-500 animate-pulse" />
+                          <span className="text-xs font-semibold">{t("syncDash.liveActivity")}</span>
+                          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                            {t("syncDash.batchOf")
+                              .replace("{current}", String((trackedRun.details as any).liveBatch.batchNumber))
+                              .replace("{total}", String(trackedRun.totalBatches || 0))}
+                          </Badge>
+                          {(trackedRun.details as any)?.elapsedMs && (
+                            <span className="text-[10px] text-muted-foreground ml-auto">
+                              {formatDuration((trackedRun.details as any).elapsedMs)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {((trackedRun.details as any).liveBatch.sample || []).map((item: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-2 text-xs py-0.5">
+                              <span className="text-muted-foreground w-8 text-right flex-shrink-0">#{item.index}</span>
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                item.status === "created" ? "bg-green-500" :
+                                item.status === "updated" ? "bg-blue-500" : "bg-red-500"
+                              }`} />
+                              <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
+                              {item.targetId && (
+                                <span className="text-muted-foreground flex-shrink-0">→ ID:{item.targetId}</span>
+                              )}
+                              <Badge variant={item.status === "error" ? "destructive" : "outline"} className="text-[9px] h-3.5 px-1 ml-auto flex-shrink-0">
+                                {item.status === "created" ? t("syncDash.created") : item.status === "updated" ? t("syncDash.updated") : t("syncDash.error")}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {(trackedRun.status !== "running" && trackedRun.status !== "pending") && (trackedRun.recordsFailed || 0) > 0 && (
                       <div className="flex items-center gap-1.5 text-destructive text-sm">
                         <AlertTriangle className="h-3.5 w-3.5" />

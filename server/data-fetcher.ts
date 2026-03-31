@@ -1866,7 +1866,7 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 90000);
 
     const correctedBase = baseUrl.replace(/\/onix_api$/i, "/ONIX_API");
     const url = `${correctedBase}${src.endpoint}`;

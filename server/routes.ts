@@ -840,7 +840,7 @@ export async function registerRoutes(
 
       let backupData: any[] = [];
       try {
-        const targetResult = await testModuleConnection(targetModule);
+        const targetResult = await fetchModuleData(targetModule, 10000, (config as any).targetDataSource || undefined);
         if (targetResult.success && targetResult.preview) {
           backupData = targetResult.preview;
         }

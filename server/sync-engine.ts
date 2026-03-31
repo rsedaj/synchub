@@ -431,6 +431,22 @@ async function executeAsync(
       const remaining = totalRecords - totalProcessed;
       const estimatedMs = speedPerSec > 0 ? (remaining / speedPerSec) * 1000 : 0;
 
+      const lastBatchSample = batchRecords.slice(0, 3).map((r: any, idx: number) => {
+        const mapped = mappedBatch[idx];
+        const keys = Object.keys(r);
+        const label = r.Name || r.name || r.Code || r.code || r.Nazov || r.nazov ||
+                      r.Description || r.description || r.Title || r.title ||
+                      (keys.length > 0 ? String(r[keys[0]]).slice(0, 60) : `record ${i + idx + 1}`);
+        const result = syncedRecords.length > 0 ? syncedRecords[syncedRecords.length - Math.min(batchRecords.length, syncedRecords.length) + idx] : null;
+        return {
+          index: i + idx + 1,
+          label: String(label).slice(0, 80),
+          status: result?.status || "created",
+          targetId: result?.target_id || null,
+          fields: mapped ? Object.keys(mapped).length : keys.length,
+        };
+      });
+
       await storage.updateSyncRun(runId, {
         recordsProcessed: totalCreated + totalUpdated,
         recordsFailed: totalFailed,
@@ -447,6 +463,14 @@ async function executeAsync(
           totalUpdated,
           totalFailed,
           batchErrors: allErrors.slice(-20),
+          liveBatch: {
+            batchNumber: currentBatch,
+            recordsInBatch: batchRecords.length,
+            sample: lastBatchSample,
+            batchCreated: (syncedRecords.filter(r => r.status === "created").length) - (totalCreated - (mappedBatch.length - batchErrorCount)),
+            batchErrors: batchErrorCount,
+          },
+          elapsedMs: elapsed,
         },
       });
 
