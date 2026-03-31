@@ -206,20 +206,24 @@ export async function uploadBackup(
     };
   }
 
+  const chunks: any[][] = [];
+  let scanOffset = 0;
+  while (scanOffset < allStripped.length) {
+    const remaining = allStripped.slice(scanOffset);
+    const sz = findSafeChunkSize(remaining, INITIAL_CHUNK);
+    chunks.push(remaining.slice(0, sz));
+    scanOffset += sz;
+  }
+  const totalParts = chunks.length;
+
+  console.log(`[google-drive] Multi-file backup: ${allStripped.length} records, ${totalParts} parts`);
+
   const parts: BackupPartResult[] = [];
-  let offset = 0;
-  let partNum = 0;
 
-  console.log(`[google-drive] Multi-file backup: ${allStripped.length} records, initial chunk target=${INITIAL_CHUNK}`);
-
-  while (offset < allStripped.length) {
-    partNum++;
-    const remaining = allStripped.slice(offset);
-    const chunkSize = findSafeChunkSize(remaining, INITIAL_CHUNK);
-    const chunk = remaining.slice(0, chunkSize);
-    offset += chunk.length;
-    const isSingleFile = (offset >= allStripped.length && partNum === 1);
-    const partSuffix = isSingleFile ? "" : `_part${partNum}`;
+  for (let partIdx = 0; partIdx < totalParts; partIdx++) {
+    const chunk = chunks[partIdx];
+    const partNum = partIdx + 1;
+    const partSuffix = totalParts > 1 ? `_part${partNum}of${totalParts}` : "";
     const fileName = `backup_${baseName}_${timestamp}${partSuffix}.json`;
 
     const jsonContent = JSON.stringify({
@@ -228,7 +232,7 @@ export async function uploadBackup(
       runId,
       totalRecords: data.length,
       partNumber: partNum,
-      totalParts: Math.ceil(allStripped.length / chunkSize),
+      totalParts,
       recordsInPart: chunk.length,
       exportedAt: new Date().toISOString(),
       data: chunk,

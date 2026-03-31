@@ -1042,7 +1042,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                         {((trackedRun.details as any)?.avgLatencyMs || 0) > 0 && (
                           <div className="mt-1">
-                            <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
+                              {(trackedRun.details as any)?.speedRating && <SpeedRatingBadge rating={(trackedRun.details as any).speedRating} t={t} />}
+                            </div>
                             <SpeedGauge avgLatencyMs={(trackedRun.details as any).avgLatencyMs} t={t} />
                           </div>
                         )}
@@ -1159,7 +1162,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                           {(cs.avgLatencyMs || 0) > 0 && (
                             <div className="text-xs border-t pt-2 border-foreground/10">
-                              <span className="text-muted-foreground font-medium">{t("syncDash.serverSpeed")}:</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground font-medium">{t("syncDash.serverSpeed")}:</span>
+                                {cs.speedRating && <SpeedRatingBadge rating={cs.speedRating} t={t} />}
+                              </div>
                               <div className="mt-1">
                                 <SpeedGauge avgLatencyMs={cs.avgLatencyMs} t={t} />
                               </div>
@@ -1562,7 +1568,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   )}
                                 </div>
                                 {(details.completionSummary.avgLatencyMs || 0) > 0 && (
-                                  <SpeedGauge avgLatencyMs={details.completionSummary.avgLatencyMs} t={t} />
+                                  <div className="flex items-center gap-2">
+                                    <SpeedGauge avgLatencyMs={details.completionSummary.avgLatencyMs} t={t} />
+                                    {details.completionSummary.speedRating && <SpeedRatingBadge rating={details.completionSummary.speedRating} t={t} />}
+                                  </div>
                                 )}
                               </div>
                             )}
