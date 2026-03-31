@@ -102,18 +102,52 @@ export async function uploadBackup(
       : await ensureBackupFolder(configId);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `backup_${configName.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`;
-    const MAX_BACKUP_RECORDS = 2000;
-    const backupData = data.length > MAX_BACKUP_RECORDS ? data.slice(0, MAX_BACKUP_RECORDS) : data;
-    const jsonContent = JSON.stringify({
-      configId,
-      configName,
-      runId,
-      recordCount: data.length,
-      backupRecordCount: backupData.length,
-      truncated: data.length > MAX_BACKUP_RECORDS,
-      exportedAt: new Date().toISOString(),
-      data: backupData,
-    });
+
+    const MAX_BODY_BYTES = 900_000;
+    let recordCount = Math.min(data.length, 500);
+    let jsonContent = "";
+    let truncated = data.length > recordCount;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const backupSlice = data.slice(0, recordCount);
+      const stripped = backupSlice.map((rec: any) => {
+        if (!rec || typeof rec !== "object") return rec;
+        const keys = Object.keys(rec);
+        if (keys.length <= 15) return rec;
+        const keep: Record<string, any> = {};
+        const priority = ["Id", "id", "Code", "code", "Name", "name", "SKU", "sku",
+          "RecordExternalIdentificator", "Default_Price", "Description", "Status",
+          "CreatedAt", "UpdatedAt", "ExternalId"];
+        for (const k of priority) {
+          if (rec[k] !== undefined) keep[k] = rec[k];
+        }
+        for (const k of keys) {
+          if (Object.keys(keep).length >= 15) break;
+          if (!(k in keep)) keep[k] = rec[k];
+        }
+        return keep;
+      });
+
+      jsonContent = JSON.stringify({
+        configId,
+        configName,
+        runId,
+        recordCount: data.length,
+        backupRecordCount: stripped.length,
+        truncated,
+        exportedAt: new Date().toISOString(),
+        data: stripped,
+      });
+
+      const byteSize = Buffer.byteLength(jsonContent, "utf-8");
+      console.log(`[google-drive] Backup attempt ${attempt}: ${stripped.length} records, ${Math.round(byteSize / 1024)}KB`);
+
+      if (byteSize <= MAX_BODY_BYTES) break;
+
+      recordCount = Math.max(10, Math.floor(recordCount / 2));
+      truncated = true;
+    }
+
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
 
     const boundary = "synchub_boundary_" + Date.now();

@@ -550,7 +550,10 @@ async function pushToOnix(
 
       const sourceRec = sourceRecords?.[i];
       if (!body.RecordExternalIdentificator && !isUpdate) {
-        const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku || sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id || sourceRec?.externalId;
+        const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
+          sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
+          sourceRec?.externalId || sourceRec?.productId || sourceRec?.item_id ||
+          sourceRec?.article_number || sourceRec?.articleNumber;
         body.RecordExternalIdentificator = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
       }
 
@@ -558,7 +561,8 @@ async function pushToOnix(
         if (v === null || v === undefined) continue;
         if (typeof v === "string") {
           const lower = k.toLowerCase();
-          if (lower.includes("price") || lower.includes("quantity") || lower.includes("amount") || lower.includes("weight") || lower.includes("vat") || lower === "default_price") {
+          if (lower.includes("price") || lower.includes("quantity") || lower.includes("amount") ||
+              lower.includes("weight") || lower.includes("vat") || lower === "default_price") {
             const num = parseFloat(v.replace(",", ".").replace(/[^\d.\-]/g, ""));
             if (!isNaN(num)) {
               body[k] = num;
@@ -568,8 +572,12 @@ async function pushToOnix(
       }
 
       if (i < 3 && batchIndex === 0) {
-        console.log(`[target-push] DEBUG ONIX record ${i}: ${method} ${url}`);
-        console.log(`[target-push] DEBUG ONIX body:`, JSON.stringify(body).slice(0, 500));
+        console.log(`[target-push] ONIX record ${i}: ${method} ${url}`);
+        console.log(`[target-push] ONIX body:`, JSON.stringify(body).slice(0, 500));
+        if (sourceRec) {
+          const srcKeys = Object.keys(sourceRec).slice(0, 10);
+          console.log(`[target-push] Source record keys: [${srcKeys.join(", ")}], RecordExternalIdentificator=${body.RecordExternalIdentificator}`);
+        }
       }
 
       const hdrs: Record<string, string> = {
