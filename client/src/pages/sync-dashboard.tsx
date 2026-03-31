@@ -496,6 +496,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [expandedBackupId, setExpandedBackupId] = useState<number | null>(null);
   const [recordsViewRunId, setRecordsViewRunId] = useState<string | null>(null);
   const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "error">("all");
   const [recordsPage, setRecordsPage] = useState(0);
@@ -2124,8 +2125,14 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               <span>·</span>
                               <span>
                                 {backup.backupRecordCount || 0} {t("syncDash.records")}
-                                {(backup.configSnapshot as any)?.totalFiles > 1 && (
-                                  <span className="ml-1">({(backup.configSnapshot as any).totalFiles} {t("syncDash.backupFiles")})</span>
+                                  {(backup.configSnapshot as any)?.totalFiles > 1 && (
+                                  <button
+                                    className="ml-1 underline hover:text-foreground cursor-pointer"
+                                    onClick={() => setExpandedBackupId(expandedBackupId === backup.id ? null : backup.id)}
+                                    data-testid={`button-expand-parts-${backup.id}`}
+                                  >
+                                    ({(backup.configSnapshot as any).totalFiles} {t("syncDash.backupFiles")})
+                                  </button>
                                 )}
                               </span>
                               {!(backup.configSnapshot as any)?.truncated && (backup.backupRecordCount || 0) > 0 && (
@@ -2177,6 +2184,29 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             </Button>
                           </div>
                         </div>
+                        {expandedBackupId === backup.id && (backup.configSnapshot as any)?.parts && (
+                          <div className="ml-5 pl-4 border-l-2 border-muted space-y-1.5" data-testid={`parts-list-${backup.id}`}>
+                            {((backup.configSnapshot as any).parts as Array<{ fileName: string; fileSize: number; recordCount: number; webViewLink?: string; partNumber: number }>).map((part, idx) => (
+                              <div key={idx} className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <span className="font-mono">#{part.partNumber}</span>
+                                <span className="truncate max-w-[200px]">{part.fileName}</span>
+                                <span>{formatBytes(part.fileSize || 0)}</span>
+                                <span>{part.recordCount} {t("syncDash.records")}</span>
+                                {part.webViewLink && (
+                                  <a
+                                    href={part.webViewLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-0.5 hover:text-foreground"
+                                    data-testid={`link-part-${backup.id}-${idx}`}
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       ))}
                     </div>
                   </CardContent>

@@ -161,8 +161,8 @@ export async function uploadBackup(
 
   const allStripped = data.map(stripRecord);
 
-  function findMaxChunkSize(records: any[]): number {
-    let size = Math.min(records.length, INITIAL_CHUNK);
+  function findSafeChunkSize(records: any[], startFrom: number): number {
+    let size = Math.min(records.length, startFrom);
     while (size > MIN_RECORDS) {
       const slice = records.slice(0, size);
       const json = JSON.stringify({ data: slice });
@@ -173,17 +173,53 @@ export async function uploadBackup(
     return MIN_RECORDS;
   }
 
-  const chunkSize = findMaxChunkSize(allStripped);
-  const totalParts = Math.ceil(allStripped.length / chunkSize);
+  if (allStripped.length === 0) {
+    const fileName = `backup_${baseName}_${timestamp}_empty.json`;
+    const jsonContent = JSON.stringify({
+      configId, configName, runId, totalRecords: 0, partNumber: 1, totalParts: 1,
+      recordsInPart: 0, exportedAt: new Date().toISOString(), data: [],
+    });
+    const fileSize = Buffer.byteLength(jsonContent, "utf-8");
+    console.log(`[google-drive] Empty backup: 0 records, uploading placeholder file`);
+
+    const result = await withRetry(async () => {
+      const boundary = "synchub_boundary_" + Date.now();
+      const metadata = JSON.stringify({ name: fileName, parents: [folderId], mimeType: "application/json" });
+      const multipartBody = [
+        `--${boundary}`, "Content-Type: application/json; charset=UTF-8", "", metadata,
+        `--${boundary}`, "Content-Type: application/json", "", jsonContent, `--${boundary}--`,
+      ].join("\r\n");
+      const uploadRes = await connectors.proxy(
+        "google-drive",
+        `/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink&${SD}`,
+        { method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body: multipartBody }
+      );
+      const uploadData = await uploadRes.json();
+      if (!uploadData.id) throw new Error(`Upload failed for empty backup: ${JSON.stringify(uploadData)}`);
+      return uploadData;
+    }, `uploadBackup(${configName} empty)`);
+
+    return {
+      parts: [{ fileId: result.id, fileName, fileSize, webViewLink: result.webViewLink || "", recordCount: 0, partNumber: 1 }],
+      totalFiles: 1, totalRecords: 0, combinedFileSize: fileSize,
+      primaryFileId: result.id, primaryFileName: fileName, primaryWebViewLink: result.webViewLink || "",
+    };
+  }
+
   const parts: BackupPartResult[] = [];
+  let offset = 0;
+  let partNum = 0;
 
-  console.log(`[google-drive] Multi-file backup: ${allStripped.length} records, chunk=${chunkSize}, parts=${totalParts}`);
+  console.log(`[google-drive] Multi-file backup: ${allStripped.length} records, initial chunk target=${INITIAL_CHUNK}`);
 
-  for (let partIdx = 0; partIdx < totalParts; partIdx++) {
-    const start = partIdx * chunkSize;
-    const chunk = allStripped.slice(start, start + chunkSize);
-    const partNum = partIdx + 1;
-    const partSuffix = totalParts > 1 ? `_part${partNum}of${totalParts}` : "";
+  while (offset < allStripped.length) {
+    partNum++;
+    const remaining = allStripped.slice(offset);
+    const chunkSize = findSafeChunkSize(remaining, INITIAL_CHUNK);
+    const chunk = remaining.slice(0, chunkSize);
+    offset += chunk.length;
+    const isSingleFile = (offset >= allStripped.length && partNum === 1);
+    const partSuffix = isSingleFile ? "" : `_part${partNum}`;
     const fileName = `backup_${baseName}_${timestamp}${partSuffix}.json`;
 
     const jsonContent = JSON.stringify({
@@ -192,17 +228,18 @@ export async function uploadBackup(
       runId,
       totalRecords: data.length,
       partNumber: partNum,
-      totalParts,
+      totalParts: isSingleFile ? 1 : "multi",
       recordsInPart: chunk.length,
       exportedAt: new Date().toISOString(),
       data: chunk,
     });
 
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
-    console.log(`[google-drive] Part ${partNum}/${totalParts}: ${chunk.length} records, ${Math.round(fileSize / 1024)}KB`);
+    console.log(`[google-drive] Part ${partNum}: ${chunk.length} records, ${Math.round(fileSize / 1024)}KB`);
 
+    const currentPartNum = partNum;
     const result = await withRetry(async () => {
-      const boundary = "synchub_boundary_" + Date.now() + "_" + partNum;
+      const boundary = "synchub_boundary_" + Date.now() + "_" + currentPartNum;
       const metadata = JSON.stringify({
         name: fileName,
         parents: [folderId],
@@ -232,10 +269,10 @@ export async function uploadBackup(
       );
 
       const uploadData = await uploadRes.json();
-      console.log(`[google-drive] Upload part ${partNum} result:`, JSON.stringify({ id: uploadData.id, name: uploadData.name, size: uploadData.size }));
+      console.log(`[google-drive] Upload part ${currentPartNum} result:`, JSON.stringify({ id: uploadData.id, name: uploadData.name, size: uploadData.size }));
 
       if (!uploadData.id) {
-        throw new Error(`Upload failed for part ${partNum}, no file ID returned: ${JSON.stringify(uploadData)}`);
+        throw new Error(`Upload failed for part ${currentPartNum}, no file ID returned: ${JSON.stringify(uploadData)}`);
       }
 
       return {
@@ -244,9 +281,9 @@ export async function uploadBackup(
         fileSize,
         webViewLink: uploadData.webViewLink || "",
         recordCount: chunk.length,
-        partNumber: partNum,
+        partNumber: currentPartNum,
       };
-    }, `uploadBackup(${configName} part ${partNum}/${totalParts})`);
+    }, `uploadBackup(${configName} part ${currentPartNum})`);
 
     parts.push(result);
   }

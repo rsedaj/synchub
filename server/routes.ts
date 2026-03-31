@@ -857,16 +857,27 @@ export async function registerRoutes(
       const backup = await storage.createSyncBackup({
         syncConfigId: config.id,
         syncRunId: null,
-        fileName: driveResult.fileName,
-        fileSize: driveResult.fileSize,
-        googleDriveFileId: driveResult.fileId,
-        googleDriveUrl: driveResult.webViewLink,
-        backupRecordCount: driveResult.uploadedRecordCount,
+        fileName: driveResult.primaryFileName,
+        fileSize: driveResult.combinedFileSize,
+        googleDriveFileId: driveResult.primaryFileId,
+        googleDriveUrl: driveResult.primaryWebViewLink,
+        backupRecordCount: driveResult.totalRecords,
         configSnapshot: {
           name: config.name,
           sourceModuleId: config.sourceModuleId,
           targetModuleId: config.targetModuleId,
           fieldMappings: config.fieldMappings,
+          totalTargetRecords: backupData.length,
+          truncated: false,
+          totalFiles: driveResult.totalFiles,
+          parts: driveResult.parts.map(p => ({
+            fileId: p.fileId,
+            fileName: p.fileName,
+            fileSize: p.fileSize,
+            webViewLink: p.webViewLink,
+            recordCount: p.recordCount,
+            partNumber: p.partNumber,
+          })),
         },
       });
 
@@ -885,7 +896,7 @@ export async function registerRoutes(
         action: "manual_backup",
         entity: "sync_backup",
         status: "success",
-        details: { backupId: backup.id, recordCount: backupData.length, fileName: driveResult.fileName },
+        details: { backupId: backup.id, recordCount: driveResult.totalRecords, fileName: driveResult.primaryFileName, totalFiles: driveResult.totalFiles },
       });
 
       return res.json({ success: true, backup });
