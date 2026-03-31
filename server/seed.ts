@@ -32,8 +32,8 @@ const MODULE_DEFINITIONS = [
       swaggerUrl: "https://onix-api.hauerland.sk/onix_api/swagger/ui/index",
       apiType: "REST",
       authType: "token",
-      apiToken: "TciVSyNdPiz3nAE4JrncbPFdoJ8uXwEFuDBJToYxirsPkaYOJNpS8fLY_sismdE77Yst9I5q_ooeCNRrMV2z159Al4Qi7ETcElCzMbeZshx_2ArJJgYm8P0szZfjVwt140_s-Brkn5YNjnzyBSkwqnRUbImWBLTKsjq2zMSAj0jHkOu7khula8w4m9olyggJPtY5pN8P_ibIwxiujUunRWFqcPlWE-vXsWfAA6MgvP8",
-      databasePath: "testovacia_hauerland",
+      apiToken: process.env.ONIX_API_TOKEN || "",
+      databasePath: process.env.ONIX_DATABASE_PATH || "",
     },
   },
   {
@@ -230,7 +230,9 @@ export async function seedData() {
       const seedConfig = (modDef.config || {}) as Record<string, any>;
       const mergedConfig = { ...seedConfig };
       for (const key of sensitiveKeys) {
-        if (existingConfig[key] && !seedConfig[key]) {
+        if (seedConfig[key]) {
+          mergedConfig[key] = seedConfig[key];
+        } else if (existingConfig[key]) {
           mergedConfig[key] = existingConfig[key];
         }
       }
