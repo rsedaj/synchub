@@ -8,6 +8,7 @@ export const MODULE_HELP: Record<string, { description: string; apiInfo: string;
       "GET /api/v1/stocks — zoznam skladov",
       "GET /api/v1/stockitemgroups — skupiny skladových kariet",
       "GET/POST /api/v1/partners — odberatelia a dodávatelia",
+      "GET /api/v1/pricinglists — zoznam cenníkov",
       "GET /api/v1/pricinglists/catalogprices/{code} — katalógové ceny",
       "GET /api/v1/pricinglists/partnerprices — partnerské ceny",
       "GET/POST /api/v1/documents/{typeId} — doklady podľa typu",

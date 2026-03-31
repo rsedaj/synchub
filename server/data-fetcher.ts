@@ -1842,7 +1842,7 @@ const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
   stocks: { endpoint: "/api/v1/stocks", label: "Sklady" },
   balances: { endpoint: "/api/v1/stockitems/balances", label: "Stav zásob" },
   partners: { endpoint: "/api/v1/partners", label: "Partneri" },
-  catalogprices: { endpoint: "/api/v1/pricinglists/catalogprices", label: "Cenníky" },
+  catalogprices: { endpoint: "/api/v1/pricinglists/partnerprices", label: "Cenníky (partnerské ceny)" },
   stockitemgroups: { endpoint: "/api/v1/stockitemgroups", label: "Skupiny kariet" },
   documents: { endpoint: "/api/v1/documents/types", label: "Typy dokladov" },
 };
