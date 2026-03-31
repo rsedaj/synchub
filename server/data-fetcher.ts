@@ -1576,7 +1576,7 @@ async function fetchStrickerData(config: Record<string, any> | undefined, source
     }
 
     const totalCount = items.length;
-    const limited = items.slice(0, limit);
+    const limited = limit > 0 ? items.slice(0, limit) : items;
 
     const preview = limited.map((item: any) => {
       if (typeof item !== "object" || item === null) return { value: String(item) };
@@ -1919,8 +1919,8 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
     }
 
     const totalCount = items.length;
-    const limited = items.slice(0, limit);
-    const fields = collectAllFields(limited);
+    const limited = limit > 0 ? items.slice(0, limit) : items;
+    const fields = collectAllFields(limited.slice(0, 500));
     const preview = limited.map((item) => flattenObject(item));
 
     return {

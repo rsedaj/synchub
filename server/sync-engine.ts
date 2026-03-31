@@ -198,7 +198,7 @@ async function executeAsync(
       try {
         let backupData: any[] = [];
         try {
-          const targetResult = await fetchModuleData(targetModule, 50000, config.targetDataSource || undefined);
+          const targetResult = await fetchModuleData(targetModule, 0, config.targetDataSource || undefined);
           if (targetResult.success && targetResult.preview) {
             backupData = targetResult.preview;
           }

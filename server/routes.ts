@@ -852,7 +852,7 @@ export async function registerRoutes(
 
       let backupData: any[] = [];
       try {
-        const targetResult = await fetchModuleData(targetModule, 50000, (config as any).targetDataSource || undefined);
+        const targetResult = await fetchModuleData(targetModule, 0, (config as any).targetDataSource || undefined);
         if (targetResult.success && targetResult.preview) {
           backupData = targetResult.preview;
         } else if (!targetResult.success) {
