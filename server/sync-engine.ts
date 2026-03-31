@@ -205,7 +205,7 @@ async function executeAsync(
           log(`Warning: Could not fetch target data for backup: ${err.message}`);
         }
 
-        const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name);
+        const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name, mappings);
 
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,
@@ -214,7 +214,7 @@ async function executeAsync(
           fileSize: driveResult.fileSize,
           googleDriveFileId: driveResult.fileId,
           googleDriveUrl: driveResult.webViewLink,
-          backupRecordCount: backupData.length,
+          backupRecordCount: driveResult.uploadedRecordCount,
           configSnapshot: {
             name: config.name,
             sourceModuleId: config.sourceModuleId,
@@ -235,7 +235,7 @@ async function executeAsync(
           }
         }
 
-        log(`Backup created: ${driveResult.fileName} (${backupData.length} records, ${driveResult.fileSize} bytes)`);
+        log(`Backup created: ${driveResult.fileName} (${driveResult.uploadedRecordCount}/${backupData.length} records, ${driveResult.fileSize} bytes)`);
       } catch (err: any) {
         log(`BACKUP FAILED: ${err.message}`);
         await storage.updateSyncRun(runId, {

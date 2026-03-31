@@ -94,8 +94,9 @@ export async function uploadBackup(
   configName: string,
   data: any[],
   runId: string,
-  moduleName?: string
-): Promise<{ fileId: string; fileName: string; fileSize: number; webViewLink: string }> {
+  moduleName?: string,
+  fieldMappings?: Array<{ sourceField: string; targetField: string }>
+): Promise<{ fileId: string; fileName: string; fileSize: number; webViewLink: string; uploadedRecordCount: number }> {
   return withRetry(async () => {
     const folderId = moduleName
       ? await ensureDataBackupFolder(moduleName)
@@ -103,30 +104,50 @@ export async function uploadBackup(
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `backup_${configName.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`;
 
+    const mappedTargetFields = new Set<string>();
+    if (fieldMappings && fieldMappings.length > 0) {
+      for (const m of fieldMappings) {
+        mappedTargetFields.add(m.targetField);
+      }
+    }
+    const ID_FIELDS = new Set(["Id", "id", "Code", "code", "Name", "name", "SKU", "sku",
+      "RecordExternalIdentificator", "ExternalId"]);
+
+    function stripRecord(rec: any): any {
+      if (!rec || typeof rec !== "object") return rec;
+      const keys = Object.keys(rec);
+      if (mappedTargetFields.size > 0) {
+        const keep: Record<string, any> = {};
+        for (const k of keys) {
+          if (ID_FIELDS.has(k) || mappedTargetFields.has(k)) {
+            keep[k] = rec[k];
+          }
+        }
+        return keep;
+      }
+      if (keys.length <= 15) return rec;
+      const keep: Record<string, any> = {};
+      for (const k of keys) {
+        if (ID_FIELDS.has(k)) keep[k] = rec[k];
+      }
+      for (const k of keys) {
+        if (Object.keys(keep).length >= 15) break;
+        if (!(k in keep)) keep[k] = rec[k];
+      }
+      return keep;
+    }
+
     const MAX_BODY_BYTES = 900_000;
+    const MIN_RECORDS = 5;
     let recordCount = Math.min(data.length, 500);
     let jsonContent = "";
     let truncated = data.length > recordCount;
+    let finalRecordCount = recordCount;
 
-    for (let attempt = 0; attempt < 5; attempt++) {
+    while (true) {
       const backupSlice = data.slice(0, recordCount);
-      const stripped = backupSlice.map((rec: any) => {
-        if (!rec || typeof rec !== "object") return rec;
-        const keys = Object.keys(rec);
-        if (keys.length <= 15) return rec;
-        const keep: Record<string, any> = {};
-        const priority = ["Id", "id", "Code", "code", "Name", "name", "SKU", "sku",
-          "RecordExternalIdentificator", "Default_Price", "Description", "Status",
-          "CreatedAt", "UpdatedAt", "ExternalId"];
-        for (const k of priority) {
-          if (rec[k] !== undefined) keep[k] = rec[k];
-        }
-        for (const k of keys) {
-          if (Object.keys(keep).length >= 15) break;
-          if (!(k in keep)) keep[k] = rec[k];
-        }
-        return keep;
-      });
+      const stripped = backupSlice.map(stripRecord);
+      finalRecordCount = stripped.length;
 
       jsonContent = JSON.stringify({
         configId,
@@ -140,11 +161,15 @@ export async function uploadBackup(
       });
 
       const byteSize = Buffer.byteLength(jsonContent, "utf-8");
-      console.log(`[google-drive] Backup attempt ${attempt}: ${stripped.length} records, ${Math.round(byteSize / 1024)}KB`);
+      console.log(`[google-drive] Backup sizing: ${stripped.length} records, ${Math.round(byteSize / 1024)}KB`);
 
       if (byteSize <= MAX_BODY_BYTES) break;
 
-      recordCount = Math.max(10, Math.floor(recordCount / 2));
+      if (recordCount <= MIN_RECORDS) {
+        throw new Error(`Backup payload too large even with ${MIN_RECORDS} records (${Math.round(byteSize / 1024)}KB). Reduce record complexity or field count.`);
+      }
+
+      recordCount = Math.max(MIN_RECORDS, Math.floor(recordCount / 2));
       truncated = true;
     }
 
@@ -191,6 +216,7 @@ export async function uploadBackup(
       fileName,
       fileSize,
       webViewLink: uploadData.webViewLink || "",
+      uploadedRecordCount: finalRecordCount,
     };
   }, `uploadBackup(${configName})`);
 }

@@ -851,7 +851,8 @@ export async function registerRoutes(
       }
 
       const { uploadBackup: doUpload, rotateBackups: doRotate } = await import("./google-drive");
-      const driveResult = await doUpload(config.id, config.name, backupData, "manual", targetModule.name);
+      const mappings = Array.isArray(config.fieldMappings) ? config.fieldMappings : [];
+      const driveResult = await doUpload(config.id, config.name, backupData, "manual", targetModule.name, mappings);
 
       const backup = await storage.createSyncBackup({
         syncConfigId: config.id,
@@ -860,7 +861,7 @@ export async function registerRoutes(
         fileSize: driveResult.fileSize,
         googleDriveFileId: driveResult.fileId,
         googleDriveUrl: driveResult.webViewLink,
-        backupRecordCount: backupData.length,
+        backupRecordCount: driveResult.uploadedRecordCount,
         configSnapshot: {
           name: config.name,
           sourceModuleId: config.sourceModuleId,
