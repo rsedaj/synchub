@@ -549,12 +549,17 @@ async function pushToOnix(
       const body = sanitizeOnixBody(record);
 
       const sourceRec = sourceRecords?.[i];
+      const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
+        sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
+        sourceRec?.externalId || sourceRec?.productId || sourceRec?.item_id ||
+        sourceRec?.article_number || sourceRec?.articleNumber;
+      const autoId = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
+
       if (!body.RecordExternalIdentificator && !isUpdate) {
-        const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
-          sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
-          sourceRec?.externalId || sourceRec?.productId || sourceRec?.item_id ||
-          sourceRec?.article_number || sourceRec?.articleNumber;
-        body.RecordExternalIdentificator = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
+        body.RecordExternalIdentificator = autoId;
+      }
+      if (!body.Ns_Number && !isUpdate) {
+        body.Ns_Number = body.RecordExternalIdentificator || autoId;
       }
 
       for (const [k, v] of Object.entries(body)) {
