@@ -351,7 +351,7 @@ async function executeAsync(
 
       if (mappedBatch.length > 0) {
         try {
-          const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1);
+          const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1, batchRecords);
           totalCreated += pushResult.createdCount;
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;

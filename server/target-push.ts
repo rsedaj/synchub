@@ -108,7 +108,8 @@ export async function pushToTarget(
   targetModule: ApiModule,
   targetDataSource: string | null,
   records: Record<string, any>[],
-  batchIndex: number
+  batchIndex: number,
+  sourceRecords?: Record<string, any>[]
 ): Promise<PushResult> {
   const code = targetModule.code.toUpperCase();
 
@@ -121,7 +122,7 @@ export async function pushToTarget(
   }
 
   if (code === "ONIX") {
-    return pushToOnix(targetModule, targetDataSource, records, batchIndex);
+    return pushToOnix(targetModule, targetDataSource, records, batchIndex, sourceRecords);
   }
 
   return {
@@ -468,7 +469,8 @@ async function pushToOnix(
   module: ApiModule,
   dataSource: string | null,
   records: Record<string, any>[],
-  batchIndex: number
+  batchIndex: number,
+  sourceRecords?: Record<string, any>[]
 ): Promise<PushResult> {
   const config = module.config as Record<string, any> | null;
   const token = config?.apiToken;
@@ -545,6 +547,25 @@ async function pushToOnix(
         : `${baseUrl}${writeDef.endpoint}`;
 
       const body = sanitizeOnixBody(record);
+
+      const sourceRec = sourceRecords?.[i];
+      if (!body.RecordExternalIdentificator && !isUpdate) {
+        const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku || sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id || sourceRec?.externalId;
+        body.RecordExternalIdentificator = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
+      }
+
+      for (const [k, v] of Object.entries(body)) {
+        if (v === null || v === undefined) continue;
+        if (typeof v === "string") {
+          const lower = k.toLowerCase();
+          if (lower.includes("price") || lower.includes("quantity") || lower.includes("amount") || lower.includes("weight") || lower.includes("vat") || lower === "default_price") {
+            const num = parseFloat(v.replace(",", ".").replace(/[^\d.\-]/g, ""));
+            if (!isNaN(num)) {
+              body[k] = num;
+            }
+          }
+        }
+      }
 
       if (i < 3 && batchIndex === 0) {
         console.log(`[target-push] DEBUG ONIX record ${i}: ${method} ${url}`);

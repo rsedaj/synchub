@@ -102,14 +102,18 @@ export async function uploadBackup(
       : await ensureBackupFolder(configId);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `backup_${configName.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`;
+    const MAX_BACKUP_RECORDS = 2000;
+    const backupData = data.length > MAX_BACKUP_RECORDS ? data.slice(0, MAX_BACKUP_RECORDS) : data;
     const jsonContent = JSON.stringify({
       configId,
       configName,
       runId,
       recordCount: data.length,
+      backupRecordCount: backupData.length,
+      truncated: data.length > MAX_BACKUP_RECORDS,
       exportedAt: new Date().toISOString(),
-      data,
-    }, null, 2);
+      data: backupData,
+    });
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
 
     const boundary = "synchub_boundary_" + Date.now();
