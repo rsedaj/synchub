@@ -1,6 +1,10 @@
 import { parseStringPromise } from "xml2js";
 import type { ApiModule } from "@shared/schema";
 
+function applyLimit<T>(items: T[], limit: number): T[] {
+  return limit > 0 ? items.slice(0, limit) : items;
+}
+
 const ALLOWED_HOSTS = new Set([
   "195.146.148.139",
   "api-ts-westeu.promotron.com",
@@ -427,7 +431,7 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     }
 
     const totalCount = products.length;
-    const preview = products.slice(0, limit).map((p: any) => flattenObject(p));
+    const preview = applyLimit(products, limit).map((p: any) => flattenObject(p));
 
     const fields = collectAllFields(preview);
 
@@ -513,7 +517,7 @@ async function fetchPromotronApiData(config: Record<string, any>, baseUrl: strin
     const items: any[] = Array.isArray(data) ? data : (data.items || data.orders || data.data || []);
     const totalCount = items.length;
 
-    const preview = items.slice(0, limit).map((item: any) => {
+    const preview = applyLimit(items, limit).map((item: any) => {
       const row: Record<string, any> = {};
       for (const [key, val] of Object.entries(item)) {
         if (val === null || val === undefined) {
@@ -622,7 +626,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
     let items: any[] = [];
     if (selectedSource === "products") {
       items = Array.isArray(json) ? json : (json?.product || json?.products || []);
-      const flatItems = items.slice(0, limit).map((p: any) => {
+      const flatItems = applyLimit(items, limit).map((p: any) => {
         const flat: Record<string, any> = {};
         flat.master_code = p.master_code || "";
         flat.product_name = p.product_name || "";
@@ -659,7 +663,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
 
     if (selectedSource === "stock") {
       items = json?.stock || (Array.isArray(json) ? json : []);
-      const preview = items.slice(0, limit);
+      const preview = applyLimit(items, limit);
       return {
         success: true, source: selectedSource, recordCount: items.length,
         fields: collectAllFields(preview),
@@ -669,7 +673,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
 
     if (selectedSource === "pricelist") {
       items = json?.price || (Array.isArray(json) ? json : []);
-      const preview = items.slice(0, limit).map((p: any) => {
+      const preview = applyLimit(items, limit).map((p: any) => {
         const flat: Record<string, any> = {
           sku: p.sku || "",
           variant_id: p.variant_id || "",
@@ -692,7 +696,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
 
     if (selectedSource === "printdata") {
       const products = json?.print_data || json?.products || (Array.isArray(json) ? json : []);
-      const preview = products.slice(0, limit).map((p: any) => {
+      const preview = applyLimit(products, limit).map((p: any) => {
         const flat: Record<string, any> = {
           master_code: p.master_code || "",
           master_id: p.master_id || "",
@@ -723,7 +727,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       manipulations.forEach((m: any) => {
         preview.push({ type: "manipulation", code: m.code, description: m.description, price: m.price });
       });
-      techniques.slice(0, limit).forEach((t: any) => {
+      applyLimit(techniques, limit).forEach((t: any) => {
         const flat: Record<string, any> = {
           type: "technique",
           id: t.id || "",
@@ -737,7 +741,7 @@ async function fetchMidoceanData(config: Record<string, any>, source: string | u
       return {
         success: true, source: selectedSource, recordCount: techniques.length + manipulations.length,
         fields: collectAllFields(preview),
-        preview: preview.slice(0, limit), fetchedAt: new Date().toISOString(),
+        preview: applyLimit(preview, limit), fetchedAt: new Date().toISOString(),
       };
     }
 
@@ -877,7 +881,7 @@ function parseXdJsonFeed(text: string, label: string, source: string, limit: num
       if (items.length === 0) items = [json];
     }
 
-    const preview = items.slice(0, limit).map((item: any) => {
+    const preview = applyLimit(items, limit).map((item: any) => {
       const flat: Record<string, any> = {};
       for (const [k, v] of Object.entries(item)) {
         if (v === null || v === undefined) {
@@ -937,7 +941,7 @@ async function parseXdXmlFeed(text: string, label: string, source: string, limit
     }
 
     const totalCount = items.length;
-    const preview = items.slice(0, limit).map((p: any) => flattenObject(p));
+    const preview = applyLimit(items, limit).map((p: any) => flattenObject(p));
     const fields = collectAllFields(preview);
 
     return {
@@ -1022,7 +1026,8 @@ async function fetchGivingEuropeData(config: Record<string, any>, limit: number)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
-    const res = await fetch(`${apiBaseUrl}/v1/products?limit=${limit}&locale=en-US`, {
+    const givingLimit = limit > 0 ? limit : 1000;
+    const res = await fetch(`${apiBaseUrl}/v1/products?limit=${givingLimit}&locale=en-US`, {
       signal: controller.signal,
       headers: {
         "Authorization": `Bearer ${apiToken}`,
@@ -1124,7 +1129,7 @@ async function fetchEasyGiftsData(config: Record<string, any> | undefined, sourc
     const items: any[] = Array.isArray(json) ? json : (json.items || json.products || json.data || []);
     const totalCount = items.length;
 
-    const preview = items.slice(0, limit).map((item: any) => {
+    const preview = applyLimit(items, limit).map((item: any) => {
       const row: Record<string, any> = {};
       for (const [key, val] of Object.entries(item)) {
         if (val === null || val === undefined) {
@@ -1244,7 +1249,7 @@ async function fetchPfConceptData(config: Record<string, any> | undefined, sourc
 
     const totalCount = items.length;
 
-    const preview = items.slice(0, limit).map((item: any) => {
+    const preview = applyLimit(items, limit).map((item: any) => {
       const row: Record<string, any> = {};
       const processObj = (prefix: string, o: any) => {
         if (!o || typeof o !== "object") return;
@@ -1652,7 +1657,8 @@ async function fetchPipedriveData(config: Record<string, any> | undefined, sourc
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
-    const url = `https://api.pipedrive.com${src.endpoint}?api_token=${token}&limit=${limit}&start=0`;
+    const apiLimit = limit > 0 ? limit : 500;
+    const url = `https://api.pipedrive.com${src.endpoint}?api_token=${token}&limit=${apiLimit}&start=0`;
     const res = await fetch(url, {
       signal: controller.signal,
       headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
@@ -1768,7 +1774,8 @@ async function fetchRaynetData(config: Record<string, any>, source?: string, lim
     const timeout = setTimeout(() => controller.abort(), 20000);
 
     const credentials = Buffer.from(`${username}:${apiKey}`).toString("base64");
-    const url = `https://app.raynet.cz/api/v2${src.endpoint}?limit=${limit}&offset=0`;
+    const raynetLimit = limit > 0 ? limit : 1000;
+    const url = `https://app.raynet.cz/api/v2${src.endpoint}?limit=${raynetLimit}&offset=0`;
 
     const res = await fetch(url, {
       signal: controller.signal,
@@ -1810,7 +1817,7 @@ async function fetchRaynetData(config: Record<string, any>, source?: string, lim
       totalCount = 1;
     }
 
-    const limited = items.slice(0, limit);
+    const limited = applyLimit(items, limit);
     const fields = collectAllFields(limited);
     const preview = limited.map((item) => flattenObject(item));
 
