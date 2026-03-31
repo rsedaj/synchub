@@ -309,6 +309,7 @@ export default function SyncConfigPage() {
       setDeleteId(null);
     },
     onError: () => {
+      setDeleteId(null);
       toast({ title: language === "sk" ? "Chyba pri mazaní" : "Failed to delete", variant: "destructive" });
     },
   });
