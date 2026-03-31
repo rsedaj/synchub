@@ -1133,7 +1133,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           {cs.sampleTargetIds && cs.sampleTargetIds.length > 0 ? (
                             <div className="text-xs border-t pt-2 border-foreground/10">
                               <span className="text-muted-foreground font-medium">{t("syncDash.targetIds")}:</span>
-                              <div className="flex flex-wrap gap-1 mt-1">
+                              <div className="flex flex-wrap gap-1 mt-1 max-h-20 overflow-y-auto">
                                 {cs.sampleTargetIds.map((id: any, idx: number) => (
                                   <Badge key={idx} variant="outline" className="text-[10px] h-5 px-1.5 font-mono">{id}</Badge>
                                 ))}

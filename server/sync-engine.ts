@@ -572,7 +572,7 @@ async function executeAsync(
       await storage.createSyncLog({
         moduleId: config.sourceModuleId,
         direction: "import",
-        status: finalStatus === "partial" ? "success" : finalStatus,
+        status: finalStatus,
         recordsProcessed: processedOk,
         recordsFailed: totalFailed,
         errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
