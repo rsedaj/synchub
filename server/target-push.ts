@@ -501,6 +501,30 @@ async function pushToOnix(
   const rawBase = module.baseUrl || "https://onix-api.hauerland.sk/onix_api";
   const baseUrl = rawBase.replace(/\/onix_api$/i, "/ONIX_API");
 
+  const ALLOWED_ONIX_HOSTS = new Set(["onix-api.hauerland.sk", "195.146.148.139"]);
+  try {
+    const parsedUrl = new URL(baseUrl);
+    if (!ALLOWED_ONIX_HOSTS.has(parsedUrl.hostname)) {
+      return {
+        success: false,
+        createdCount: 0,
+        updatedCount: 0,
+        errorCount: records.length,
+        errors: [{ index: 0, message: `ONIX API host '${parsedUrl.hostname}' is not in the allowed hosts list` }],
+        records: [],
+      };
+    }
+  } catch {
+    return {
+      success: false,
+      createdCount: 0,
+      updatedCount: 0,
+      errorCount: records.length,
+      errors: [{ index: 0, message: `Invalid ONIX API base URL: ${rawBase}` }],
+      records: [],
+    };
+  }
+
   let created = 0;
   let updated = 0;
   let errorCount = 0;

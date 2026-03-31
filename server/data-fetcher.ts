@@ -1939,7 +1939,7 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
       fields: [],
       preview: [],
       error: err.name === "AbortError"
-        ? "Request timed out (30s)"
+        ? "Request timed out (90s)"
         : `Failed to fetch data: ${err.message}`,
       fetchedAt: new Date().toISOString(),
     };

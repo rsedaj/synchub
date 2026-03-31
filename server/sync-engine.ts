@@ -347,6 +347,7 @@ async function executeAsync(
       }
 
       let batchErrorCount = 0;
+      let lastPushRecords: PushRecordResult[] = [];
 
       if (mappedBatch.length > 0) {
         try {
@@ -355,6 +356,7 @@ async function executeAsync(
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;
           batchErrorCount = pushResult.errorCount;
+          lastPushRecords = pushResult.records;
           for (const e of pushResult.errors) {
             allErrors.push({ batch: currentBatch, ...e });
           }
@@ -437,7 +439,7 @@ async function executeAsync(
         const label = r.Name || r.name || r.Code || r.code || r.Nazov || r.nazov ||
                       r.Description || r.description || r.Title || r.title ||
                       (keys.length > 0 ? String(r[keys[0]]).slice(0, 60) : `record ${i + idx + 1}`);
-        const result = syncedRecords.length > 0 ? syncedRecords[syncedRecords.length - Math.min(batchRecords.length, syncedRecords.length) + idx] : null;
+        const result = lastPushRecords[idx] || null;
         return {
           index: i + idx + 1,
           label: String(label).slice(0, 80),
@@ -446,6 +448,9 @@ async function executeAsync(
           fields: mapped ? Object.keys(mapped).length : keys.length,
         };
       });
+
+      const batchCreatedCount = lastPushRecords.filter(r => r.status === "created").length;
+      const batchUpdatedCount = lastPushRecords.filter(r => r.status === "updated").length;
 
       await storage.updateSyncRun(runId, {
         recordsProcessed: totalCreated + totalUpdated,
@@ -467,7 +472,8 @@ async function executeAsync(
             batchNumber: currentBatch,
             recordsInBatch: batchRecords.length,
             sample: lastBatchSample,
-            batchCreated: (syncedRecords.filter(r => r.status === "created").length) - (totalCreated - (mappedBatch.length - batchErrorCount)),
+            batchCreated: batchCreatedCount,
+            batchUpdated: batchUpdatedCount,
             batchErrors: batchErrorCount,
           },
           elapsedMs: elapsed,

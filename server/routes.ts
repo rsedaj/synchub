@@ -843,8 +843,12 @@ export async function registerRoutes(
         const targetResult = await fetchModuleData(targetModule, 10000, (config as any).targetDataSource || undefined);
         if (targetResult.success && targetResult.preview) {
           backupData = targetResult.preview;
+        } else if (!targetResult.success) {
+          console.warn(`[backup] Target data fetch failed: ${targetResult.error || "unknown"}`);
         }
-      } catch {}
+      } catch (fetchErr: any) {
+        console.warn(`[backup] Target data fetch exception: ${fetchErr.message}`);
+      }
 
       const { uploadBackup: doUpload, rotateBackups: doRotate } = await import("./google-drive");
       const driveResult = await doUpload(config.id, config.name, backupData, "manual", targetModule.name);
