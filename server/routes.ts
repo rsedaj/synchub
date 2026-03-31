@@ -862,7 +862,7 @@ export async function registerRoutes(
         console.warn(`[backup] Target data fetch exception: ${fetchErr.message}`);
       }
 
-      const { uploadBackup: doUpload, rotateBackups: doRotate } = await import("./google-drive");
+      const { uploadBackup: doUpload, deleteBackupFile: doDeleteFile } = await import("./google-drive");
       const mappings = Array.isArray(config.fieldMappings) ? config.fieldMappings : [];
       const driveResult = await doUpload(config.id, config.name, backupData, "manual", targetModule.name, mappings);
 
@@ -893,13 +893,21 @@ export async function registerRoutes(
         },
       });
 
-      const deletedIds = await doRotate(config.id, 10);
-      if (deletedIds.length > 0) {
-        const allBackups = await storage.getSyncBackupsByConfig(config.id);
-        for (const b of allBackups) {
-          if (b.googleDriveFileId && deletedIds.includes(b.googleDriveFileId)) {
-            await storage.deleteSyncBackup(b.id);
+      const allBackups = await storage.getSyncBackupsByConfig(config.id);
+      if (allBackups.length > 10) {
+        const toDelete = allBackups.slice(10);
+        for (const old of toDelete) {
+          const snap = old.configSnapshot as any;
+          if (snap?.parts && Array.isArray(snap.parts)) {
+            for (const part of snap.parts) {
+              if (part.fileId) {
+                try { await doDeleteFile(part.fileId); } catch {}
+              }
+            }
+          } else if (old.googleDriveFileId) {
+            try { await doDeleteFile(old.googleDriveFileId); } catch {}
           }
+          await storage.deleteSyncBackup(old.id);
         }
       }
 

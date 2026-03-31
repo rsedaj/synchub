@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
-import { uploadBackup, rotateBackups, downloadBackup } from "./google-drive";
+import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { pushToTarget } from "./target-push";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult } from "./target-push";
@@ -237,13 +237,21 @@ async function executeAsync(
 
         await storage.updateSyncRun(runId, { backupId: backup.id });
 
-        const deletedIds = await rotateBackups(config.id, 10);
-        if (deletedIds.length > 0) {
-          const allBackups = await storage.getSyncBackupsByConfig(config.id);
-          for (const b of allBackups) {
-            if (b.googleDriveFileId && deletedIds.includes(b.googleDriveFileId)) {
-              await storage.deleteSyncBackup(b.id);
+        const allBackups = await storage.getSyncBackupsByConfig(config.id);
+        if (allBackups.length > 10) {
+          const toDelete = allBackups.slice(10);
+          for (const old of toDelete) {
+            const snap = old.configSnapshot as any;
+            if (snap?.parts && Array.isArray(snap.parts)) {
+              for (const part of snap.parts) {
+                if (part.fileId) {
+                  try { await deleteBackupFile(part.fileId); } catch {}
+                }
+              }
+            } else if (old.googleDriveFileId) {
+              try { await deleteBackupFile(old.googleDriveFileId); } catch {}
             }
+            await storage.deleteSyncBackup(old.id);
           }
         }
 
@@ -715,16 +723,32 @@ export async function restoreFromBackup(backupId: string): Promise<{ success: bo
   if (!backup.googleDriveFileId) return { success: false, message: "No Google Drive file ID" };
 
   try {
-    const data = await downloadBackup(backup.googleDriveFileId);
-    if (!data || !data.data) {
-      return { success: false, message: "Backup file is empty or corrupted" };
+    const snapshot = backup.configSnapshot as any;
+    let allRecords: any[] = [];
+
+    if (snapshot?.parts && Array.isArray(snapshot.parts) && snapshot.parts.length > 1) {
+      const sortedParts = [...snapshot.parts].sort((a: any, b: any) => a.partNumber - b.partNumber);
+      for (const part of sortedParts) {
+        if (!part.fileId) continue;
+        const partData = await downloadBackup(part.fileId);
+        if (partData?.data && Array.isArray(partData.data)) {
+          allRecords = allRecords.concat(partData.data);
+        }
+      }
+      console.log(`[sync-engine] Restore from backup ${backupId}: ${allRecords.length} records from ${sortedParts.length} parts`);
+    } else {
+      const data = await downloadBackup(backup.googleDriveFileId);
+      if (!data || !data.data) {
+        return { success: false, message: "Backup file is empty or corrupted" };
+      }
+      allRecords = data.data;
+      console.log(`[sync-engine] Restore from backup ${backupId}: ${allRecords.length} records downloaded`);
     }
 
-    console.log(`[sync-engine] Restore from backup ${backupId}: ${data.data.length} records downloaded`);
     return {
       success: true,
-      message: `Backup data downloaded: ${data.data.length} records from ${backup.fileName}. Data ready for manual review.`,
-      recordCount: data.data.length,
+      message: `Backup data downloaded: ${allRecords.length} records from ${backup.fileName}. Data ready for manual review.`,
+      recordCount: allRecords.length,
     };
   } catch (err: any) {
     return { success: false, message: err.message || "Restore failed" };

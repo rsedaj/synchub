@@ -156,21 +156,25 @@ export async function uploadBackup(
   }
 
   const MAX_BODY_BYTES = 900_000;
-  const MIN_RECORDS = 5;
   const INITIAL_CHUNK = 500;
 
   const allStripped = data.map(stripRecord);
 
   function findSafeChunkSize(records: any[], startFrom: number): number {
     let size = Math.min(records.length, startFrom);
-    while (size > MIN_RECORDS) {
+    while (size > 1) {
       const slice = records.slice(0, size);
       const json = JSON.stringify({ data: slice });
       const bytes = Buffer.byteLength(json, "utf-8");
       if (bytes <= MAX_BODY_BYTES - 500) return size;
-      size = Math.max(MIN_RECORDS, Math.floor(size / 2));
+      size = Math.max(1, Math.floor(size / 2));
     }
-    return MIN_RECORDS;
+    const singleJson = JSON.stringify({ data: records.slice(0, 1) });
+    const singleBytes = Buffer.byteLength(singleJson, "utf-8");
+    if (singleBytes > MAX_BODY_BYTES) {
+      console.warn(`[google-drive] Single record exceeds ${MAX_BODY_BYTES}B (${singleBytes}B) — uploading anyway`);
+    }
+    return 1;
   }
 
   if (allStripped.length === 0) {
