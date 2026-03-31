@@ -555,6 +555,7 @@ async function executeAsync(
           avgLatencyMs: currentAvgLatency,
           minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
           maxLatencyMs: globalMaxLatency,
+          speedRating: currentAvgLatency === 0 ? "unknown" : currentAvgLatency < 200 ? "fast" : currentAvgLatency < 1000 ? "normal" : currentAvgLatency < 3000 ? "slow" : "very_slow",
         },
       });
 
