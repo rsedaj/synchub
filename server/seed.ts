@@ -227,9 +227,10 @@ export async function seedData() {
     const existing = await storage.getModuleByCode(modDef.code);
     if (existing) {
       const existingConfig = (existing.config as Record<string, any>) || {};
-      const mergedConfig = { ...modDef.config };
+      const seedConfig = (modDef.config || {}) as Record<string, any>;
+      const mergedConfig = { ...seedConfig };
       for (const key of sensitiveKeys) {
-        if (existingConfig[key]) {
+        if (existingConfig[key] && !seedConfig[key]) {
           mergedConfig[key] = existingConfig[key];
         }
       }
