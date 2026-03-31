@@ -221,6 +221,8 @@ async function executeAsync(
             sourceModuleId: config.sourceModuleId,
             targetModuleId: config.targetModuleId,
             fieldMappings: config.fieldMappings,
+            totalTargetRecords: backupData.length,
+            truncated: driveResult.uploadedRecordCount < backupData.length,
           },
         });
 

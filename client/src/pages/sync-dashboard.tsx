@@ -541,7 +541,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
         toast({
           title: `${notifTitle} — ${configName}`,
           description: notifBody,
-          duration: 15000,
+          duration: 30000,
           variant: trackedRun.status === "error" ? "destructive" : undefined,
         });
 
@@ -2034,10 +2034,24 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               <HardDrive className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                               <span className="text-sm font-medium truncate">{backup.fileName}</span>
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 ml-5">
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 ml-5 flex-wrap">
                               <span>{formatBytes(backup.fileSize || 0)}</span>
                               <span>·</span>
-                              <span>{backup.backupRecordCount || 0} {t("syncDash.records")}</span>
+                              <span>
+                                {backup.backupRecordCount || 0}
+                                {(backup.configSnapshot as any)?.totalTargetRecords
+                                  ? ` / ${(backup.configSnapshot as any).totalTargetRecords}`
+                                  : ""} {t("syncDash.records")}
+                              </span>
+                              {(backup.configSnapshot as any)?.truncated && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-yellow-600 dark:text-yellow-400 flex items-center gap-0.5">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    {t("syncDash.backupTruncated")}
+                                  </span>
+                                </>
+                              )}
                               <span>·</span>
                               <span>{formatTimeAgo(backup.createdAt)}</span>
                               {backup.googleDriveUrl && (
