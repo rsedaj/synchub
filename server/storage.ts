@@ -199,6 +199,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSyncConfig(id: string): Promise<void> {
+    await db.delete(syncBackups).where(eq(syncBackups.syncConfigId, id));
     await db.delete(syncRuns).where(eq(syncRuns.syncConfigId, id));
     await db.delete(syncConfigs).where(eq(syncConfigs.id, id));
   }
