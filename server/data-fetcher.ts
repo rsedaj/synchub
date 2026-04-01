@@ -1885,12 +1885,55 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
     if (config?.databasePath) {
       hdrs["DatabasePath"] = config.databasePath;
     }
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: hdrs,
-    });
+    let res: Response | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          signal: controller.signal,
+          headers: hdrs,
+        });
+        if (res.status === 401 || res.status === 408 || res.status === 503 || res.status === 504) {
+          const peek = await res.text().catch(() => "");
+          if (peek.toLowerCase().includes("timed out") && attempt < 3) {
+            console.warn(`[data-fetcher] ONIX auth timeout retry ${attempt}/3: ${peek.slice(0, 100)}`);
+            await new Promise(r => setTimeout(r, 3000 * attempt));
+            continue;
+          }
+          clearTimeout(timeout);
+          return {
+            success: false,
+            source: `ONIX ${src.label}`,
+            recordCount: 0,
+            fields: [],
+            preview: [],
+            error: `ONIX API: ${peek.slice(0, 300) || `HTTP ${res.status}`}`,
+            fetchedAt: new Date().toISOString(),
+          };
+        }
+        break;
+      } catch (retryErr: any) {
+        if (retryErr.name === "AbortError" && attempt < 3) {
+          console.warn(`[data-fetcher] ONIX request timeout retry ${attempt}/3`);
+          await new Promise(r => setTimeout(r, 3000 * attempt));
+          continue;
+        }
+        throw retryErr;
+      }
+    }
 
     clearTimeout(timeout);
+
+    if (!res) {
+      return {
+        success: false,
+        source: `ONIX ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: "ONIX API connection failed after 3 retries (authentication timed out)",
+        fetchedAt: new Date().toISOString(),
+      };
+    }
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => "");

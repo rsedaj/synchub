@@ -602,19 +602,51 @@ async function pushToOnix(
         hdrs["DatabasePath"] = databasePath;
       }
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      let res: Response | null = null;
+      let fetchLatency = 0;
+      const MAX_RETRIES = 3;
 
-      const fetchStart = Date.now();
-      const res = await fetch(url, {
-        method,
-        headers: hdrs,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      const fetchLatency = Date.now() - fetchStart;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
 
-      clearTimeout(timeout);
+        const fetchStart = Date.now();
+        try {
+          res = await fetch(url, {
+            method,
+            headers: hdrs,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          fetchLatency = Date.now() - fetchStart;
+          clearTimeout(timeout);
+
+          if (res.status === 401 || res.status === 408 || res.status === 503 || res.status === 504) {
+            const errText = await res.text().catch(() => "");
+            const isAuthTimeout = errText.toLowerCase().includes("timed out") || errText.toLowerCase().includes("timeout");
+            if (isAuthTimeout && attempt < MAX_RETRIES) {
+              console.warn(`[target-push] ONIX auth/timeout retry ${attempt}/${MAX_RETRIES}: HTTP ${res.status} — ${errText.slice(0, 100)}`);
+              await sleep(2000 * attempt);
+              res = null;
+              continue;
+            }
+          }
+          break;
+        } catch (retryErr: any) {
+          clearTimeout(timeout);
+          fetchLatency = Date.now() - fetchStart;
+          if (retryErr.name === "AbortError" && attempt < MAX_RETRIES) {
+            console.warn(`[target-push] ONIX timeout retry ${attempt}/${MAX_RETRIES}`);
+            await sleep(2000 * attempt);
+            continue;
+          }
+          throw retryErr;
+        }
+      }
+
+      if (!res) {
+        throw new Error("ONIX API authentication timed out after retries");
+      }
 
       totalLatencyMs += fetchLatency;
       latencyCount++;
