@@ -48,6 +48,11 @@ import {
   Database,
   Shield,
   Download,
+  Lightbulb,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  ClipboardCheck,
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -180,35 +185,252 @@ const emptyEditor: EditorState = {
   backupBeforeSync: true,
 };
 
-function autoMapFields(sourceFields: string[], targetFields: string[]): FieldMapping[] {
-  const mappings: FieldMapping[] = [];
-  const usedTarget = new Set<string>();
-  for (const sf of sourceFields) {
-    const sfLower = sf.toLowerCase().replace(/[_\-\s]/g, "");
-    let best: string | null = null;
+const SEMANTIC_ALIASES: Record<string, string[]> = {
+  "ns_name": ["name", "title", "product_name", "productname", "item_name", "itemname", "designation", "description_short", "article_name", "articlename", "nazov", "popis", "bezeichnung"],
+  "ns_number": ["sku", "code", "article_number", "articlenumber", "item_code", "itemcode", "product_code", "productcode", "external_id", "externalid", "articlecode", "article_code", "material_number", "materialnumber", "cislo", "kod", "ean", "gtin", "upc", "barcode"],
+  "default_price": ["price", "unit_price", "unitprice", "sell_price", "sellprice", "retail_price", "retailprice", "sales_price", "salesprice", "cena", "preis", "base_price", "baseprice", "net_price", "netprice", "listprice", "list_price"],
+  "purchaseprice": ["cost", "cost_price", "costprice", "purchase_price", "buy_price", "buyprice", "nakupna_cena", "einkaufspreis", "wholesale_price", "wholesaleprice", "supplier_price"],
+  "vat": ["tax", "tax_rate", "taxrate", "vat_rate", "vatrate", "dph", "mwst", "tax_percent", "taxpercent", "tax_percentage"],
+  "quantity": ["stock", "stock_quantity", "stockquantity", "qty", "inventory", "available", "available_quantity", "availablequantity", "mnozstvo", "bestand", "on_hand", "onhand", "stock_level", "stocklevel", "freestock", "free_stock"],
+  "weight": ["weight", "net_weight", "netweight", "gross_weight", "grossweight", "hmotnost", "gewicht", "mass", "item_weight", "product_weight"],
+  "id": ["id", "product_id", "productid", "item_id", "itemid", "stockitemid", "stock_item_id", "record_id"],
+  "recordexternalidentificator": ["external_id", "externalid", "ext_id", "extid", "external_code", "externalcode", "source_id", "sourceid", "ref", "reference", "foreignid", "foreign_id"],
+  "ns_text": ["description", "long_description", "longdescription", "full_description", "fulldescription", "body", "text", "content", "details", "product_description"],
+  "ns_note": ["note", "notes", "comment", "comments", "remark", "remarks", "poznamka", "internal_note", "memo"],
+  "unit": ["unit", "uom", "unit_of_measure", "unitofmeasure", "measure_unit", "measureunit", "einzelheit", "jednotka", "packaging_unit"],
+  "color": ["color", "colour", "farba", "farbe", "product_color", "productcolor"],
+  "size": ["size", "velkost", "grosse", "dimension", "product_size", "productsize"],
+  "brand": ["brand", "manufacturer", "vendor", "supplier", "znacka", "marke", "hersteller", "make"],
+  "category": ["category", "group", "product_group", "productgroup", "kategoria", "kategorie", "type", "product_type", "producttype", "classification"],
+  "image": ["image", "image_url", "imageurl", "photo", "picture", "thumbnail", "img", "foto", "bild", "main_image", "mainimage"],
+  "ean": ["ean", "ean13", "ean_code", "eancode", "gtin", "upc", "barcode"],
+  "minorderquantity": ["moq", "min_order", "minorder", "minimum_order", "minimumorder", "min_qty", "minqty", "minimum_quantity"],
+};
+
+const CRITICAL_TARGET_FIELDS: Record<string, string[]> = {
+  stockitems: ["Ns_Name", "Ns_Number", "Default_Price"],
+  partners: ["Ns_Name"],
+  stocks: ["Quantity"],
+  catalogprices: ["Default_Price"],
+};
+
+type MappingSuggestion = {
+  sourceField: string;
+  targetField: string;
+  confidence: number;
+  reason: string;
+  reasonSk: string;
+  transform?: string;
+};
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[_\-\s]/g, "");
+}
+
+const NORM_ALIAS_MAP: Map<string, string[]> = new Map(
+  Object.entries(SEMANTIC_ALIASES).map(([k, v]) => [norm(k), v.map(norm)])
+);
+
+function computeMappingSuggestions(sourceFields: string[], targetFields: string[]): MappingSuggestion[] {
+  const suggestions: MappingSuggestion[] = [];
+  const usedSource = new Set<string>();
+
+  for (const tf of targetFields) {
+    const tfN = norm(tf);
+    let bestSrc: string | null = null;
     let bestScore = 0;
-    for (const tf of targetFields) {
-      if (usedTarget.has(tf)) continue;
-      const tfLower = tf.toLowerCase().replace(/[_\-\s]/g, "");
-      if (sfLower === tfLower) {
-        best = tf;
+    let bestReason = "";
+    let bestReasonSk = "";
+    let bestTransform: string | undefined;
+
+    for (const sf of sourceFields) {
+      if (usedSource.has(sf)) continue;
+      const sfN = norm(sf);
+
+      if (sfN === tfN) {
+        bestSrc = sf;
         bestScore = 100;
+        bestReason = "Exact match";
+        bestReasonSk = "Presná zhoda";
         break;
       }
-      if (sfLower.includes(tfLower) || tfLower.includes(sfLower)) {
-        const score = Math.min(sfLower.length, tfLower.length) / Math.max(sfLower.length, tfLower.length) * 80;
+
+      const aliases = NORM_ALIAS_MAP.get(tfN);
+      if (aliases && aliases.includes(sfN)) {
+        const score = 90;
         if (score > bestScore) {
-          best = tf;
+          bestSrc = sf;
           bestScore = score;
+          bestReason = `Semantic match: "${sf}" → "${tf}"`;
+          bestReasonSk = `Sémantická zhoda: „${sf}" → „${tf}"`;
+        }
+        continue;
+      }
+
+      for (const [aliasKey, srcAliases] of NORM_ALIAS_MAP.entries()) {
+        if (aliasKey === tfN) {
+          if (srcAliases.includes(sfN)) {
+            const score = 85;
+            if (score > bestScore) {
+              bestSrc = sf;
+              bestScore = score;
+              bestReason = `Known alias: "${sf}" maps to "${tf}"`;
+              bestReasonSk = `Známy alias: „${sf}" → „${tf}"`;
+            }
+          }
+        }
+      }
+
+      if (sfN.includes(tfN) || tfN.includes(sfN)) {
+        const score = Math.min(sfN.length, tfN.length) / Math.max(sfN.length, tfN.length) * 75;
+        if (score > bestScore) {
+          bestSrc = sf;
+          bestScore = score;
+          bestReason = `Partial match: "${sf}" ~ "${tf}"`;
+          bestReasonSk = `Čiastočná zhoda: „${sf}" ~ „${tf}"`;
+        }
+      }
+
+      const sfTokens = sf.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().split(/[_\-\s]+/).filter(t => t.length > 2);
+      const tfTokens = tf.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().split(/[_\-\s]+/).filter(t => t.length > 2);
+      const commonTokens = sfTokens.filter(t => tfTokens.some(tt => tt.includes(t) || t.includes(tt)));
+      if (commonTokens.length > 0) {
+        const score = (commonTokens.length / Math.max(sfTokens.length, tfTokens.length)) * 65;
+        if (score > bestScore) {
+          bestSrc = sf;
+          bestScore = score;
+          bestReason = `Token match: shared "${commonTokens.join(", ")}"`;
+          bestReasonSk = `Zhoda tokenov: spoločné „${commonTokens.join(", ")}"`;
         }
       }
     }
-    if (best && bestScore >= 40) {
-      mappings.push({ sourceField: sf, targetField: best });
-      usedTarget.add(best);
+
+    if (bestSrc && bestScore >= 35) {
+      const tfLower = tf.toLowerCase();
+      if (tfLower.includes("price") || tfLower.includes("amount") || tfLower.includes("cost")) {
+        bestTransform = "price";
+      } else if (tfLower.includes("quantity") || tfLower.includes("stock")) {
+        bestTransform = "number";
+      }
+
+      suggestions.push({
+        sourceField: bestSrc,
+        targetField: tf,
+        confidence: Math.round(bestScore),
+        reason: bestReason,
+        reasonSk: bestReasonSk,
+        transform: bestTransform,
+      });
+      usedSource.add(bestSrc);
     }
   }
-  return mappings;
+
+  return suggestions.sort((a, b) => b.confidence - a.confidence);
+}
+
+type MappingValidation = {
+  status: "ok" | "warning" | "error";
+  message: string;
+  messageSk: string;
+};
+
+function validateMappings(
+  mappings: FieldMapping[],
+  targetDataSource: string,
+  sourceFields: string[],
+  targetFields: string[]
+): MappingValidation[] {
+  const results: MappingValidation[] = [];
+
+  if (mappings.length === 0) {
+    results.push({
+      status: "error",
+      message: "No field mappings configured — sync will not transfer any data",
+      messageSk: "Žiadne mapovanie polí — synchronizácia neprenesie žiadne dáta",
+    });
+    return results;
+  }
+
+  const dsKey = targetDataSource === "auto" ? "stockitems" : targetDataSource;
+  const critical = CRITICAL_TARGET_FIELDS[dsKey] || [];
+  const mappedTargetsNorm = new Set(mappings.map(m => norm(m.targetField)));
+
+  for (const cf of critical) {
+    if (!mappedTargetsNorm.has(norm(cf))) {
+      const cfN = norm(cf);
+      const aliases = NORM_ALIAS_MAP.get(cfN) || [];
+      const aliasHint = aliases.slice(0, 3).join(", ");
+      results.push({
+        status: "warning",
+        message: `Critical field "${cf}" is not mapped. Look for source fields like: ${aliasHint || cf}`,
+        messageSk: `Dôležité pole „${cf}" nie je namapované. Hľadajte zdrojové polia ako: ${aliasHint || cf}`,
+      });
+    }
+  }
+
+  const dupTargets = mappings.map(m => m.targetField).filter((t, i, arr) => arr.indexOf(t) !== i);
+  if (dupTargets.length > 0) {
+    results.push({
+      status: "error",
+      message: `Duplicate target fields: ${[...new Set(dupTargets)].join(", ")} — each target field should be mapped only once`,
+      messageSk: `Duplicitné cieľové polia: ${[...new Set(dupTargets)].join(", ")} — každé cieľové pole by malo byť namapované iba raz`,
+    });
+  }
+
+  if (sourceFields.length > 0 && targetFields.length > 0) {
+    const invalidSrc = mappings.filter(m => m.sourceField && !sourceFields.includes(m.sourceField));
+    const invalidTgt = mappings.filter(m => m.targetField && !targetFields.includes(m.targetField));
+    if (invalidSrc.length > 0) {
+      results.push({
+        status: "warning",
+        message: `Source fields not recognized: ${invalidSrc.map(m => m.sourceField).join(", ")}`,
+        messageSk: `Zdrojové polia sa nerozpoznali: ${invalidSrc.map(m => m.sourceField).join(", ")}`,
+      });
+    }
+    if (invalidTgt.length > 0) {
+      results.push({
+        status: "warning",
+        message: `Target fields not recognized: ${invalidTgt.map(m => m.targetField).join(", ")}`,
+        messageSk: `Cieľové polia sa nerozpoznali: ${invalidTgt.map(m => m.targetField).join(", ")}`,
+      });
+    }
+  }
+
+  const emptyMappings = mappings.filter(m => !m.sourceField || !m.targetField);
+  if (emptyMappings.length > 0) {
+    results.push({
+      status: "error",
+      message: `${emptyMappings.length} mapping(s) have empty source or target field`,
+      messageSk: `${emptyMappings.length} mapovanie(a) majú prázdne zdrojové alebo cieľové pole`,
+    });
+  }
+
+  const ID_NORMS = new Set(["id", "recordexternalidentificator", "nsnumber"]);
+  const hasIdMapping = mappings.some(m => ID_NORMS.has(norm(m.targetField)));
+  if (!hasIdMapping) {
+    results.push({
+      status: "warning",
+      message: "No ID/identifier field mapped — system will generate auto IDs (SYNCHUB_1, SYNCHUB_2, ...). Consider mapping a unique identifier for better tracking.",
+      messageSk: "Žiadne ID/identifikátor pole nie je namapované — systém automaticky vygeneruje ID (SYNCHUB_1, SYNCHUB_2, ...). Zvážte namapovanie unikátneho identifikátora pre lepšie sledovanie.",
+    });
+  }
+
+  if (results.length === 0) {
+    results.push({
+      status: "ok",
+      message: `Mapping looks good — ${mappings.length} field(s) configured, all critical fields covered`,
+      messageSk: `Mapovanie vyzerá dobre — ${mappings.length} pole(í) nakonfigurovaných, všetky kľúčové polia pokryté`,
+    });
+  }
+
+  return results;
+}
+
+function autoMapFields(sourceFields: string[], targetFields: string[]): FieldMapping[] {
+  const suggestions = computeMappingSuggestions(sourceFields, targetFields);
+  return suggestions
+    .filter(s => s.confidence >= 50)
+    .map(s => ({ sourceField: s.sourceField, targetField: s.targetField, transform: s.transform }));
 }
 
 export default function SyncConfigPage() {
@@ -372,6 +594,20 @@ export default function SyncConfigPage() {
       return;
     }
 
+    const validation = validateMappings(validMappings, editor.targetDataSource, sourceFields, targetFields);
+    const hasErrors = validation.some(v => v.status === "error");
+    if (hasErrors) {
+      setShowValidation(true);
+      toast({
+        title: language === "sk" ? "Mapovanie má chyby" : "Mapping has errors",
+        description: language === "sk" ? "Opravte chyby pred uložením (viď Vyhodnotenie mapovania)" : "Fix errors before saving (see Mapping Evaluation)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setShowValidation(true);
+
     const payload = {
       name: editor.name.trim(),
       targetModuleId: editor.targetModuleId,
@@ -411,6 +647,19 @@ export default function SyncConfigPage() {
     }));
   }
 
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
+
+  const suggestions = useMemo(() => {
+    if (!fieldsReady) return [];
+    return computeMappingSuggestions(sourceFields, targetFields);
+  }, [sourceFields, targetFields, fieldsReady]);
+
+  const validationResults = useMemo(() => {
+    if (editor.fieldMappings.length === 0 && !showValidation) return [];
+    return validateMappings(editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields);
+  }, [editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, showValidation]);
+
   function handleAutoMap() {
     if (!fieldsReady) return;
     const mapped = autoMapFields(sourceFields, targetFields);
@@ -419,7 +668,36 @@ export default function SyncConfigPage() {
       return;
     }
     setEditor(prev => ({ ...prev, fieldMappings: mapped }));
+    setShowValidation(true);
     toast({ title: language === "sk" ? `Auto-mapovaných ${mapped.length} polí` : `Auto-mapped ${mapped.length} fields` });
+  }
+
+  function applySuggestion(sug: MappingSuggestion) {
+    setEditor(prev => {
+      const exists = prev.fieldMappings.some(m => m.targetField === sug.targetField);
+      if (exists) {
+        return {
+          ...prev,
+          fieldMappings: prev.fieldMappings.map(m =>
+            m.targetField === sug.targetField
+              ? { sourceField: sug.sourceField, targetField: sug.targetField, transform: sug.transform }
+              : m
+          ),
+        };
+      }
+      return {
+        ...prev,
+        fieldMappings: [...prev.fieldMappings, { sourceField: sug.sourceField, targetField: sug.targetField, transform: sug.transform }],
+      };
+    });
+  }
+
+  function applyAllSuggestions() {
+    const high = suggestions.filter(s => s.confidence >= 50);
+    if (high.length === 0) return;
+    setEditor(prev => ({ ...prev, fieldMappings: high.map(s => ({ sourceField: s.sourceField, targetField: s.targetField, transform: s.transform })) }));
+    setShowValidation(true);
+    toast({ title: language === "sk" ? `Aplikovaných ${high.length} návrhov` : `Applied ${high.length} suggestions` });
   }
 
   function openPreview(side: "source" | "target") {
@@ -777,6 +1055,151 @@ export default function SyncConfigPage() {
                     </div>
                   )}
                 </div>
+
+                {fieldsReady && suggestions.length > 0 && (
+                  <div data-testid="section-suggestions" className="mt-4">
+                    <button
+                      onClick={() => setShowSuggestions(!showSuggestions)}
+                      className="flex items-center gap-2 text-sm font-semibold hover:text-primary transition-colors w-full text-left"
+                      data-testid="button-toggle-suggestions"
+                    >
+                      <Lightbulb className="h-4 w-4 text-yellow-500" />
+                      {language === "sk"
+                        ? `Návrhy mapovania (${suggestions.length})`
+                        : `Mapping Suggestions (${suggestions.length})`}
+                      {showSuggestions ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                    </button>
+
+                    {showSuggestions && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-muted-foreground">
+                            {language === "sk"
+                              ? "Systém analyzoval zdrojové a cieľové polia a navrhuje tieto prepojenia:"
+                              : "System analyzed source and target fields and suggests these connections:"}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={applyAllSuggestions}
+                            data-testid="button-apply-all-suggestions"
+                          >
+                            <Zap className="h-3 w-3 mr-1" />
+                            {language === "sk" ? "Aplikovať všetky" : "Apply All"}
+                          </Button>
+                        </div>
+                        <div className="border rounded-lg overflow-hidden">
+                          <div className="grid grid-cols-[1fr_40px_1fr_80px_60px] bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground">
+                            <span>{language === "sk" ? "Zdrojové pole" : "Source Field"}</span>
+                            <span />
+                            <span>{language === "sk" ? "Cieľové pole" : "Target Field"}</span>
+                            <span className="text-center">{language === "sk" ? "Dôvera" : "Confidence"}</span>
+                            <span />
+                          </div>
+                          {suggestions.map((sug, idx) => {
+                            const isAlreadyMapped = editor.fieldMappings.some(
+                              m => m.sourceField === sug.sourceField && m.targetField === sug.targetField
+                            );
+                            return (
+                              <div
+                                key={idx}
+                                className={`grid grid-cols-[1fr_40px_1fr_80px_60px] items-center px-3 py-2 border-t ${isAlreadyMapped ? "bg-green-50 dark:bg-green-950/20" : idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                                data-testid={`row-suggestion-${idx}`}
+                              >
+                                <span className="text-xs font-mono truncate" title={sug.sourceField}>{sug.sourceField}</span>
+                                <div className="flex justify-center">
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                                </div>
+                                <span className="text-xs font-mono truncate" title={sug.targetField}>{sug.targetField}</span>
+                                <div className="flex justify-center">
+                                  <Badge
+                                    variant={sug.confidence >= 85 ? "default" : sug.confidence >= 60 ? "secondary" : "outline"}
+                                    className={`text-[10px] h-5 ${sug.confidence >= 85 ? "bg-green-600" : sug.confidence >= 60 ? "bg-yellow-600 text-white" : ""}`}
+                                  >
+                                    {sug.confidence}%
+                                  </Badge>
+                                </div>
+                                <div className="flex justify-center">
+                                  {isAlreadyMapped ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() => applySuggestion(sug)}
+                                      title={language === "sk" ? sug.reasonSk : sug.reason}
+                                      data-testid={`button-apply-suggestion-${idx}`}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {editor.fieldMappings.length > 0 && (
+                  <div data-testid="section-validation" className="mt-4">
+                    <button
+                      onClick={() => setShowValidation(!showValidation)}
+                      className="flex items-center gap-2 text-sm font-semibold hover:text-primary transition-colors w-full text-left"
+                      data-testid="button-toggle-validation"
+                    >
+                      <ClipboardCheck className="h-4 w-4" />
+                      {language === "sk" ? "Vyhodnotenie mapovania" : "Mapping Evaluation"}
+                      {validationResults.length > 0 && (
+                        <span className="ml-1">
+                          {validationResults.some(v => v.status === "error") ? (
+                            <XCircle className="h-3.5 w-3.5 text-red-500 inline" />
+                          ) : validationResults.some(v => v.status === "warning") ? (
+                            <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 inline" />
+                          ) : (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 inline" />
+                          )}
+                        </span>
+                      )}
+                      {showValidation ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                    </button>
+
+                    {showValidation && validationResults.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {validationResults.map((vr, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex items-start gap-2 p-3 rounded-lg text-sm ${
+                              vr.status === "error" ? "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800" :
+                              vr.status === "warning" ? "bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800" :
+                              "bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800"
+                            }`}
+                            data-testid={`validation-result-${idx}`}
+                          >
+                            {vr.status === "error" ? (
+                              <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                            ) : vr.status === "warning" ? (
+                              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                            )}
+                            <span className={
+                              vr.status === "error" ? "text-red-700 dark:text-red-300" :
+                              vr.status === "warning" ? "text-yellow-700 dark:text-yellow-300" :
+                              "text-green-700 dark:text-green-300"
+                            }>
+                              {language === "sk" ? vr.messageSk : vr.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <Separator />
 
