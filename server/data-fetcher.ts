@@ -42,6 +42,24 @@ function isUrlAllowed(urlStr: string): boolean {
   }
 }
 
+export function flattenNestedObjects(record: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      for (const [subKey, subValue] of Object.entries(value)) {
+        result[`${key}.${subKey}`] = subValue;
+      }
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+export function flattenRecords(records: Record<string, any>[]): Record<string, any>[] {
+  return records.map(flattenNestedObjects);
+}
+
 export function collectAllFields(records: Record<string, any>[]): string[] {
   if (records.length === 0) return [];
   const allFields = new Set<string>();
@@ -1970,8 +1988,8 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
 
     const totalCount = items.length;
     const limited = limit > 0 ? items.slice(0, limit) : items;
-    const fields = collectAllFields(limited.slice(0, 500));
     const preview = limited.map((item) => flattenObject(item));
+    const fields = collectAllFields(preview.slice(0, 500));
 
     return {
       success: true,
