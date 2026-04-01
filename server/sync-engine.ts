@@ -24,8 +24,30 @@ function getNestedValue(obj: Record<string, any>, dotPath: string): any {
   if (dotPath in obj) return obj[dotPath];
   const parts = dotPath.split(".");
   let current: any = obj;
-  for (const part of parts) {
-    if (current == null || typeof current !== "object") return undefined;
+  for (let i = 0; i < parts.length; i++) {
+    if (current == null) return undefined;
+    const part = parts[i];
+    if (Array.isArray(current)) {
+      const match = current.find((item: any) => {
+        if (!item || typeof item !== "object") return false;
+        const k = item.Key || item.key || item.Name || item.name || item.ColumnName || item.columnName;
+        return k === part;
+      });
+      if (match) {
+        if (i === parts.length - 1) {
+          return match.Value ?? match.value ?? match.ColumnValue ?? match.columnValue ?? undefined;
+        }
+        current = match.Value ?? match.value ?? match.ColumnValue ?? match.columnValue;
+        continue;
+      }
+      const idx = parseInt(part, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < current.length) {
+        current = current[idx];
+        continue;
+      }
+      return undefined;
+    }
+    if (typeof current !== "object") return undefined;
     current = current[part];
   }
   return current;

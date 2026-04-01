@@ -2026,7 +2026,30 @@ export function flattenObject(obj: any, prefix = ""): Record<string, string> {
     if (val && typeof val === "object" && !Array.isArray(val) && key !== "$") {
       Object.assign(result, flattenObject(val, newKey));
     } else if (Array.isArray(val)) {
-      result[newKey] = val.length > 0 ? `[${val.length} items]` : "[]";
+      if (val.length > 0 && val.every(item => item && typeof item === "object" && !Array.isArray(item))) {
+        const kvCount = val.filter(item =>
+          ("Key" in item || "key" in item || "Name" in item || "name" in item || "ColumnName" in item || "columnName" in item)
+        ).length;
+        const isKeyValueArray = kvCount >= val.length * 0.7;
+        if (isKeyValueArray) {
+          for (const item of val) {
+            const itemKey = item.Key || item.key || item.Name || item.name || item.ColumnName || item.columnName;
+            const itemVal = item.Value ?? item.value ?? item.ColumnValue ?? item.columnValue ?? "";
+            if (itemKey) {
+              result[`${newKey}.${itemKey}`] = itemVal != null ? String(itemVal) : "";
+            }
+          }
+        } else {
+          for (let i = 0; i < Math.min(val.length, 50); i++) {
+            Object.assign(result, flattenObject(val[i], `${newKey}[${i}]`));
+          }
+          if (val.length > 50) {
+            result[`${newKey}._total`] = String(val.length);
+          }
+        }
+      } else {
+        result[newKey] = val.length > 0 ? `[${val.length} items]` : "[]";
+      }
     } else {
       result[newKey] = val != null ? String(val) : "";
     }
