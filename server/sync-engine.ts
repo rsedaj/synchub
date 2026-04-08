@@ -372,6 +372,8 @@ async function executeAsync(
     let allLatencyMs = 0;
     let allLatencyCount = 0;
     let globalMinLatency = Infinity;
+    const ETA_WINDOW = 5;
+    const batchSpeeds: number[] = [];
     let globalMaxLatency = 0;
 
     await storage.updateSyncRun(runId, {
@@ -405,9 +407,12 @@ async function executeAsync(
       let lastPushRecords: PushRecordResult[] = [];
 
       let batchAvgLatency = 0;
+      let batchWallClockMs = 0;
       if (mappedBatch.length > 0) {
         try {
+          const batchWallStart = Date.now();
           const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1, batchRecords);
+          batchWallClockMs = Date.now() - batchWallStart;
           totalCreated += pushResult.createdCount;
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;
@@ -524,7 +529,19 @@ async function executeAsync(
 
       const totalProcessed = totalCreated + totalUpdated + totalFailed;
       const elapsed = Date.now() - startTime;
-      const speedPerSec = elapsed > 0 ? Math.round((totalProcessed / elapsed) * 1000) : 0;
+      const overallSpeedPerSec = elapsed > 0 ? Math.round((totalProcessed / elapsed) * 1000) : 0;
+
+      const batchProcessed = batchRecords.length;
+      if (batchWallClockMs > 0 && batchProcessed > 0) {
+        const batchSpeed = (batchProcessed / batchWallClockMs) * 1000;
+        batchSpeeds.push(batchSpeed);
+        if (batchSpeeds.length > ETA_WINDOW) batchSpeeds.shift();
+      }
+
+      const windowSpeed = batchSpeeds.length > 0
+        ? batchSpeeds.reduce((a, b) => a + b, 0) / batchSpeeds.length
+        : overallSpeedPerSec;
+      const speedPerSec = Math.round(windowSpeed > 0 ? windowSpeed : overallSpeedPerSec);
       const remaining = totalRecords - totalProcessed;
       const estimatedMs = speedPerSec > 0 ? (remaining / speedPerSec) * 1000 : 0;
 

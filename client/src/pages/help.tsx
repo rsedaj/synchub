@@ -310,6 +310,14 @@ export default function HelpPage() {
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">Čo je nové</h2>
           <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
             <div>
+              <strong className="text-foreground font-mono">v1.24.0</strong> <span className="text-xs">(apríl 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li>Paralelný ONIX push — 8 súbežných API volaní namiesto sekvenčného (5-10× rýchlejšie)</li>
+                <li>Presnejší odhad času — klzavý priemer posledných 5 dávok namiesto celkového priemeru</li>
+                <li>Indikátor aktívnej synchronizácie — pulzujúci bod v bočnom menu pri Sync Config a Sync Dashboard</li>
+              </ul>
+            </div>
+            <div>
               <strong className="text-foreground font-mono">v1.23.0</strong> <span className="text-xs">(apríl 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li>Editovateľný limit záznamov v sync konfigurácii (predvolené: 120 000)</li>

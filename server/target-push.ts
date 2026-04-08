@@ -541,7 +541,30 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  for (let i = 0; i < records.length; i++) {
+  const CONCURRENCY = 8;
+
+  const ONIX_READONLY_PREFIXES = [
+    "StockItemBalance", "StockItemGroups", "StockItemParams",
+    "StockItemCodes", "StockItemAccessories", "StockItemAlternatives",
+    "StockItemPartners", "StockItemMeasureUnits", "Enclosures",
+  ];
+
+  const hdrs: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": `Bearer ${token}`,
+    "User-Agent": "SyncHub/1.0",
+  };
+  if (databasePath) {
+    hdrs["DatabasePath"] = databasePath;
+  }
+
+  async function pushSingleRecord(i: number): Promise<{
+    created: number; updated: number; error: number;
+    errEntry?: { index: number; message: string };
+    recResult: PushRecordResult;
+    latency: number;
+  }> {
     const record = records[i];
     const globalIndex = batchIndex * 50 + i;
 
@@ -583,11 +606,6 @@ async function pushToOnix(
         body.Default_Stock = config?.defaultStock || "SYN";
       }
 
-      const ONIX_READONLY_PREFIXES = [
-        "StockItemBalance", "StockItemGroups", "StockItemParams",
-        "StockItemCodes", "StockItemAccessories", "StockItemAlternatives",
-        "StockItemPartners", "StockItemMeasureUnits", "Enclosures",
-      ];
       const customCols: Array<{Name: string; Value: string}> = [];
       const keysToRemove: string[] = [];
 
@@ -651,16 +669,6 @@ async function pushToOnix(
         }
       }
 
-      const hdrs: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": `Bearer ${token}`,
-        "User-Agent": "SyncHub/1.0",
-      };
-      if (databasePath) {
-        hdrs["DatabasePath"] = databasePath;
-      }
-
       let res: Response | null = null;
       let fetchLatency = 0;
       const MAX_RETRIES = 3;
@@ -707,11 +715,6 @@ async function pushToOnix(
         throw new Error("ONIX API authentication timed out after retries");
       }
 
-      totalLatencyMs += fetchLatency;
-      latencyCount++;
-      if (fetchLatency < minLatencyMs) minLatencyMs = fetchLatency;
-      if (fetchLatency > maxLatencyMs) maxLatencyMs = fetchLatency;
-
       if (res.ok) {
         let newId: number | null = null;
         let onixRejected = false;
@@ -751,22 +754,23 @@ async function pushToOnix(
         } catch {}
 
         if (onixRejected) {
-          errorCount++;
-          const errMsg = `ONIX rejected: ${onixRejectMsg}`;
-          errors.push({ index: globalIndex, message: errMsg });
-          recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
-          if (errorCount <= 5) {
-            console.error(`[target-push] ONIX ${method} ${source} record ${i} rejected:`, onixRejectMsg);
-          }
+          return {
+            created: 0, updated: 0, error: 1, latency: fetchLatency,
+            errEntry: { index: globalIndex, message: `ONIX rejected: ${onixRejectMsg}` },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: `ONIX rejected: ${onixRejectMsg}` },
+          };
         } else if (isUpdate) {
-          updated++;
-          recordResults.push({ sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated" });
+          return {
+            created: 0, updated: 1, error: 0, latency: fetchLatency,
+            recResult: { sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated" },
+          };
         } else {
-          created++;
-          recordResults.push({ sourceIndex: globalIndex, target_id: newId, status: "created" });
+          return {
+            created: 1, updated: 0, error: 0, latency: fetchLatency,
+            recResult: { sourceIndex: globalIndex, target_id: newId, status: "created" },
+          };
         }
       } else {
-        errorCount++;
         let errMsg = `HTTP ${res.status}`;
         try {
           const errText = await res.text();
@@ -780,29 +784,59 @@ async function pushToOnix(
             }
           }
         } catch {}
-        errors.push({ index: globalIndex, message: errMsg });
-        recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
-        if (i < 5 || errorCount <= 3) {
-          console.error(`[target-push] ONIX ${method} ${source} record ${i} failed:`, errMsg);
-        }
+        return {
+          created: 0, updated: 0, error: 1, latency: fetchLatency,
+          errEntry: { index: globalIndex, message: errMsg },
+          recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg },
+        };
       }
     } catch (err: any) {
-      errorCount++;
       const errMsg = err.name === "AbortError" ? "Request timed out (30s)" : (err.message || "Unknown error");
-      errors.push({ index: globalIndex, message: errMsg });
-      recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
-      if (errorCount <= 3) {
-        console.error(`[target-push] ONIX record ${i} exception:`, errMsg);
+      return {
+        created: 0, updated: 0, error: 1, latency: 0,
+        errEntry: { index: batchIndex * 50 + i, message: errMsg },
+        recResult: { sourceIndex: batchIndex * 50 + i, target_id: null, status: "error", errorMsg: errMsg },
+      };
+    }
+  }
+
+  const sortedResults: Array<{ idx: number; result: Awaited<ReturnType<typeof pushSingleRecord>> }> = [];
+
+  for (let chunkStart = 0; chunkStart < records.length; chunkStart += CONCURRENCY) {
+    const chunkEnd = Math.min(chunkStart + CONCURRENCY, records.length);
+    const promises = [];
+    for (let i = chunkStart; i < chunkEnd; i++) {
+      promises.push(pushSingleRecord(i).then(result => ({ idx: i, result })));
+    }
+    const chunkResults = await Promise.all(promises);
+    sortedResults.push(...chunkResults);
+  }
+
+  sortedResults.sort((a, b) => a.idx - b.idx);
+
+  let loggedErrors = 0;
+  for (const { result } of sortedResults) {
+    created += result.created;
+    updated += result.updated;
+    errorCount += result.error;
+    if (result.errEntry) {
+      errors.push(result.errEntry);
+      if (loggedErrors < 5) {
+        console.error(`[target-push] ONIX record error:`, result.errEntry.message.slice(0, 200));
+        loggedErrors++;
       }
     }
-
-    if ((i + 1) % 5 === 0) {
-      await sleep(200);
+    recordResults.push(result.recResult);
+    if (result.latency > 0) {
+      totalLatencyMs += result.latency;
+      latencyCount++;
+      if (result.latency < minLatencyMs) minLatencyMs = result.latency;
+      if (result.latency > maxLatencyMs) maxLatencyMs = result.latency;
     }
   }
 
   const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms`);
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex} (×${CONCURRENCY} parallel): created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms`);
 
   return {
     success: errorCount === 0,

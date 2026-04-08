@@ -42,6 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 
 type NavItem = {
@@ -90,13 +91,14 @@ function LiveClock() {
   );
 }
 
-function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast }: {
+function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast, hasActiveSync }: {
   item: NavItem;
   location: string;
   isAdmin: boolean;
   collapsed: boolean;
   t: (key: string) => string;
   toast: ReturnType<typeof useToast>["toast"];
+  hasActiveSync?: boolean;
 }) {
   const restricted = item.adminOnly && !isAdmin;
 
@@ -109,6 +111,15 @@ function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast }: {
       variant: "destructive",
     });
   };
+
+  const showPulse = hasActiveSync && (item.key === "sidebar.syncConfig" || item.key === "sidebar.syncDashboard");
+
+  const pulsingDot = showPulse ? (
+    <span className="relative flex h-2.5 w-2.5 ml-auto" data-testid="sync-active-indicator">
+      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+    </span>
+  ) : null;
 
   if (collapsed) {
     return (
@@ -125,14 +136,20 @@ function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast }: {
                 <Lock className="h-2 w-2 absolute -bottom-0.5 -right-0.5 text-muted-foreground" />
               </button>
             ) : (
-              <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
+              <Link href={item.url} data-testid={`link-nav-${item.testId}`} className="relative">
                 <item.icon className="h-4 w-4" />
+                {showPulse && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2" data-testid="sync-active-indicator-collapsed">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                  </span>
+                )}
               </Link>
             )}
           </SidebarMenuButton>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {t(item.key)}{restricted && ` (${t("sidebar.vaultAdminOnly")})`}
+          {t(item.key)}{restricted && ` (${t("sidebar.vaultAdminOnly")})`}{showPulse && " ●"}
         </TooltipContent>
       </Tooltip>
     );
@@ -154,6 +171,7 @@ function NavItemRenderer({ item, location, isAdmin, collapsed, t, toast }: {
         <Link href={item.url} data-testid={`link-nav-${item.testId}`}>
           <item.icon className="h-4 w-4" />
           <span>{t(item.key)}</span>
+          {pulsingDot}
         </Link>
       )}
     </SidebarMenuButton>
@@ -169,6 +187,13 @@ export function AppSidebar() {
   const { toast } = useToast();
   const collapsed = state === "collapsed";
   const isAdmin = user?.role === "admin";
+
+  const { data: activeRuns } = useQuery<any[]>({
+    queryKey: ["/api/sync-runs/active"],
+    refetchInterval: 5000,
+    enabled: !!user,
+  });
+  const hasActiveSync = Array.isArray(activeRuns) && activeRuns.length > 0;
 
   const initials = user?.fullName
     ?.split(" ")
@@ -227,6 +252,7 @@ export function AppSidebar() {
                     collapsed={collapsed}
                     t={t}
                     toast={toast}
+                    hasActiveSync={hasActiveSync}
                   />
                 </SidebarMenuItem>
               ))}
