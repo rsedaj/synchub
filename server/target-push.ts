@@ -541,7 +541,7 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  const CONCURRENCY = 8;
+  const CONCURRENCY = 3;
 
   const ONIX_READONLY_PREFIXES = [
     "StockItemBalance", "StockItemGroups", "StockItemParams",
@@ -669,13 +669,12 @@ async function pushToOnix(
         body.Default_Price_Vat = isNaN(dpv) ? 0 : dpv;
       }
 
-      if (i < 3 && batchIndex === 0) {
-        console.log(`[target-push] ONIX record ${i}: ${method} ${url}`);
-        console.log(`[target-push] ONIX body:`, JSON.stringify(body).slice(0, 800));
-        console.log(`[target-push] ONIX auto-fill: Ns_Number=${body.Ns_Number} RecordExternalIdentificator=${body.RecordExternalIdentificator} Default_Price=${body.Default_Price} Default_Stock=${body.Default_Stock} Type=${body.Type}`);
+      if (i < 5 && batchIndex < 2) {
+        console.log(`[target-push] ONIX record [b${batchIndex},r${i}]: ${method} ${url}`);
+        console.log(`[target-push] body keys: [${Object.keys(body).join(", ")}]`);
+        console.log(`[target-push] required fields: Ns_Number=${JSON.stringify(body.Ns_Number)} RecExtId=${JSON.stringify(body.RecordExternalIdentificator)} Default_Price=${JSON.stringify(body.Default_Price)} Default_Stock=${JSON.stringify(body.Default_Stock)} Type=${JSON.stringify(body.Type)} Ns_Code=${JSON.stringify(body.Ns_Code)}`);
         if (sourceRec) {
-          const srcKeys = Object.keys(sourceRec).slice(0, 10);
-          console.log(`[target-push] Source record keys: [${srcKeys.join(", ")}], autoId=${autoId}`);
+          console.log(`[target-push] source: id=${JSON.stringify(sourceRec.id)} gtin=${JSON.stringify(sourceRec.gtin)} price=${JSON.stringify(sourceRec.price)} autoId=${autoId}`);
         }
       }
 
@@ -698,7 +697,17 @@ async function pushToOnix(
           fetchLatency = Date.now() - fetchStart;
           clearTimeout(timeout);
 
-          if (res.status === 401 || res.status === 408 || res.status === 503 || res.status === 504) {
+          if (res.status === 503 || res.status === 504 || res.status === 429) {
+            if (attempt < MAX_RETRIES) {
+              const errText = await res.text().catch(() => "");
+              console.warn(`[target-push] ONIX server overload retry ${attempt}/${MAX_RETRIES}: HTTP ${res.status} — ${errText.slice(0, 100)}`);
+              await sleep(3000 * attempt);
+              res = null;
+              continue;
+            }
+          }
+
+          if (res.status === 401 || res.status === 408) {
             const errText = await res.text().catch(() => "");
             const isAuthTimeout = errText.toLowerCase().includes("timed out") || errText.toLowerCase().includes("timeout");
             if (isAuthTimeout && attempt < MAX_RETRIES) {
@@ -820,6 +829,9 @@ async function pushToOnix(
     }
     const chunkResults = await Promise.all(promises);
     sortedResults.push(...chunkResults);
+    if (chunkEnd < records.length) {
+      await sleep(300);
+    }
   }
 
   sortedResults.sort((a, b) => a.idx - b.idx);
