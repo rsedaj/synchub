@@ -580,7 +580,7 @@ async function pushToOnix(
         body.Measure_Units_Default_Name = "ks";
       }
       if (source === "stockitems" && !body.Default_Stock && !isUpdate) {
-        body.Default_Stock = config?.defaultStock || "SK1";
+        body.Default_Stock = config?.defaultStock || "SYN";
       }
 
       const ONIX_READONLY_PREFIXES = [
