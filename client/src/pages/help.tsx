@@ -111,7 +111,7 @@ export default function HelpPage() {
             </p>
             <p>
               <strong className="text-foreground">Sync Konfigurácie</strong> — definícia pravidiel
-              synchronizácie medzi modulmi. Konfigurácia zdroja, cieľa, mapovania polí a časového plánu.
+              synchronizácie medzi modulmi. Konfigurácia zdroja, cieľa, mapovania polí, limitu záznamov a časového plánu.
             </p>
             <p>
               <strong className="text-foreground">Synchronizácia</strong> — spustenie a sledovanie
@@ -303,6 +303,35 @@ export default function HelpPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section data-testid="section-help-changelog" className="print:break-inside-avoid">
+          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Čo je nové</h2>
+          <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+            <div>
+              <strong className="text-foreground font-mono">v1.23.0</strong> <span className="text-xs">(apríl 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li>Editovateľný limit záznamov v sync konfigurácii (predvolené: 120 000)</li>
+                <li>Nový predvolený sklad: Sklad_SyncHub (SYN) pre ONIX push operácie</li>
+                <li>Rozšírená ONIX dokumentácia — Swagger DEMO, POST povinné polia, sklady, read-only polia</li>
+              </ul>
+            </div>
+            <div>
+              <strong className="text-foreground font-mono">v1.22.0</strong> <span className="text-xs">(apríl 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li>ModuleHints — kontextové nápovedy pri konfigurácii sync (ONIX/Pipedrive/Raynet)</li>
+              </ul>
+            </div>
+            <div>
+              <strong className="text-foreground font-mono">v1.21.x</strong> <span className="text-xs">(apríl 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li>Multi-file zálohy na Google Drive (chunking veľkých datasetov)</li>
+                <li>SpeedGauge — vizuálne zobrazenie latencie ONIX API</li>
+                <li>ONIX push: Default_Stock opravený na kód skladu (string), nie ID</li>
+                <li>Úspešná synchronizácia 10 000+ záznamov PROMOTRON → ONIX</li>
+              </ul>
+            </div>
           </div>
         </section>
 
