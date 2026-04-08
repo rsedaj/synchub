@@ -568,9 +568,33 @@ async function pushToOnix(
       if (!body.Ns_Number && !isUpdate) {
         body.Ns_Number = body.RecordExternalIdentificator || autoId;
       }
+      if (!body.Ns_Code && !isUpdate) {
+        body.Ns_Code = "SK";
+      }
+      if (source === "stockitems" && !body.Type && !isUpdate) {
+        body.Type = 1;
+      }
+
+      const customCols: Array<{Name: string; Value: string}> = [];
+      const balanceFields: Record<string, Record<string, any>> = {};
+      const keysToRemove: string[] = [];
 
       for (const [k, v] of Object.entries(body)) {
         if (v === null || v === undefined) continue;
+
+        if (k.startsWith("CustomColumns.")) {
+          const colName = k.substring("CustomColumns.".length);
+          customCols.push({ Name: colName, Value: v != null ? String(v) : "" });
+          keysToRemove.push(k);
+          continue;
+        }
+
+        const balMatch = k.match(/^(StockItemBalance)\[(\d+)\]\.(.+)$/);
+        if (balMatch) {
+          keysToRemove.push(k);
+          continue;
+        }
+
         if (typeof v === "string") {
           const lower = k.toLowerCase();
           if (lower.includes("price") || lower.includes("quantity") || lower.includes("amount") ||
@@ -581,6 +605,14 @@ async function pushToOnix(
             }
           }
         }
+      }
+
+      for (const k of keysToRemove) {
+        delete body[k];
+      }
+
+      if (customCols.length > 0) {
+        body.CustomColumns = customCols;
       }
 
       if (i < 3 && batchIndex === 0) {
@@ -655,6 +687,8 @@ async function pushToOnix(
 
       if (res.ok) {
         let newId: number | null = null;
+        let onixRejected = false;
+        let onixRejectMsg = "";
         try {
           const resText = await res.text();
           if (batchIndex === 0 && i < 3) {
@@ -662,14 +696,23 @@ async function pushToOnix(
           }
           try {
             const data = JSON.parse(resText);
-            newId = data?.Id || data?.id || data?.StockItemId || data?.stockItemId ||
-                    (typeof data === "number" ? data : null);
-            if (!newId && typeof data === "object" && data !== null) {
-              for (const key of Object.keys(data)) {
-                if (/^(id|Id|ID)$/.test(key) || key.toLowerCase().endsWith("id")) {
-                  const val = data[key];
-                  if (typeof val === "number" && val > 0) { newId = val; break; }
-                  if (typeof val === "string" && /^\d+$/.test(val)) { newId = parseInt(val, 10); break; }
+
+            if (data?.Result === 3 || (Array.isArray(data?.Errors) && data.Errors.length > 0)) {
+              onixRejected = true;
+              const msgs = (data.Errors || []).map((e: any) => e.Message || e.message || JSON.stringify(e));
+              onixRejectMsg = msgs.join("; ").slice(0, 300);
+            }
+
+            if (!onixRejected) {
+              newId = data?.Id || data?.id || data?.StockItemId || data?.stockItemId ||
+                      (typeof data === "number" ? data : null);
+              if (!newId && typeof data === "object" && data !== null) {
+                for (const key of Object.keys(data)) {
+                  if (/^(id|Id|ID)$/.test(key) || key.toLowerCase().endsWith("id")) {
+                    const val = data[key];
+                    if (typeof val === "number" && val > 0) { newId = val; break; }
+                    if (typeof val === "string" && /^\d+$/.test(val)) { newId = parseInt(val, 10); break; }
+                  }
                 }
               }
             }
@@ -680,7 +723,15 @@ async function pushToOnix(
           }
         } catch {}
 
-        if (isUpdate) {
+        if (onixRejected) {
+          errorCount++;
+          const errMsg = `ONIX rejected: ${onixRejectMsg}`;
+          errors.push({ index: globalIndex, message: errMsg });
+          recordResults.push({ sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg });
+          if (errorCount <= 5) {
+            console.error(`[target-push] ONIX ${method} ${source} record ${i} rejected:`, onixRejectMsg);
+          }
+        } else if (isUpdate) {
           updated++;
           recordResults.push({ sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated" });
         } else {
