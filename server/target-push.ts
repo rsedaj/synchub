@@ -579,6 +579,13 @@ async function pushToOnix(
 
       const body = sanitizeOnixBody(record);
 
+      const hasVal = (v: any): boolean => {
+        if (v == null) return false;
+        if (typeof v === "string") return v.trim().length > 0;
+        if (typeof v === "number") return true;
+        return !!v;
+      };
+
       const sourceRec = sourceRecords?.[i];
       const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
         sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
@@ -587,22 +594,22 @@ async function pushToOnix(
         sourceRec?.custom_label_0 || sourceRec?.custom_label_1;
       const autoId = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
 
-      if (!body.RecordExternalIdentificator && !isUpdate) {
+      if (!hasVal(body.RecordExternalIdentificator) && !isUpdate) {
         body.RecordExternalIdentificator = autoId;
       }
-      if (!body.Ns_Number && !isUpdate) {
-        body.Ns_Number = body.RecordExternalIdentificator || autoId;
+      if (!hasVal(body.Ns_Number) && !isUpdate) {
+        body.Ns_Number = hasVal(body.RecordExternalIdentificator) ? body.RecordExternalIdentificator : autoId;
       }
-      if (!body.Ns_Code && !isUpdate) {
+      if (!hasVal(body.Ns_Code) && !isUpdate) {
         body.Ns_Code = "SK";
       }
-      if (source === "stockitems" && !body.Type && !isUpdate) {
+      if (source === "stockitems" && !hasVal(body.Type) && !isUpdate) {
         body.Type = 1;
       }
-      if (source === "stockitems" && body.Measure_Units_Default_Name === undefined && !isUpdate) {
+      if (source === "stockitems" && !hasVal(body.Measure_Units_Default_Name) && !isUpdate) {
         body.Measure_Units_Default_Name = "ks";
       }
-      if (source === "stockitems" && !body.Default_Stock && !isUpdate) {
+      if (source === "stockitems" && !hasVal(body.Default_Stock) && !isUpdate) {
         body.Default_Stock = config?.defaultStock || "SYN";
       }
 
@@ -651,6 +658,8 @@ async function pushToOnix(
           ? parseFloat(body.Default_Price.replace(/[a-zA-Z€$£ ]/g, "").replace(",", ".")) 
           : Number(body.Default_Price);
         body.Default_Price = isNaN(dp) ? 0 : dp;
+      } else if (!isUpdate) {
+        body.Default_Price = 0;
       }
 
       if (body.Default_Price_Vat !== undefined && body.Default_Price_Vat !== null) {
@@ -663,9 +672,10 @@ async function pushToOnix(
       if (i < 3 && batchIndex === 0) {
         console.log(`[target-push] ONIX record ${i}: ${method} ${url}`);
         console.log(`[target-push] ONIX body:`, JSON.stringify(body).slice(0, 800));
+        console.log(`[target-push] ONIX auto-fill: Ns_Number=${body.Ns_Number} RecordExternalIdentificator=${body.RecordExternalIdentificator} Default_Price=${body.Default_Price} Default_Stock=${body.Default_Stock} Type=${body.Type}`);
         if (sourceRec) {
           const srcKeys = Object.keys(sourceRec).slice(0, 10);
-          console.log(`[target-push] Source record keys: [${srcKeys.join(", ")}], RecordExternalIdentificator=${body.RecordExternalIdentificator}`);
+          console.log(`[target-push] Source record keys: [${srcKeys.join(", ")}], autoId=${autoId}`);
         }
       }
 
