@@ -21,7 +21,7 @@ A modular integration platform for SEDAJ s.r.o. / Hauerland that connects their 
 - `server/seed.ts` - Database seed data (admin user + all 12 modules with sortOrder)
 - `server/data-fetcher.ts` - Real API data fetching service (XML feeds, REST APIs) with SSRF protection
 - `server/sync-engine.ts` - 4-phase sync execution engine (preflight→backup→fetch→sync), real push, cancellation
-- `server/target-push.ts` - Target API push (Pipedrive REST create/update, ONIX placeholder)
+- `server/target-push.ts` - Target API push (Pipedrive, Raynet, ONIX) with auto-fill of required fields (Type, Ns_Code, Default_Stock, etc.), latency tracking
 - `server/google-drive.ts` - Google Drive backup management on shared drive (upload, download, delete, rotate, stats)
 
 ### Frontend

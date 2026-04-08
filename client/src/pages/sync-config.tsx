@@ -433,6 +433,118 @@ function autoMapFields(sourceFields: string[], targetFields: string[]): FieldMap
     .map(s => ({ sourceField: s.sourceField, targetField: s.targetField, transform: s.transform }));
 }
 
+interface HintItem {
+  type: "info" | "auto" | "warning";
+  sk: string;
+  en: string;
+}
+
+const MODULE_HINTS: Record<string, (ds: string, srcCode: string) => HintItem[]> = {
+  ONIX: (ds, srcCode) => {
+    const hints: HintItem[] = [];
+    if (ds === "auto" || ds === "stockitems") {
+      hints.push(
+        { type: "auto", sk: "Systém automaticky nastaví povinné pole Type = 1 (Tovar). Nemusíte ho mapovať.", en: "The system will automatically set required field Type = 1 (Product). No need to map it." },
+        { type: "auto", sk: "Číslo skladu (Ns_Code = \"SK\") a merná jednotka (\"ks\") sa nastavia automaticky, ak ich nenamapujete.", en: "Stock number code (Ns_Code = \"SK\") and measure unit (\"ks\") are set automatically if you don't map them." },
+        { type: "auto", sk: "Hlavný sklad (Default_Stock = \"SK1\" / SKLAD 1) sa priradí automaticky. Ak chcete iný sklad, namapujte pole Default_Stock.", en: "Default warehouse (Default_Stock = \"SK1\" / SKLAD 1) is assigned automatically. Map Default_Stock to override." },
+        { type: "auto", sk: "Identifikátor záznamu (RecordExternalIdentificator) sa vygeneruje z kódu produktu, ak ho nenamapujete.", en: "Record identifier (RecordExternalIdentificator) is auto-generated from product code if not mapped." },
+        { type: "info", sk: "Ceny (Default_Price) musia byť čísla. Text ako \"8.44 EUR\" sa automaticky prevedie na číslo 8.44.", en: "Prices (Default_Price) must be numbers. Text like \"8.44 EUR\" is automatically converted to 8.44." },
+        { type: "info", sk: "CustomColumns (vlastné stĺpce) sa automaticky prevedú do správneho formátu pre ONIX.", en: "CustomColumns are automatically converted to the correct format for ONIX." },
+        { type: "warning", sk: "Polia ako StockItemBalance, StockItemGroups a ďalšie \"len na čítanie\" polia sa automaticky odstránia z odosielaných dát.", en: "Fields like StockItemBalance, StockItemGroups and other read-only fields are automatically removed from sent data." },
+      );
+      if (srcCode) {
+        hints.push({ type: "info", sk: `Namapujte minimálne: názov produktu (Name), číslo (Ns_Number) a cenu (Default_Price). Ostatné polia sú voliteľné.`, en: `Map at minimum: product name (Name), number (Ns_Number) and price (Default_Price). Other fields are optional.` });
+      }
+    }
+    if (ds === "partners") {
+      hints.push(
+        { type: "info", sk: "Pre partnerov je povinné pole Ns_Name (názov partnera).", en: "For partners, the required field is Ns_Name (partner name)." },
+      );
+    }
+    return hints;
+  },
+  PIPEDRIVE: (ds) => {
+    const hints: HintItem[] = [];
+    if (ds === "products") {
+      hints.push(
+        { type: "info", sk: "Ceny v Pipedrive musia byť vo formáte [{currency: \"EUR\", price: 10}]. Ak namapujete číslo, systém ho automaticky zabalí do tohto formátu.", en: "Prices in Pipedrive must be [{currency: \"EUR\", price: 10}]. If you map a number, the system wraps it automatically." },
+        { type: "auto", sk: "Pole category musí byť číslo (ID kategórie v Pipedrive) alebo null. Neplatné hodnoty sa automaticky vynulujú.", en: "Category field must be a number (Pipedrive category ID) or null. Invalid values are auto-cleared." },
+      );
+    }
+    if (ds === "deals" || ds === "persons" || ds === "organizations") {
+      hints.push(
+        { type: "info", sk: "Pole owner_id musí byť platné ID používateľa v Pipedrive. Neplatné hodnoty sa automaticky odstránia.", en: "owner_id must be a valid Pipedrive user ID. Invalid values are auto-removed." },
+      );
+    }
+    hints.push(
+      { type: "info", sk: "Ak záznam v Pipedrive už existuje (podľa ID), bude aktualizovaný. Inak sa vytvorí nový.", en: "If a record already exists in Pipedrive (by ID), it will be updated. Otherwise a new one is created." },
+    );
+    return hints;
+  },
+  RAYNET: (ds) => {
+    const hints: HintItem[] = [
+      { type: "info", sk: "Raynet má limit API volaní. Ak sa dosiahne limit, systém automaticky počká a pokračuje.", en: "Raynet has API call limits. If the limit is reached, the system automatically waits and continues." },
+      { type: "info", sk: "Číselné polia (rating, price, totalAmount) sa automaticky konvertujú na čísla.", en: "Numeric fields (rating, price, totalAmount) are automatically converted to numbers." },
+    ];
+    if (ds === "company" || ds === "person") {
+      hints.push(
+        { type: "info", sk: "Pole owner sa automaticky prevedie z objektu na ID, ak je to potrebné.", en: "The owner field is automatically converted from object to ID if needed." },
+      );
+    }
+    return hints;
+  },
+};
+
+function ModuleHints({ targetCode, sourceCode, targetDataSource, language }: {
+  targetCode: string; sourceCode: string; targetDataSource: string; language: string;
+}) {
+  const hintFn = MODULE_HINTS[targetCode];
+  if (!hintFn) return null;
+  const hints = hintFn(targetDataSource, sourceCode);
+  if (hints.length === 0) return null;
+
+  const icons = {
+    info: <Lightbulb className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />,
+    auto: <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mt-0.5 shrink-0" />,
+    warning: <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 mt-0.5 shrink-0" />,
+  };
+  const bgColors = {
+    info: "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800",
+    auto: "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800",
+    warning: "bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800",
+  };
+  const textColors = {
+    info: "text-blue-700 dark:text-blue-300",
+    auto: "text-green-700 dark:text-green-300",
+    warning: "text-yellow-700 dark:text-yellow-300",
+  };
+
+  return (
+    <div className="rounded-lg border p-4 space-y-2 bg-muted/10" data-testid="section-module-hints">
+      <h4 className="text-sm font-semibold flex items-center gap-2 mb-3">
+        <Shield className="h-4 w-4" />
+        {language === "sk"
+          ? `Dôležité informácie pre ${targetCode}`
+          : `Important information for ${targetCode}`}
+      </h4>
+      <div className="grid gap-1.5">
+        {hints.map((hint, idx) => (
+          <div
+            key={idx}
+            className={`flex items-start gap-2 px-3 py-2 rounded-md text-xs border ${bgColors[hint.type]}`}
+            data-testid={`hint-${hint.type}-${idx}`}
+          >
+            {icons[hint.type]}
+            <span className={textColors[hint.type]}>
+              {language === "sk" ? hint.sk : hint.en}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function SyncConfigPage() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -949,6 +1061,15 @@ export default function SyncConfigPage() {
 
             {editor.targetModuleId && editor.sourceModuleId && editor.sourceDataSource && (
               <>
+                {selectedTargetModule && (
+                  <ModuleHints
+                    targetCode={selectedTargetModule.code}
+                    sourceCode={selectedSourceModule?.code || ""}
+                    targetDataSource={editor.targetDataSource}
+                    language={language}
+                  />
+                )}
+
                 <Separator />
 
                 <div data-testid="section-field-mappings">
