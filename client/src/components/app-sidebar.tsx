@@ -1,4 +1,5 @@
 import { APP_VERSION } from "@shared/version";
+import type { SyncRun } from "@shared/schema";
 import {
   Sidebar,
   SidebarContent,
@@ -188,7 +189,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const isAdmin = user?.role === "admin";
 
-  const { data: activeRuns } = useQuery<any[]>({
+  const { data: activeRuns } = useQuery<SyncRun[]>({
     queryKey: ["/api/sync-runs/active"],
     refetchInterval: 5000,
     enabled: !!user,
