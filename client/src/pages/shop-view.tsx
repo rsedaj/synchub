@@ -88,6 +88,12 @@ type NormalizedProduct = {
 };
 
 const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
+  ONIX: [
+    { value: "stockitems", label: "Skladové karty" },
+    { value: "partners", label: "Partneri" },
+    { value: "stocks", label: "Sklady" },
+    { value: "catalogprices", label: "Cenníky" },
+  ],
   PROMOTRON: [
     { value: "feed", label: "XML Feed" },
   ],
@@ -119,6 +125,7 @@ const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
 };
 
 const IMAGE_PATTERNS = [
+  "CustomColumns.STOCK_ITEMS_Z_HAUE_SK001_URL_TXT",
   "image_link", "main_image", "image", "img", "picture", "photo", "thumbnail",
   "imageUrl", "ImageURL", "digital_asset", "item_picture",
   "MainImage", "PictureURL", "ProductPicture", "mainpic",
@@ -130,6 +137,7 @@ const NAME_PATTERNS = [
 ];
 
 const PRICE_PATTERNS = [
+  "Default_Price", "Default_Price_Vat", "Managerial_Price",
   "price", "Price", "cost", "retail", "Purchase", "amount",
   "scale_1_price", "unit_price", "UnitPrice", "ListPrice", "SellingPrice",
 ];
@@ -138,10 +146,12 @@ const SKU_PATTERNS = [
   "custom_label_1", "catalogcode", "modelCode", "firstItemCode",
   "sku", "SKU", "code", "Code", "article", "Article", "item_number",
   "ItemNumber", "ProductCode", "master_code", "MasterCode", "ean", "EAN",
+  "Ist_Code", "Ns_Code", "Plu",
   "id",
 ];
 
 const CATEGORY_PATTERNS = [
+  "Id_Stock_Items_Group_Default", "StockItemGroups",
   "product_type", "chapter", "categoryData",
   "category", "Category", "group", "Group", "MainCategory", "SubCategory",
   "category_code", "product_group", "ProductGroup", "CategoryName",
@@ -153,11 +163,13 @@ const BRAND_PATTERNS = [
 ];
 
 const STOCK_PATTERNS = [
+  "StockItemBalance[0].Available", "StockItemBalance[0].Balance",
   "availability", "stock", "Stock", "inventory", "Inventory",
   "qty", "quantity", "available", "InStock", "StockLevel",
 ];
 
 const DESC_PATTERNS = [
+  "Ist_Description", "Info",
   "description", "Description", "desc", "long_description", "ProductDescription",
   "short_description", "ShortDescription", "LongDescription", "extDesc",
 ];
@@ -318,6 +330,7 @@ const PAGE_SIZES = [48, 96, 200];
 const DEFAULT_PAGE_SIZE = 48;
 
 const SUPPLIER_COLORS: Record<string, string> = {
+  ONIX: "bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200",
   MACMA: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   EASYGIFTS: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   PFCONCEPT: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
