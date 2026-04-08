@@ -452,6 +452,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncDash.backupComplete": "Kompletná záloha (všetky záznamy)",
     "syncConfig.downloadExcel": "Stiahnuť Excel",
     "syncConfig.allColumns": "Všetky stĺpce",
+    "syncConfig.recordLimit": "Limit záznamov",
   },
   en: {
     "sidebar.navigation": "Navigation",
@@ -904,5 +905,6 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncDash.backupComplete": "Complete backup (all records)",
     "syncConfig.downloadExcel": "Download Excel",
     "syncConfig.allColumns": "All columns",
+    "syncConfig.recordLimit": "Record Limit",
   },
 };

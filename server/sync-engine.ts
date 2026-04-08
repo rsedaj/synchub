@@ -318,7 +318,8 @@ async function executeAsync(
     let sourceResult: any = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        sourceResult = await fetchModuleData(sourceModule, 10000, config.sourceDataSource || undefined);
+        const recordLimit = config.sourceRecordLimit ?? 120000;
+        sourceResult = await fetchModuleData(sourceModule, recordLimit, config.sourceDataSource || undefined);
         if (sourceResult.success && sourceResult.preview?.length > 0) break;
         log(`Fetch attempt ${attempt}: ${sourceResult.error || "No data"}`);
       } catch (err: any) {

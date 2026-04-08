@@ -167,6 +167,7 @@ interface EditorState {
   targetDataSource: string;
   sourceModuleId: string;
   sourceDataSource: string;
+  sourceRecordLimit: number;
   fieldMappings: FieldMapping[];
   schedule: Schedule;
   isEnabled: boolean;
@@ -179,6 +180,7 @@ const emptyEditor: EditorState = {
   targetDataSource: "",
   sourceModuleId: "",
   sourceDataSource: "",
+  sourceRecordLimit: 120000,
   fieldMappings: [],
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
@@ -679,6 +681,7 @@ export default function SyncConfigPage() {
       targetDataSource: config.targetDataSource || defaultTargetDs,
       sourceModuleId: config.sourceModuleId,
       sourceDataSource: config.sourceDataSource || "",
+      sourceRecordLimit: config.sourceRecordLimit ?? 120000,
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
       schedule,
       isEnabled: config.isEnabled,
@@ -726,6 +729,7 @@ export default function SyncConfigPage() {
       sourceModuleId: editor.sourceModuleId,
       targetDataSource: editor.targetDataSource || null,
       sourceDataSource: editor.sourceDataSource || null,
+      sourceRecordLimit: editor.sourceRecordLimit || 120000,
       fieldMappings: validMappings,
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
@@ -933,6 +937,28 @@ export default function SyncConfigPage() {
                               ))}
                             </SelectContent>
                           </Select>
+                        </div>
+                      )}
+
+                      {selectedSourceModule && (
+                        <div>
+                          <Label className="text-xs">{t("syncConfig.recordLimit")}</Label>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              value={editor.sourceRecordLimit}
+                              onChange={e => setEditor(prev => ({ ...prev, sourceRecordLimit: parseInt(e.target.value) || 0 }))}
+                              className="w-32 h-8 text-sm"
+                              data-testid="input-record-limit"
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {editor.sourceRecordLimit === 0
+                                ? (language === "sk" ? "bez limitu" : "no limit")
+                                : (language === "sk" ? `max ${editor.sourceRecordLimit.toLocaleString()} záznamov` : `max ${editor.sourceRecordLimit.toLocaleString()} records`)}
+                            </span>
+                          </div>
                         </div>
                       )}
 

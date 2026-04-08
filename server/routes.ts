@@ -48,6 +48,7 @@ const createSyncConfigSchema = z.object({
   sourceModuleId: z.string().min(1),
   targetDataSource: z.string().nullable().optional(),
   sourceDataSource: z.string().nullable().optional(),
+  sourceRecordLimit: z.number().int().min(0).optional().default(120000),
   fieldMappings: z.array(z.object({
     sourceField: z.string().min(1),
     targetField: z.string().min(1),
@@ -69,6 +70,7 @@ const updateSyncConfigSchema = z.object({
   sourceModuleId: z.string().min(1).optional(),
   targetDataSource: z.string().nullable().optional(),
   sourceDataSource: z.string().nullable().optional(),
+  sourceRecordLimit: z.number().int().min(0).optional(),
   fieldMappings: z.array(z.object({
     sourceField: z.string().min(1),
     targetField: z.string().min(1),
