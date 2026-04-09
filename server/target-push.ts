@@ -541,7 +541,7 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 1;
 
   const ONIX_READONLY_PREFIXES = [
     "StockItemBalance", "StockItemGroups", "StockItemParams",

@@ -125,10 +125,30 @@ function buildErrorPhaseHistory(failedAtPhase: string): Record<string, string> {
   return history;
 }
 
+async function resilientDbUpdate(runId: string, update: any, label = "update"): Promise<void> {
+  const MAX_DB_RETRIES = 5;
+  for (let attempt = 1; attempt <= MAX_DB_RETRIES; attempt++) {
+    try {
+      await storage.updateSyncRun(runId, update);
+      return;
+    } catch (err: any) {
+      const msg = err.message || "";
+      const isConnectionError = msg.includes("terminated") || msg.includes("ECONNREFUSED") ||
+        msg.includes("connection") || msg.includes("timeout") || msg.includes("EPIPE");
+      if (isConnectionError && attempt < MAX_DB_RETRIES) {
+        console.warn(`[sync-engine] DB ${label} retry ${attempt}/${MAX_DB_RETRIES}: ${msg.slice(0, 120)}`);
+        await new Promise(r => setTimeout(r, 3000 * attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function updatePhase(runId: string, phase: string, extra?: Partial<SyncRun>) {
   const phaseHistory = buildPhaseHistory(phase);
   const update: any = { details: { phase, phaseHistory }, ...extra };
-  await storage.updateSyncRun(runId, update);
+  await resilientDbUpdate(runId, update, `phase:${phase}`);
 }
 
 export async function executeSyncRun(
@@ -482,7 +502,7 @@ async function executeAsync(
           speedRating: earlySpeedRating,
         };
         log(`EARLY STOP: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`);
-        await storage.updateSyncRun(runId, {
+        await resilientDbUpdate(runId, {
           status: "error",
           recordsProcessed: totalCreated + totalUpdated,
           recordsFailed: totalFailed,
@@ -566,7 +586,7 @@ async function executeAsync(
 
       const currentAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
 
-      await storage.updateSyncRun(runId, {
+      await resilientDbUpdate(runId, {
         recordsProcessed: totalCreated + totalUpdated,
         recordsFailed: totalFailed,
         progress: Math.round((totalProcessed / totalRecords) * 100),
@@ -597,7 +617,7 @@ async function executeAsync(
           maxLatencyMs: globalMaxLatency,
           speedRating: currentAvgLatency === 0 ? "unknown" : currentAvgLatency < 200 ? "fast" : currentAvgLatency < 1000 ? "normal" : currentAvgLatency < 3000 ? "slow" : "very_slow",
         },
-      });
+      }, `batch:${currentBatch}`);
 
       log(`Batch ${currentBatch}/${totalBatches}: created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} speed=${speedPerSec}/s`);
     }
@@ -637,7 +657,7 @@ async function executeAsync(
       speedRating,
     };
 
-    await storage.updateSyncRun(runId, {
+    await resilientDbUpdate(runId, {
       status: finalStatus,
       recordsProcessed: processedOk,
       recordsFailed: totalFailed,
@@ -655,7 +675,7 @@ async function executeAsync(
         syncedRecords,
         completionSummary,
       },
-    });
+    }, "completion");
 
     log(`=== COMPLETE === created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} duration=${duration}ms`);
 
@@ -694,12 +714,16 @@ async function executeAsync(
     } catch {}
   } catch (err: any) {
     console.error(`[sync-engine] Run ${runId}: Unhandled error:`, err);
-    await storage.updateSyncRun(runId, {
-      status: "error",
-      errorMessage: err.message || "Unknown error",
-      completedAt: new Date(),
-      details: { phase: "error", phaseHistory: buildErrorPhaseHistory("sync") },
-    });
+    try {
+      await resilientDbUpdate(runId, {
+        status: "error",
+        errorMessage: err.message || "Unknown error",
+        completedAt: new Date(),
+        details: { phase: "error", phaseHistory: buildErrorPhaseHistory("sync") },
+      }, "final-error");
+    } catch (dbErr: any) {
+      console.error(`[sync-engine] Run ${runId}: Failed to save error state:`, dbErr.message);
+    }
 
     try {
       await storage.createAuditLog({
