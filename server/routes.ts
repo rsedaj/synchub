@@ -103,6 +103,16 @@ export async function registerRoutes(
 
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
+  app.get("/api/my-ip", async (_req, res) => {
+    try {
+      const resp = await fetch("https://api.ipify.org?format=json");
+      const data = await resp.json() as { ip: string };
+      res.json({ ip: data.ip });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.use("/api", (_req, res, next) => {
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.set("Pragma", "no-cache");
