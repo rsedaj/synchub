@@ -101,6 +101,24 @@ export async function registerRoutes(
   setupAuth(app);
   await seedData();
 
+  try {
+    const zombieRuns = await storage.getSyncRuns(undefined, 100);
+    const zombies = zombieRuns.filter(r => r.status === "running" || r.status === "pending");
+    for (const z of zombies) {
+      await storage.updateSyncRun(z.id, {
+        status: "error",
+        errorMessage: "Server restarted — sync process lost",
+        completedAt: new Date(),
+      });
+      console.log(`[startup] Cleaned zombie sync run: ${z.id}`);
+    }
+    if (zombies.length > 0) {
+      console.log(`[startup] Cleaned ${zombies.length} zombie sync run(s)`);
+    }
+  } catch (err: any) {
+    console.error("[startup] Failed to clean zombie runs:", err.message);
+  }
+
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
   app.get("/api/my-ip", async (_req, res) => {
@@ -644,12 +662,18 @@ export async function registerRoutes(
   app.get("/api/sync-runs/active", requireAuth, async (_req, res) => {
     try {
       const activeIds = getActiveRuns();
-      const runs = [];
+      const runsMap = new Map<string, any>();
       for (const id of activeIds) {
         const run = await storage.getSyncRun(id);
-        if (run) runs.push(run);
+        if (run) runsMap.set(run.id, run);
       }
-      return res.json(runs);
+      const allRuns = await storage.getSyncRuns(undefined, 20);
+      for (const run of allRuns) {
+        if ((run.status === "running" || run.status === "pending") && !runsMap.has(run.id)) {
+          runsMap.set(run.id, run);
+        }
+      }
+      return res.json(Array.from(runsMap.values()));
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load active runs" });
     }
@@ -690,8 +714,19 @@ export async function registerRoutes(
   app.post("/api/sync-runs/:id/cancel", requireRole("admin", "operator"), async (req, res) => {
     try {
       const success = cancelSyncRun(req.params.id);
-      if (!success) return res.status(404).json({ message: "No active run found" });
-      return res.json({ message: "Cancellation requested" });
+      if (success) {
+        return res.json({ message: "Cancellation requested" });
+      }
+      const run = await storage.getSyncRun(req.params.id);
+      if (run && (run.status === "running" || run.status === "pending")) {
+        await storage.updateSyncRun(req.params.id, {
+          status: "error",
+          errorMessage: "Force stopped (process not active)",
+          completedAt: new Date(),
+        });
+        return res.json({ message: "Zombie run force-stopped" });
+      }
+      return res.status(404).json({ message: "No active run found" });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to cancel sync" });
     }
