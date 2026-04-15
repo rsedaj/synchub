@@ -269,3 +269,50 @@ export async function seedData() {
 
   log("Seed data synced successfully", "seed");
 }
+
+export async function runMigrations() {
+  log("Running data migrations...", "seed");
+
+  const promotronModule = await storage.getModuleByCode("PROMOTRON");
+  const onixModule = await storage.getModuleByCode("ONIX");
+
+  if (!promotronModule || !onixModule) {
+    log("Migration m001: PROMOTRON or ONIX module not found, skipping", "seed");
+    log("Data migrations complete", "seed");
+    return;
+  }
+
+  const allConfigs = await storage.getAllSyncConfigs();
+  const promotronToOnixConfigs = allConfigs.filter(
+    c => c.sourceModuleId === promotronModule.id && c.targetModuleId === onixModule.id
+  );
+
+  let migratedCount = 0;
+  for (const config of promotronToOnixConfigs) {
+    const mappings = (config.fieldMappings || []) as Array<{ sourceField: string; targetField: string; transform?: string }>;
+    let updated = false;
+    const newMappings = mappings.map(m => {
+      const needsVatTransform = !m.transform || m.transform === "price";
+      if (
+        m.sourceField === "price" &&
+        m.targetField === "Default_Price" &&
+        needsVatTransform
+      ) {
+        updated = true;
+        return { ...m, transform: "price_excl_vat:23" };
+      }
+      return m;
+    });
+    if (updated) {
+      await storage.updateSyncConfig(config.id, { fieldMappings: newMappings });
+      log(`Migration m001: set price_excl_vat:23 on price→Default_Price in config "${config.name}" (${config.id})`, "seed");
+      migratedCount++;
+    }
+  }
+
+  if (migratedCount === 0) {
+    log(`Migration m001: no PROMOTRON→ONIX configs needed price_excl_vat:23 (${promotronToOnixConfigs.length} checked)`, "seed");
+  }
+
+  log("Data migrations complete", "seed");
+}

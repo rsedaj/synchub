@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import path from "path";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
-import { seedData } from "./seed";
+import { seedData, runMigrations } from "./seed";
 import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
@@ -100,6 +100,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   setupAuth(app);
   await seedData();
+  await runMigrations();
 
   try {
     const zombieRuns = await storage.getSyncRuns(undefined, 100);
