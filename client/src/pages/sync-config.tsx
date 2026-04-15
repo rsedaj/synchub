@@ -756,11 +756,37 @@ export default function SyncConfigPage() {
     }));
   }
 
-  function updateMapping(index: number, field: "sourceField" | "targetField", value: string) {
+  function updateMapping(index: number, field: "sourceField" | "targetField" | "transform", value: string) {
     setEditor(prev => ({
       ...prev,
-      fieldMappings: prev.fieldMappings.map((m, i) => i === index ? { ...m, [field]: value } : m),
+      fieldMappings: prev.fieldMappings.map((m, i) => i === index ? { ...m, [field]: value || undefined } : m),
     }));
+  }
+
+  function getTransformType(transform?: string) {
+    if (!transform) return "";
+    const idx = transform.indexOf(":");
+    return idx >= 0 ? transform.substring(0, idx) : transform;
+  }
+
+  function getVatRate(transform?: string) {
+    if (!transform) return "23";
+    const idx = transform.indexOf(":");
+    return idx >= 0 ? transform.substring(idx + 1) : "23";
+  }
+
+  function handleTransformTypeChange(mappingIdx: number, newType: string) {
+    if (newType === "price_excl_vat") {
+      const currentRate = getVatRate(editor.fieldMappings[mappingIdx].transform);
+      updateMapping(mappingIdx, "transform", `price_excl_vat:${currentRate}`);
+    } else {
+      updateMapping(mappingIdx, "transform", newType);
+    }
+  }
+
+  function handleVatRateChange(mappingIdx: number, rate: string) {
+    const num = rate.replace(/[^\d.]/g, "");
+    updateMapping(mappingIdx, "transform", `price_excl_vat:${num || "23"}`);
   }
 
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1151,54 +1177,104 @@ export default function SyncConfigPage() {
                         <span>{language === "sk" ? "Cieľové pole" : "Target Field"} ({selectedTargetModule?.code})</span>
                         <span />
                       </div>
-                      {editor.fieldMappings.map((mapping, idx) => (
+                      {editor.fieldMappings.map((mapping, idx) => {
+                        const transformType = getTransformType(mapping.transform);
+                        const vatRate = getVatRate(mapping.transform);
+                        return (
                         <div
                           key={idx}
-                          className={`grid grid-cols-[1fr_40px_1fr_40px] items-center px-3 py-2 ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"} border-t`}
+                          className={`flex flex-col ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"} border-t`}
                           data-testid={`row-mapping-${idx}`}
                         >
-                          <Select
-                            value={mapping.sourceField}
-                            onValueChange={val => updateMapping(idx, "sourceField", val)}
-                          >
-                            <SelectTrigger className="h-8 text-xs" data-testid={`select-source-field-${idx}`}>
-                              <SelectValue placeholder="..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sourceFields.map(f => (
-                                <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <div className="flex justify-center">
-                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                          </div>
-                          <Select
-                            value={mapping.targetField}
-                            onValueChange={val => updateMapping(idx, "targetField", val)}
-                          >
-                            <SelectTrigger className="h-8 text-xs" data-testid={`select-target-field-${idx}`}>
-                              <SelectValue placeholder="..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {targetFields.map(f => (
-                                <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <div className="flex justify-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => removeMapping(idx)}
-                              data-testid={`button-remove-mapping-${idx}`}
+                          <div className="grid grid-cols-[1fr_40px_1fr_40px] items-center px-3 pt-2 pb-1">
+                            <Select
+                              value={mapping.sourceField}
+                              onValueChange={val => updateMapping(idx, "sourceField", val)}
                             >
-                              <Trash2 className="h-3 w-3 text-destructive" />
-                            </Button>
+                              <SelectTrigger className="h-8 text-xs" data-testid={`select-source-field-${idx}`}>
+                                <SelectValue placeholder="..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sourceFields.map(f => (
+                                  <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="flex justify-center">
+                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                            </div>
+                            <Select
+                              value={mapping.targetField}
+                              onValueChange={val => updateMapping(idx, "targetField", val)}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid={`select-target-field-${idx}`}>
+                                <SelectValue placeholder="..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {targetFields.map(f => (
+                                  <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="flex justify-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => removeMapping(idx)}
+                                data-testid={`button-remove-mapping-${idx}`}
+                              >
+                                <Trash2 className="h-3 w-3 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="px-3 pb-2 flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0 w-20">
+                              {language === "sk" ? "Transformácia:" : "Transform:"}
+                            </span>
+                            <Select
+                              value={transformType}
+                              onValueChange={val => handleTransformTypeChange(idx, val)}
+                            >
+                              <SelectTrigger className="h-6 text-[11px] w-52" data-testid={`select-transform-${idx}`}>
+                                <SelectValue placeholder={language === "sk" ? "— žiadna —" : "— none —"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="" className="text-xs">{language === "sk" ? "— žiadna —" : "— none —"}</SelectItem>
+                                <SelectItem value="price" className="text-xs">{language === "sk" ? "Cena (parsovanie)" : "Price (parse)"}</SelectItem>
+                                <SelectItem value="price_excl_vat" className="text-xs">{language === "sk" ? "Cena bez DPH (÷ 1+sadzba%)" : "Price excl. VAT (÷ 1+rate%)"}</SelectItem>
+                                <SelectItem value="number" className="text-xs">{language === "sk" ? "Číslo" : "Number"}</SelectItem>
+                                <SelectItem value="integer" className="text-xs">{language === "sk" ? "Celé číslo" : "Integer"}</SelectItem>
+                                <SelectItem value="string" className="text-xs">{language === "sk" ? "Reťazec (text)" : "String (text)"}</SelectItem>
+                                <SelectItem value="uppercase" className="text-xs">UPPERCASE</SelectItem>
+                                <SelectItem value="lowercase" className="text-xs">lowercase</SelectItem>
+                                <SelectItem value="trim" className="text-xs">Trim</SelectItem>
+                                <SelectItem value="boolean" className="text-xs">Boolean</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {transformType === "price_excl_vat" && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-muted-foreground">{language === "sk" ? "Sadzba DPH:" : "VAT rate:"}</span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="1"
+                                  value={vatRate}
+                                  onChange={e => handleVatRateChange(idx, e.target.value)}
+                                  className="h-6 w-14 text-xs text-center px-1"
+                                  data-testid={`input-vat-rate-${idx}`}
+                                />
+                                <span className="text-[10px] text-muted-foreground">%</span>
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  {`(÷ ${(1 + parseFloat(vatRate || "23") / 100).toFixed(2)})`}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

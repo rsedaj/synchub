@@ -374,7 +374,7 @@ Po dokončení sync:
               <Table
                 headers={["E-shop pole", "ONIX pole", "Popis"]}
                 rows={[
-                  ["price", "Default_Price", "Základná cena produktu (číslo)"],
+                  ["price", "Default_Price", "Cena bez DPH — pozri poznámku nižšie"],
                   ["title", "Name", "Názov skladovej karty"],
                   ["description", "Description", "Popis (môže obsahovať HTML)"],
                   ["description", "Ist_Description", "Interný popis"],
@@ -383,6 +383,21 @@ Po dokončení sync:
                   ["image_link", "CustomColumns.STOCK_ITEMS_Z_HAUE_SK001_URL_TXT", "URL obrázku produktu"],
                 ]}
               />
+              <div className="mt-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 space-y-1">
+                <p className="font-semibold">ℹ️ Cena a DPH</p>
+                <p>
+                  Promotron feed obsahuje ceny <strong>s DPH</strong>, ale ONIX ukladá ceny <strong>bez DPH</strong>.
+                  Pri mapovaní poľa <code className="font-mono">price → Default_Price</code> je preto potrebné nastaviť transformáciu{" "}
+                  <strong>„Cena bez DPH"</strong> a zadať sadzbu DPH.
+                </p>
+                <p>
+                  Príklad (23% DPH):{" "}
+                  <code className="font-mono">12,30 € s DPH ÷ 1.23 = 10,00 € bez DPH</code>
+                </p>
+                <p className="text-blue-600 dark:text-blue-400">
+                  Nastavenie: Konfigurácia sync → Mapovanie polí → pole <code className="font-mono">price</code> → Transformácia: <strong>Cena bez DPH (÷ 1+sadzba%)</strong> → Sadzba DPH: <strong>23</strong>
+                </p>
+              </div>
             </div>
 
             <div>

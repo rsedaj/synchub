@@ -59,27 +59,39 @@ function applyFieldMappings(
   mappings: Array<{ sourceField: string; targetField: string; transform?: string }>
 ): Record<string, any> {
   const result: Record<string, any> = {};
+
+  function parsePrice(v: any): number {
+    let s = String(v || "0").replace(/[^\d.,\-]/g, "");
+    const lastDot = s.lastIndexOf(".");
+    const lastComma = s.lastIndexOf(",");
+    const decSep = Math.max(lastDot, lastComma);
+    if (decSep >= 0) {
+      const before = s.substring(0, decSep).replace(/[.,]/g, "");
+      const after = s.substring(decSep + 1);
+      s = before + "." + after;
+    }
+    return parseFloat(s) || 0;
+  }
+
   for (const mapping of mappings) {
     let value = getNestedValue(record, mapping.sourceField);
     if (mapping.transform) {
       try {
-        switch (mapping.transform) {
+        const colonIdx = mapping.transform.indexOf(":");
+        const transformType = colonIdx >= 0 ? mapping.transform.substring(0, colonIdx) : mapping.transform;
+        const transformParam = colonIdx >= 0 ? mapping.transform.substring(colonIdx + 1) : undefined;
+
+        switch (transformType) {
           case "uppercase": value = String(value || "").toUpperCase(); break;
           case "lowercase": value = String(value || "").toLowerCase(); break;
           case "trim": value = String(value || "").trim(); break;
           case "number": value = Number(value) || 0; break;
           case "integer": value = parseInt(String(value), 10) || 0; break;
-          case "price": {
-            let s = String(value || "0").replace(/[^\d.,\-]/g, "");
-            const lastDot = s.lastIndexOf(".");
-            const lastComma = s.lastIndexOf(",");
-            const decSep = Math.max(lastDot, lastComma);
-            if (decSep >= 0) {
-              const before = s.substring(0, decSep).replace(/[.,]/g, "");
-              const after = s.substring(decSep + 1);
-              s = before + "." + after;
-            }
-            value = parseFloat(s) || 0;
+          case "price": value = parsePrice(value); break;
+          case "price_excl_vat": {
+            const rate = parseFloat(transformParam || "23") || 23;
+            const parsed = parsePrice(value);
+            value = Math.round((parsed / (1 + rate / 100)) * 100) / 100;
             break;
           }
           case "string": value = String(value || ""); break;
