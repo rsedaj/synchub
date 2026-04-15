@@ -89,7 +89,8 @@ function applyFieldMappings(
           case "integer": value = parseInt(String(value), 10) || 0; break;
           case "price": value = parsePrice(value); break;
           case "price_excl_vat": {
-            const rate = parseFloat(transformParam || "23") || 23;
+            const rateRaw = parseFloat(transformParam ?? "NaN");
+            const rate = Number.isFinite(rateRaw) ? rateRaw : 23;
             const parsed = parsePrice(value);
             value = Math.round((parsed / (1 + rate / 100)) * 100) / 100;
             break;

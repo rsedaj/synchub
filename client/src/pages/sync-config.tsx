@@ -764,7 +764,7 @@ export default function SyncConfigPage() {
   }
 
   function getTransformType(transform?: string) {
-    if (!transform) return "";
+    if (!transform) return "none";
     const idx = transform.indexOf(":");
     return idx >= 0 ? transform.substring(0, idx) : transform;
   }
@@ -776,7 +776,9 @@ export default function SyncConfigPage() {
   }
 
   function handleTransformTypeChange(mappingIdx: number, newType: string) {
-    if (newType === "price_excl_vat") {
+    if (newType === "none" || newType === "") {
+      updateMapping(mappingIdx, "transform", "");
+    } else if (newType === "price_excl_vat") {
       const currentRate = getVatRate(editor.fieldMappings[mappingIdx].transform);
       updateMapping(mappingIdx, "transform", `price_excl_vat:${currentRate}`);
     } else {
@@ -1240,7 +1242,7 @@ export default function SyncConfigPage() {
                                 <SelectValue placeholder={language === "sk" ? "— žiadna —" : "— none —"} />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="" className="text-xs">{language === "sk" ? "— žiadna —" : "— none —"}</SelectItem>
+                                <SelectItem value="none" className="text-xs">{language === "sk" ? "— žiadna —" : "— none —"}</SelectItem>
                                 <SelectItem value="price" className="text-xs">{language === "sk" ? "Cena (parsovanie)" : "Price (parse)"}</SelectItem>
                                 <SelectItem value="price_excl_vat" className="text-xs">{language === "sk" ? "Cena bez DPH (÷ 1+sadzba%)" : "Price excl. VAT (÷ 1+rate%)"}</SelectItem>
                                 <SelectItem value="number" className="text-xs">{language === "sk" ? "Číslo" : "Number"}</SelectItem>
