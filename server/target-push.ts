@@ -541,7 +541,7 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  const CONCURRENCY = 1;
+  const CONCURRENCY = Math.max(1, Math.min(8, parseInt(process.env.ONIX_CONCURRENCY || "1", 10)));
 
   const ONIX_READONLY_PREFIXES = [
     "StockItemBalance", "StockItemGroups", "StockItemParams",
