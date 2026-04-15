@@ -447,6 +447,25 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
                 Delta sync toto rieši — pri bežných denných zmenách trvá sync len niekoľko minút.
               </p>
             </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Riešenie problémov (Troubleshooting)</h3>
+              <Table
+                headers={["Chyba", "Príčina", "Riešenie"]}
+                rows={[
+                  ["OpenFirm_DBVersionSmaller (HTTP 500)", "Databáza má staršiu schému ako ONIX API server vyžaduje", "KROS musí spustiť migráciu DB — kontakt: servis.onix@kros.sk"],
+                  ["OpenFirm_DBVersionGreater (HTTP 500)", "API server je starší ako databáza", "Aktualizácia ONIX API servera — kontakt: servis.onix@kros.sk"],
+                  ["OpenFirm_CantConnect (HTTP 500)", "API nemôže otvoriť databázu", "Skontrolujte DatabasePath a PostgreSQL port 20457"],
+                  ["database does not exist (HTTP 500)", "Nesprávny názov databázy v DatabasePath", "Overte správny názov PostgreSQL databázy"],
+                  ["HTTP 401 Unauthorized", "Neplatný alebo expirovaný API token", "Skontrolujte env ONIX_API_TOKEN — vyžiadajte nový token od KROS"],
+                  ["HTTP 503 Service Unavailable", "ONIX API server nebeží", "Kontaktujte správcu ONIX servera"],
+                  ["Timeout (>30s)", "Pomalé sieťové spojenie alebo server preťažený", "Skúste neskôr, skontrolujte firewallové pravidlá / IP whitelisting"],
+                ]}
+              />
+              <p className="text-xs text-muted-foreground mt-2">
+                ⚠️ <strong className="text-foreground">OpenFirm_DBVersionSmaller</strong> je problém na strane KROS servera — SyncHub ani databázové nastavenia to nevyriešia. Je nutný zásah správcu ONIX.
+              </p>
+            </div>
           </div>
         </section>
 

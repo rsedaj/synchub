@@ -264,6 +264,10 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
             message = `ONIX API connected, but PostgreSQL database "${dbMatch[1]}" does not exist on the server. Check that the database name matches your DatabasePath (port 20457).`;
           } else if (errorText.includes("OpenFirm_CantConnect")) {
             message = `ONIX API connected, but cannot open database — verify DatabasePath and that PostgreSQL service is running (port 20457).`;
+          } else if (errorText.includes("OpenFirm_DBVersionSmaller")) {
+            message = `ONIX API server error: OpenFirm_DBVersionSmaller — Databáza "${config?.databasePath || "testovacia_hauerland"}" má staršiu schému ako vyžaduje ONIX API server. Kontaktujte správcu ONIX (KROS a.s.) — je potrebná migrácia databázy na novšiu verziu. Servis: servis.onix@kros.sk`;
+          } else if (errorText.includes("OpenFirm_DBVersionGreater")) {
+            message = `ONIX API server error: OpenFirm_DBVersionGreater — API server je starší ako databáza. Kontaktujte správcu ONIX (KROS a.s.) na aktualizáciu API servera. Servis: servis.onix@kros.sk`;
           } else if (!config?.databasePath) {
             message = `ONIX API connected, but DatabasePath is not configured — add the path to your ONIX database in Configuration tab.`;
           } else {
