@@ -829,9 +829,6 @@ async function pushToOnix(
     }
     const chunkResults = await Promise.all(promises);
     sortedResults.push(...chunkResults);
-    if (chunkEnd < records.length) {
-      await sleep(300);
-    }
   }
 
   sortedResults.sort((a, b) => a.idx - b.idx);
