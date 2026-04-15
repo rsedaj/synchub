@@ -660,6 +660,46 @@ export default function SyncConfigPage() {
     },
   });
 
+  const vatToggleMutation = useMutation({
+    mutationFn: ({ id, fieldMappings }: { id: string; fieldMappings: FieldMapping[] }) =>
+      apiRequest("PATCH", `/api/sync-configs/${id}`, { fieldMappings }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+      const nowHasVat = vars.fieldMappings.some(m => m.transform?.startsWith("price_excl_vat"));
+      toast({
+        title: nowHasVat
+          ? (language === "sk" ? "Delenie DPH zapnuté" : "VAT divider enabled")
+          : (language === "sk" ? "Delenie DPH vypnuté" : "VAT divider disabled"),
+      });
+    },
+  });
+
+  function toggleVat(config: EnrichedSyncConfig) {
+    const mappings = (config.fieldMappings as FieldMapping[] || []);
+    const hasVat = mappings.some(m => m.transform?.startsWith("price_excl_vat"));
+    let updatedMappings: FieldMapping[];
+    if (hasVat) {
+      updatedMappings = mappings.map(m =>
+        m.transform?.startsWith("price_excl_vat") ? { ...m, transform: undefined } : m
+      );
+    } else {
+      const priceIdx = mappings.findIndex(m => m.targetField === "Default_Price");
+      if (priceIdx === -1) {
+        toast({
+          title: language === "sk"
+            ? "Nenašlo sa mapovanie pre pole Default_Price"
+            : "No mapping found for Default_Price field",
+          variant: "destructive",
+        });
+        return;
+      }
+      updatedMappings = mappings.map((m, i) =>
+        i === priceIdx ? { ...m, transform: "price_excl_vat:23" } : m
+      );
+    }
+    vatToggleMutation.mutate({ id: config.id, fieldMappings: updatedMappings });
+  }
+
   function closeEditor() {
     setEditorOpen(false);
     setEditor({ ...emptyEditor });
@@ -1662,6 +1702,17 @@ export default function SyncConfigPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 ml-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 ${(config.fieldMappings as FieldMapping[] || []).some(m => m.transform?.startsWith("price_excl_vat")) ? "text-primary bg-primary/10 hover:bg-primary/20" : "text-muted-foreground"}`}
+                        onClick={() => toggleVat(config)}
+                        disabled={vatToggleMutation.isPending}
+                        title={language === "sk" ? "Prepnúť delenie DPH (Default_Price)" : "Toggle VAT divider (Default_Price)"}
+                        data-testid={`button-vat-toggle-${config.id}`}
+                      >
+                        <Percent className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
