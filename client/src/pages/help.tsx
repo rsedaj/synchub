@@ -348,7 +348,7 @@ Po dokončení sync:
                 headers={["Parameter", "Hodnota"]}
                 rows={[
                   ["API URL", "https://onix-api.hauerland.sk/ONIX_API"],
-                  ["Swagger UI", "https://onix-api.hauerland.sk/onix_api/swagger/ui/index"],
+                  ["Swagger UI", "https://onix-api.hauerland.sk/onix_api/swagger/ui/index ⚠"],
                   ["Swagger DEMO (KROS)", "http://195.146.148.139/onix_api/swagger/ui/index"],
                   ["Databáza", "testovacia_hauerland (env: ONIX_DATABASE_PATH)"],
                   ["PostgreSQL port", "20457"],
@@ -357,6 +357,16 @@ Po dokončení sync:
                   ["Priemerná latencia", "~1.8 s/záznam"],
                 ]}
               />
+              <div className="mt-2 p-3 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 text-xs text-yellow-800 dark:text-yellow-300 space-y-1">
+                <p className="font-semibold">⚠ Swagger UI — známy problém (KROS)</p>
+                <p>
+                  Swagger UI (<code className="font-mono">https://onix-api.hauerland.sk/ONIX_API</code>) sa nenačíta v prehliadači.
+                  Server vracia swagger definíciu cez <code className="font-mono">http://</code>, ale stránka sa načíta cez <code className="font-mono">https://</code> —
+                  prehliadač to zablokuje ako <em>mixed-content</em>.
+                  HTTP verzia zas vracia 404.
+                </p>
+                <p>Riešenie: požiadať KROS o opravu konfigurácie (nastavenie HTTPS schémy pre swagger definíciu). Kontakt: <strong>servis.onix@kros.sk</strong></p>
+              </div>
             </div>
 
             <div>
