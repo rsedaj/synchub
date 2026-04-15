@@ -941,6 +941,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                   <span className="text-xs">{t("syncDash.totalRecords")}</span>
                 </div>
                 <p className="text-xl font-semibold" data-testid="text-total-records">{totalRecordsSynced.toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{t("syncDash.totalRecordsNote")}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1006,10 +1007,12 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         </span>
                         {(trackedRun.details as any).totalFetched > 0 && (
                           <span className="text-muted-foreground">
-                            {(trackedRun.details as any).totalFetched} stiahnutých →{" "}
-                            {(trackedRun.details as any).totalChanged ?? trackedRun.recordsTotal} zmenených
+                            {((trackedRun.details as any).totalFetched).toLocaleString()} zo zdroja →{" "}
+                            <span className="text-foreground font-medium">
+                              {((trackedRun.details as any).totalChanged ?? trackedRun.recordsTotal ?? 0).toLocaleString()} na ONIX
+                            </span>
                             {((trackedRun.details as any).totalSkipped || 0) > 0 && (
-                              <span className="text-green-600 dark:text-green-400"> ({(trackedRun.details as any).totalSkipped} preskočených)</span>
+                              <span className="text-green-600 dark:text-green-400"> · {((trackedRun.details as any).totalSkipped).toLocaleString()} bez zmeny</span>
                             )}
                           </span>
                         )}
@@ -1037,10 +1040,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
-                            <span className="text-muted-foreground">{t("syncDash.records")}:</span>
+                            <span className="text-muted-foreground">Odoslaných do ONIX:</span>
                             <p className="font-medium" data-testid="text-progress-records">
-                              {trackedRun.recordsProcessed || 0} z {trackedRun.recordsTotal || 0}
+                              {(trackedRun.recordsProcessed || 0).toLocaleString()} / {(trackedRun.recordsTotal || 0).toLocaleString()}
                             </p>
+                            <p className="text-[10px] text-muted-foreground">záznamy na odoslanie</p>
                           </div>
                           <div>
                             <span className="text-muted-foreground">{t("syncDash.batch")}:</span>
@@ -1521,7 +1525,9 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 {failed > 0 && <span className="text-destructive">✗{failed} {t("syncDash.errors")}</span>}
                               </span>
                             ) : (
-                              <span>{run.recordsProcessed || 0} / {run.recordsTotal || 0}</span>
+                              <span title="odoslaných do ONIX / na spracovanie">
+                                {(run.recordsProcessed || 0).toLocaleString()} / {(run.recordsTotal || 0).toLocaleString()}
+                              </span>
                             )}
                             <span>{formatDuration(duration)}</span>
                             <span>{formatTimeAgo(run.startedAt)}</span>
@@ -1573,10 +1579,26 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                             {details?.completionSummary && (
                               <div className="mt-2 space-y-2" data-testid="panel-history-summary">
+                                {details?.deltaMode !== undefined && (
+                                  <div className="flex items-center gap-2 text-xs pb-1">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${details.deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
+                                      {details.deltaMode ? "DELTA" : "FULL"}
+                                    </span>
+                                    {details.totalFetched > 0 && (
+                                      <span className="text-muted-foreground">
+                                        {(details.totalFetched).toLocaleString()} zo zdroja →{" "}
+                                        <span className="text-foreground font-medium">{(details.totalChanged ?? 0).toLocaleString()} na ONIX</span>
+                                        {(details.totalSkipped || 0) > 0 && (
+                                          <span className="text-green-600 dark:text-green-400"> · {(details.totalSkipped).toLocaleString()} bez zmeny</span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                   <div>
                                     <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
-                                    <p className="font-medium">{details.completionSummary.sourceRecordCount}</p>
+                                    <p className="font-medium">{(details.completionSummary.sourceRecordCount || 0).toLocaleString()}</p>
                                   </div>
                                   <div>
                                     <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
