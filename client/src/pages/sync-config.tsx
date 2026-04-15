@@ -1269,7 +1269,10 @@ export default function SyncConfigPage() {
                                 />
                                 <span className="text-[10px] text-muted-foreground">%</span>
                                 <span className="text-[10px] text-muted-foreground ml-1">
-                                  {`(÷ ${(1 + parseFloat(vatRate || "23") / 100).toFixed(2)})`}
+                                  {(() => {
+                                    const r = parseFloat(vatRate || "23");
+                                    return Number.isFinite(r) ? `(÷ ${(1 + r / 100).toFixed(2)})` : "";
+                                  })()}
                                 </span>
                               </div>
                             )}
