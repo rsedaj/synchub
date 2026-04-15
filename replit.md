@@ -188,7 +188,7 @@ Príklad:
 - HTTP 401/408 "timed out" → retry 3x, backoff 2s/4s/6s
 - AbortError (30s timeout) → retry 3x, backoff 2s/4s/6s
 
-**Concurrency:** 1 (sekvenčné) — ONIX API nepodporuje paralelné POST requesty.
+**Concurrency:** 2 paralelné (env `ONIX_CONCURRENCY`, rozsah 1–8) — predvolene 2. Nastaviť na 1 ak ONIX vracia 503 pri paralelných requestoch.
 
 ### Zombie run cleanup (od v1.25.0)
 

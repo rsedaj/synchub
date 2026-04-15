@@ -247,9 +247,9 @@ export default function HelpPage() {
                 headers={["Parameter", "Hodnota", "Popis"]}
                 rows={[
                   ["Veľkosť dávky", "50 záznamov", "Každá dávka = 50 záznamov"],
-                  ["Concurrency", "1 (sekvenčné)", "ONIX nepodporuje paralelné POST"],
-                  ["Retry pri 503/504/429", "3× (3s/6s/9s)", "Retry pri preťažení servera"],
-                  ["Retry pri timeout", "3× (2s/4s/6s)", "30s timeout na request"],
+                  ["Concurrency", "2 paralelné (env ONIX_CONCURRENCY)", "Predvolené: 2. Nastaviť 1 ak ONIX vracia 503."],
+                  ["Retry pri 503/504/429", "3× (2s/4s/6s)", "Retry pri preťažení servera"],
+                  ["Timeout / Retry", "20s (1. pokus), 30s (retry), 3× celkom", "AbortController na každý request"],
                   ["Early stop", "3 po sebe idúce 100% chybové dávky", "Automatické zastavenie"],
                   ["Pauza medzi POST-mi", "žiadna", "Response time reguluje tempo"],
                 ]}

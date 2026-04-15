@@ -541,7 +541,7 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  const CONCURRENCY = 1;
+  const CONCURRENCY = Math.max(1, Math.min(8, parseInt(process.env.ONIX_CONCURRENCY || "2", 10)));
 
   const ONIX_READONLY_PREFIXES = [
     "StockItemBalance", "StockItemGroups", "StockItemParams",
@@ -554,6 +554,7 @@ async function pushToOnix(
     "Accept": "application/json",
     "Authorization": `Bearer ${token}`,
     "User-Agent": "SyncHub/1.0",
+    "Connection": "keep-alive",
   };
   if (databasePath) {
     hdrs["DatabasePath"] = databasePath;
@@ -684,7 +685,8 @@ async function pushToOnix(
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
+        const timeoutMs = attempt === 1 ? 20000 : 30000;
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         const fetchStart = Date.now();
         try {
@@ -701,7 +703,7 @@ async function pushToOnix(
             if (attempt < MAX_RETRIES) {
               const errText = await res.text().catch(() => "");
               console.warn(`[target-push] ONIX server overload retry ${attempt}/${MAX_RETRIES}: HTTP ${res.status} — ${errText.slice(0, 100)}`);
-              await sleep(3000 * attempt);
+              await sleep(2000 * attempt);
               res = null;
               continue;
             }
@@ -855,7 +857,9 @@ async function pushToOnix(
   }
 
   const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex} (×${CONCURRENCY} parallel): created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms`);
+  const errorRate = records.length > 0 ? errorCount / records.length : 0;
+  const warnOverload = errorRate > 0.3 && errorCount > 3;
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex} (×${CONCURRENCY} parallel): created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%) — set env ONIX_CONCURRENCY=1 if persistent` : ""}`);  
 
   return {
     success: errorCount === 0,
