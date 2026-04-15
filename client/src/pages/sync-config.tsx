@@ -53,6 +53,7 @@ import {
   AlertTriangle,
   XCircle,
   ClipboardCheck,
+  Percent,
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -1634,6 +1635,12 @@ export default function SyncConfigPage() {
                               {language === "sk" ? "Záloha" : "Backup"}
                             </Badge>
                           )}
+                          {(config.fieldMappings as FieldMapping[]).some(m => m.transform?.startsWith("price_excl_vat")) && (
+                            <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/30" data-testid={`badge-vat-${config.id}`}>
+                              <Percent className="h-2.5 w-2.5" />
+                              {language === "sk" ? "Bez DPH" : "Excl. VAT"}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                           <span className="font-mono">{config.sourceModule?.code || "?"}</span>
@@ -1693,12 +1700,20 @@ export default function SyncConfigPage() {
                       {mappingCount === 0 ? (
                         <p className="text-xs text-muted-foreground">{language === "sk" ? "Žiadne mapovania" : "No mappings"}</p>
                       ) : (
-                        <div className="grid grid-cols-[1fr_30px_1fr] gap-1 text-xs max-w-2xl">
+                        <div className="grid grid-cols-[1fr_30px_1fr_auto] gap-1 text-xs max-w-2xl">
                           {(config.fieldMappings as FieldMapping[]).map((m, idx) => (
                             <div key={idx} className="contents">
                               <span className="font-mono bg-muted px-2 py-1 rounded truncate">{m.sourceField}</span>
                               <span className="flex items-center justify-center"><ArrowRight className="h-3 w-3 text-muted-foreground" /></span>
                               <span className="font-mono bg-muted px-2 py-1 rounded truncate">{m.targetField}</span>
+                              <span className="flex items-center">
+                                {m.transform?.startsWith("price_excl_vat") ? (
+                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 gap-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 whitespace-nowrap" data-testid={`badge-transform-vat-${idx}`}>
+                                    <Percent className="h-2.5 w-2.5" />
+                                    {`÷ ${(1 + parseFloat(m.transform.split(":")[1] || "23") / 100).toFixed(2)}`}
+                                  </Badge>
+                                ) : null}
+                              </span>
                             </div>
                           ))}
                         </div>

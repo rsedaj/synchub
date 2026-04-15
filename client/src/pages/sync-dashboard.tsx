@@ -58,6 +58,7 @@ import {
   FolderOpen,
   Settings,
   Gauge,
+  Percent,
 } from "lucide-react";
 import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -1355,6 +1356,12 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                                   <HardDrive className="h-3 w-3 mr-0.5" />
                                   {t("syncDash.backup")}
+                                </Badge>
+                              )}
+                              {((config.fieldMappings || []) as Array<{ sourceField: string; targetField: string; transform?: string }>).some(m => m.transform?.startsWith("price_excl_vat")) && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30" data-testid={`badge-vat-${config.id}`}>
+                                  <Percent className="h-3 w-3" />
+                                  {t("syncDash.vatExcl")}
                                 </Badge>
                               )}
                               {isInBatch && !isBatchDone && !isRunning && (
