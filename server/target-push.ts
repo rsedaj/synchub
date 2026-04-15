@@ -541,7 +541,7 @@ async function pushToOnix(
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
 
-  const CONCURRENCY = Math.max(1, Math.min(8, parseInt(process.env.ONIX_CONCURRENCY || "2", 10)));
+  const CONCURRENCY = 1;
 
   const ONIX_READONLY_PREFIXES = [
     "StockItemBalance", "StockItemGroups", "StockItemParams",
@@ -859,7 +859,7 @@ async function pushToOnix(
   const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
   const errorRate = records.length > 0 ? errorCount / records.length : 0;
   const warnOverload = errorRate > 0.3 && errorCount > 3;
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex} (×${CONCURRENCY} parallel): created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%) — set env ONIX_CONCURRENCY=1 if persistent` : ""}`);  
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%)` : ""}`);  
 
   return {
     success: errorCount === 0,
