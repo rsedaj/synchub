@@ -1646,6 +1646,18 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               </div>
                             )}
 
+                            {details?.completionSummary?.hasVatDivider && (
+                              <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 w-fit" data-testid="vat-divider-warning">
+                                <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                                <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">{t("syncDash.vatDividerActive")}</span>
+                                {details.completionSummary.vatDividerRate && (
+                                  <span className="text-[10px] text-amber-600/80 dark:text-amber-500">
+                                    ({t("syncDash.vatDividerRate")}: {details.completionSummary.vatDividerRate}%)
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
                             {hasSyncedRecords && (
                               <div>
                                 <Button

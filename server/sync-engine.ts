@@ -599,6 +599,8 @@ async function executeAsync(
           .map(r => r.target_id);
         const earlyAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
         const earlySpeedRating = earlyAvgLatency === 0 ? "unknown" : earlyAvgLatency < 200 ? "fast" : earlyAvgLatency < 1000 ? "normal" : earlyAvgLatency < 3000 ? "slow" : "very_slow";
+        const earlyVatMapping = mappings.find(m => m.transform && m.transform.startsWith("price_excl_vat"));
+        const earlyVatRate = earlyVatMapping ? (earlyVatMapping.transform!.split(":")[1] || "23") : null;
         const earlyCompletionSummary = {
           totalCreated,
           totalUpdated,
@@ -620,6 +622,8 @@ async function executeAsync(
           minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
           maxLatencyMs: globalMaxLatency,
           speedRating: earlySpeedRating,
+          hasVatDivider: !!earlyVatMapping,
+          vatDividerRate: earlyVatRate,
         };
         log(`EARLY STOP: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`);
         await resilientDbUpdate(runId, {
@@ -756,6 +760,9 @@ async function executeAsync(
     const finalAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
     const speedRating = finalAvgLatency === 0 ? "unknown" : finalAvgLatency < 200 ? "fast" : finalAvgLatency < 1000 ? "normal" : finalAvgLatency < 3000 ? "slow" : "very_slow";
 
+    const vatMapping = mappings.find(m => m.transform && m.transform.startsWith("price_excl_vat"));
+    const vatDividerRate = vatMapping ? (vatMapping.transform!.split(":")[1] || "23") : null;
+
     const completionSummary = {
       totalCreated,
       totalUpdated,
@@ -775,6 +782,8 @@ async function executeAsync(
       minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
       maxLatencyMs: globalMaxLatency,
       speedRating,
+      hasVatDivider: !!vatMapping,
+      vatDividerRate,
     };
 
     await resilientDbUpdate(runId, {
