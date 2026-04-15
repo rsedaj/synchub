@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, jsonb, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -114,6 +114,16 @@ export const syncBackups = pgTable("sync_backups", {
   configSnapshot: jsonb("config_snapshot").$type<Record<string, any>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const syncBaselines = pgTable("sync_baselines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncConfigId: varchar("sync_config_id").notNull().references(() => syncConfigs.id),
+  recordKey: text("record_key").notNull(),
+  fieldHash: text("field_hash").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sync_baselines_config_key_unique").on(table.syncConfigId, table.recordKey),
+]);
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,

@@ -1,7 +1,7 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
@@ -59,6 +59,10 @@ export interface IStorage {
   createSyncBackup(data: InsertSyncBackup): Promise<SyncBackup>;
   deleteSyncBackup(id: string): Promise<void>;
   deleteSyncBackupsByConfig(configId: string): Promise<void>;
+
+  getBaselines(configId: string): Promise<Map<string, string>>;
+  upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void>;
+  deleteBaselines(configId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -255,6 +259,36 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSyncBackupsByConfig(configId: string): Promise<void> {
     await db.delete(syncBackups).where(eq(syncBackups.syncConfigId, configId));
+  }
+
+  async getBaselines(configId: string): Promise<Map<string, string>> {
+    const rows = await db.select({
+      recordKey: syncBaselines.recordKey,
+      fieldHash: syncBaselines.fieldHash,
+    }).from(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      map.set(r.recordKey, r.fieldHash);
+    }
+    return map;
+  }
+
+  async upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void> {
+    const CHUNK = 500;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const values = chunk.map(e => `('${configId}', '${e.recordKey.replace(/'/g, "''")}', '${e.fieldHash}', NOW())`).join(",");
+      await db.execute(sql.raw(`
+        INSERT INTO sync_baselines (sync_config_id, record_key, field_hash, updated_at)
+        VALUES ${values}
+        ON CONFLICT (sync_config_id, record_key)
+        DO UPDATE SET field_hash = EXCLUDED.field_hash, updated_at = NOW()
+      `));
+    }
+  }
+
+  async deleteBaselines(configId: string): Promise<void> {
+    await db.delete(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
   }
 }
 

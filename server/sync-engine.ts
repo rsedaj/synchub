@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { pushToTarget } from "./target-push";
+import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult } from "./target-push";
 
@@ -151,9 +152,26 @@ async function updatePhase(runId: string, phase: string, extra?: Partial<SyncRun
   await resilientDbUpdate(runId, update, `phase:${phase}`);
 }
 
+function computeRecordHash(record: Record<string, any>, mappings: Array<{ sourceField: string }>): string {
+  const vals: string[] = [];
+  for (const m of mappings) {
+    const v = record[m.sourceField];
+    vals.push(v != null ? String(v) : "");
+  }
+  return createHash("md5").update(vals.join("|")).digest("hex");
+}
+
+function getRecordKey(record: Record<string, any>): string | null {
+  return record.id || record.code || record.sku || record.gtin ||
+    record.Code || record.SKU || record.product_id ||
+    record.externalId || record.productId || record.item_id ||
+    record.article_number || record.articleNumber || null;
+}
+
 export async function executeSyncRun(
   configId: string,
-  triggeredBy?: string
+  triggeredBy?: string,
+  fullSync: boolean = false
 ): Promise<string> {
   const config = await storage.getSyncConfig(configId);
   if (!config) throw new Error("Sync config not found");
@@ -173,7 +191,7 @@ export async function executeSyncRun(
   const runState = { cancelled: false };
   activeRuns.set(run.id, runState);
 
-  executeAsync(run.id, config, sourceModule, targetModule, runState).catch((err) => {
+  executeAsync(run.id, config, sourceModule, targetModule, runState, fullSync).catch((err) => {
     console.error(`[sync-engine] Fatal error for run ${run.id}:`, err);
     storage.updateSyncRun(run.id, {
       status: "error",
@@ -195,7 +213,8 @@ async function executeAsync(
   config: SyncConfig,
   sourceModule: any,
   targetModule: any,
-  runState: { cancelled: boolean }
+  runState: { cancelled: boolean },
+  fullSync: boolean = false
 ) {
   const startTime = Date.now();
   const log = (msg: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}] ${msg}`);
@@ -369,11 +388,99 @@ async function executeAsync(
       return;
     }
 
-    const allRecords = sourceResult.preview;
-    const totalRecords = allRecords.length;
-    log(`Fetched ${totalRecords} source records`);
+    const allFetchedRecords = sourceResult.preview;
+    log(`Fetched ${allFetchedRecords.length} source records`);
 
-    await storage.updateSyncRun(runId, { recordsTotal: totalRecords, progress: 0 });
+    let allRecords = allFetchedRecords;
+    let totalSkipped = 0;
+    const baselineUpdates: Array<{ recordKey: string; fieldHash: string; index: number }> = [];
+
+    if (!fullSync) {
+      log("=== DELTA MODE: comparing with baseline ===");
+      let baselines: Map<string, string>;
+      try {
+        baselines = await storage.getBaselines(config.id);
+        log(`Loaded ${baselines.size} baseline entries`);
+      } catch (err: any) {
+        log(`Baseline load failed, falling back to full sync: ${err.message}`);
+        baselines = new Map();
+      }
+
+      const changedRecords: Record<string, any>[] = [];
+      for (let i = 0; i < allFetchedRecords.length; i++) {
+        const rec = allFetchedRecords[i];
+        const key = getRecordKey(rec);
+        if (!key) {
+          changedRecords.push(rec);
+          continue;
+        }
+        const hash = computeRecordHash(rec, mappings);
+        const prevHash = baselines.get(String(key));
+        if (prevHash !== hash) {
+          changedRecords.push(rec);
+          baselineUpdates.push({ recordKey: String(key), fieldHash: hash, index: i });
+        } else {
+          totalSkipped++;
+        }
+      }
+
+      allRecords = changedRecords;
+      log(`Delta result: ${allRecords.length} changed, ${totalSkipped} unchanged (skipped)`);
+    } else {
+      log("=== FULL SYNC MODE ===");
+      for (let i = 0; i < allFetchedRecords.length; i++) {
+        const rec = allFetchedRecords[i];
+        const key = getRecordKey(rec);
+        if (key) {
+          const hash = computeRecordHash(rec, mappings);
+          baselineUpdates.push({ recordKey: String(key), fieldHash: hash, index: i });
+        }
+      }
+    }
+
+    const totalRecords = allRecords.length;
+
+    await storage.updateSyncRun(runId, {
+      recordsTotal: totalRecords,
+      progress: 0,
+      details: {
+        phase: "fetch",
+        deltaMode: !fullSync,
+        totalFetched: allFetchedRecords.length,
+        totalChanged: totalRecords,
+        totalSkipped,
+      },
+    });
+
+    if (totalRecords === 0 && !fullSync) {
+      log("No changes detected — nothing to sync");
+      if (baselineUpdates.length > 0) {
+        try {
+          await storage.upsertBaselines(config.id, baselineUpdates);
+          log(`Saved ${baselineUpdates.length} baseline entries`);
+        } catch (err: any) {
+          log(`Failed to save baselines: ${err.message}`);
+        }
+      }
+      await resilientDbUpdate(runId, {
+        status: "success",
+        recordsProcessed: 0,
+        recordsFailed: 0,
+        progress: 100,
+        completedAt: new Date(),
+        details: {
+          phase: "complete",
+          phaseHistory: { preflight: "done", backup: "done", fetch: "done", sync: "skipped" },
+          deltaMode: true,
+          totalFetched: allFetchedRecords.length,
+          totalSkipped,
+          totalChanged: 0,
+          duration: Date.now() - startTime,
+        },
+      }, "delta-no-changes");
+      activeRuns.delete(runId);
+      return;
+    }
 
     if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, totalRecords);
 
@@ -678,6 +785,15 @@ async function executeAsync(
     }, "completion");
 
     log(`=== COMPLETE === created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} duration=${duration}ms`);
+
+    if (baselineUpdates.length > 0) {
+      try {
+        await storage.upsertBaselines(config.id, baselineUpdates);
+        log(`Saved ${baselineUpdates.length} baseline entries`);
+      } catch (err: any) {
+        log(`Failed to save baselines: ${err.message}`);
+      }
+    }
 
     try {
       await storage.createSyncLog({

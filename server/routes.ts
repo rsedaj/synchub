@@ -633,7 +633,8 @@ export async function registerRoutes(
     try {
       const config = await storage.getSyncConfig(req.params.id);
       if (!config) return res.status(404).json({ message: "Sync config not found" });
-      const runId = await executeSyncRun(req.params.id, req.user!.id);
+      const fullSync = req.body?.fullSync === true;
+      const runId = await executeSyncRun(req.params.id, req.user!.id, fullSync);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "sync_run",

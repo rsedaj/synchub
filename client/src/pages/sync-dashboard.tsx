@@ -615,12 +615,14 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     }
   }, [activeRuns.length]);
 
+  const [fullSyncMode, setFullSyncMode] = useState(false);
+
   const startSyncMutation = useMutation({
-    mutationFn: async (configId: string) => {
+    mutationFn: async ({ configId, fullSync }: { configId: string; fullSync: boolean }) => {
       if (typeof Notification !== "undefined" && Notification.permission === "default") {
         try { await Notification.requestPermission(); } catch {}
       }
-      const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`);
+      const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`, { fullSync });
       return res.json();
     },
     onSuccess: (data) => {
@@ -818,7 +820,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
     for (const configId of queue) {
       try {
-        const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`);
+        const res = await apiRequest("POST", `/api/sync-configs/${configId}/run`, { fullSync: fullSyncMode });
         const data = await res.json();
         setTrackingRunId(data.runId);
         queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
@@ -995,6 +997,23 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                     {(trackedRun.details as any)?.phase && (
                       <PhaseIndicator phase={(trackedRun.details as any).phase} phaseHistory={(trackedRun.details as any)?.phaseHistory} t={t} />
+                    )}
+
+                    {(trackedRun.details as any)?.deltaMode !== undefined && (
+                      <div className="flex items-center gap-2 text-xs" data-testid="delta-info">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(trackedRun.details as any).deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
+                          {(trackedRun.details as any).deltaMode ? "DELTA" : "FULL"}
+                        </span>
+                        {(trackedRun.details as any).totalFetched > 0 && (
+                          <span className="text-muted-foreground">
+                            {(trackedRun.details as any).totalFetched} stiahnutých →{" "}
+                            {(trackedRun.details as any).totalChanged ?? trackedRun.recordsTotal} zmenených
+                            {((trackedRun.details as any).totalSkipped || 0) > 0 && (
+                              <span className="text-green-600 dark:text-green-400"> ({(trackedRun.details as any).totalSkipped} preskočených)</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     )}
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
@@ -1259,6 +1278,17 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                 <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
                 {configs.length > 0 && (
                   <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" data-testid="toggle-full-sync">
+                      <input
+                        type="checkbox"
+                        checked={fullSyncMode}
+                        onChange={(e) => setFullSyncMode(e.target.checked)}
+                        className="rounded border-foreground/30 h-3.5 w-3.5"
+                      />
+                      <span className={fullSyncMode ? "text-orange-600 dark:text-orange-400 font-medium" : "text-muted-foreground"}>
+                        Full sync
+                      </span>
+                    </label>
                     {selectedConfigs.size > 0 && (
                       <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
                         {t("syncDash.selected").replace("{count}", String(selectedConfigs.size))}
@@ -1351,7 +1381,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           </div>
                           <Button
                             size="sm"
-                            onClick={() => startSyncMutation.mutate(config.id)}
+                            onClick={() => startSyncMutation.mutate({ configId: config.id, fullSync: fullSyncMode })}
                             disabled={isRunning || startSyncMutation.isPending || batchRunning}
                             data-testid={`button-run-sync-${config.id}`}
                           >
@@ -1360,7 +1390,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             ) : (
                               <Play className="h-3.5 w-3.5 mr-1.5" />
                             )}
-                            {isRunning ? t("syncDash.running") : t("syncDash.run")}
+                            {isRunning ? t("syncDash.running") : fullSyncMode ? t("syncDash.runFull") : t("syncDash.run")}
                           </Button>
                         </div>
                       );
