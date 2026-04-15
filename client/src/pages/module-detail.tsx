@@ -73,6 +73,7 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "http://195.146.148.139/onix_api/swagger/ui/index" },
     { key: "apiToken", label: "API Token", type: "password", placeholder: "Enter ONIX API token", required: true, helpText: "Authentication token for ONIX API" },
     { key: "databasePath", label: "Database Path", type: "text", placeholder: "C:\\ONIX\\DATABASE.NDB", required: true, helpText: "Cesta k ONIX databáze na serveri (header DatabasePath). Poskytne vám ju Kros a.s." },
+    { key: "defaultStock", label: "Cieľový sklad (Default_Stock)", type: "text", placeholder: "SYN", helpText: "Kód skladu v ONIX, do ktorého sa synchronizujú nové skladové karty. Predvolené: SYN (Sklad_SyncHub). Overené kódy: SYN, SK1, OPP, VOS, VZ, T" },
     { key: "companyId", label: "Company ID", type: "text", placeholder: "Enter company identifier", helpText: "ONIX company/database identifier" },
   ],
   PROMOTRON: [
