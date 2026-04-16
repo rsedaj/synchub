@@ -314,5 +314,33 @@ export async function runMigrations() {
     log(`Migration m001: no PROMOTRON→ONIX configs needed price_excl_vat:23 (${promotronToOnixConfigs.length} checked)`, "seed");
   }
 
+  // Migration m002: fix id→Ist_Code to custom_label_2→Ns_Number
+  //                 fix description→Description to description→Info
+  let m002Count = 0;
+  for (const config of promotronToOnixConfigs) {
+    const mappings = (config.fieldMappings || []) as Array<{ sourceField: string; targetField: string; transform?: string }>;
+    let m002Updated = false;
+    const m002Mappings = mappings.map(m => {
+      if (m.sourceField === "id" && m.targetField === "Ist_Code") {
+        m002Updated = true;
+        log(`Migration m002: "${config.name}" — id→Ist_Code opravené na custom_label_2→Ns_Number`, "seed");
+        return { ...m, sourceField: "custom_label_2", targetField: "Ns_Number" };
+      }
+      if (m.sourceField === "description" && m.targetField === "Description") {
+        m002Updated = true;
+        log(`Migration m002: "${config.name}" — description→Description opravené na description→Info`, "seed");
+        return { ...m, targetField: "Info" };
+      }
+      return m;
+    });
+    if (m002Updated) {
+      await storage.updateSyncConfig(config.id, { fieldMappings: m002Mappings });
+      m002Count++;
+    }
+  }
+  if (m002Count === 0) {
+    log(`Migration m002: žiadne PROMOTRON→ONIX configs nepotrebovali opravu polí (${promotronToOnixConfigs.length} skontrolovaných)`, "seed");
+  }
+
   log("Data migrations complete", "seed");
 }

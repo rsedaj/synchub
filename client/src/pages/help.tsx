@@ -666,6 +666,15 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
 
             <div>
+              <strong className="text-foreground font-mono">v1.26.0</strong> <span className="text-xs">(apríl 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">Oprava mapovania Promotron→ONIX</strong> — analýzou reálneho XML feedu zistené a automaticky opravené chybné mapovania: <code className="text-xs bg-muted px-1 rounded">id→Ist_Code</code> zmenené na <code className="text-xs bg-muted px-1 rounded">custom_label_2→Ns_Number</code>, <code className="text-xs bg-muted px-1 rounded">description→Description</code> zmenené na <code className="text-xs bg-muted px-1 rounded">description→Info</code></li>
+                <li>Hauerland kód produktu (<code className="text-xs bg-muted px-1 rounded">H0605318</code>) sa nachádza v poli <code className="text-xs bg-muted px-1 rounded">custom_label_2</code>, nie <code className="text-xs bg-muted px-1 rounded">id</code></li>
+                <li>Automatická migrácia <code className="text-xs bg-muted px-1 rounded">m002</code> opraví existujúce konfigurácie pri štarte servera</li>
+              </ul>
+            </div>
+
+            <div>
               <strong className="text-foreground font-mono">v1.25.0</strong> <span className="text-xs">(apríl 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li><strong className="text-foreground">Delta sync</strong> — MD5 porovnanie, odosielajú sa len zmenené záznamy (dramatická úspora času)</li>
