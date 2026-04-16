@@ -1686,7 +1686,7 @@ export default function SyncConfigPage() {
                               {language === "sk" ? "Záloha" : "Backup"}
                             </Badge>
                           )}
-                          {(config.fieldMappings as FieldMapping[]).some(m => m.transform?.startsWith("price_excl_vat")) && (
+                          {(config.fieldMappings as FieldMapping[] || []).some(m => m.transform?.startsWith("price_excl_vat")) && (
                             <Badge variant="outline" className="text-[10px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/30" data-testid={`badge-vat-${config.id}`}>
                               <Percent className="h-2.5 w-2.5" />
                               {language === "sk" ? "Bez DPH" : "Excl. VAT"}
