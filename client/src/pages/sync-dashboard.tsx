@@ -1709,7 +1709,9 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                       const pageSize = 20;
                                       const totalPages = Math.ceil(filtered.length / pageSize);
                                       const pageRecords = filtered.slice(recordsPage * pageSize, (recordsPage + 1) * pageSize);
-                                      const hasVat = (details.syncedRecords as any[]).some((r: any) => r.vatTransforms?.length > 0);
+                                      const recordsHaveVat = (details.syncedRecords as any[]).some((r: any) => r.vatTransforms?.length > 0);
+                                      const hasVat = recordsHaveVat || details?.completionSummary?.hasVatDivider === true;
+                                      const isHistoricalVat = hasVat && !recordsHaveVat;
                                       return (
                                         <>
                                           <table className="w-full text-xs">
@@ -1718,7 +1720,16 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                                 <th className="p-1.5 text-left w-12">{t("syncDash.recordIndex")}</th>
                                                 <th className="p-1.5 text-left">{t("syncDash.target_id")}</th>
                                                 <th className="p-1.5 text-left">{t("syncDash.recordStatus")}</th>
-                                                {hasVat && <th className="p-1.5 text-left">{t("syncDash.vatPriceCol")}</th>}
+                                                {hasVat && (
+                                                  <th className="p-1.5 text-left">
+                                                    {t("syncDash.vatPriceCol")}
+                                                    {isHistoricalVat && (
+                                                      <span className="ml-1 text-[10px] text-muted-foreground font-normal italic" data-testid="vat-col-no-data-note">
+                                                        ({t("syncDash.vatPriceNoData")})
+                                                      </span>
+                                                    )}
+                                                  </th>
+                                                )}
                                                 <th className="p-1.5 text-left">Info</th>
                                               </tr>
                                             </thead>
