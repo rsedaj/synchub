@@ -1761,7 +1761,7 @@ export default function SyncConfigPage() {
                                 {m.transform?.startsWith("price_excl_vat") ? (
                                   <Badge variant="outline" className="text-[9px] px-1.5 py-0 gap-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 whitespace-nowrap" data-testid={`badge-transform-vat-${idx}`}>
                                     <Percent className="h-2.5 w-2.5" />
-                                    {`÷ ${(1 + parseFloat(m.transform.split(":")[1] || "23") / 100).toFixed(2)}`}
+                                    {`÷ VAT ${m.transform.split(":")[1] || "23"}%`}
                                   </Badge>
                                 ) : null}
                               </span>
