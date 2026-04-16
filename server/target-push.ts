@@ -19,11 +19,19 @@ const PIPEDRIVE_SOURCES: Record<string, string> = {
   products: "/v1/products",
 };
 
+export interface VATTransformEntry {
+  field: string;
+  originalPrice: number;
+  convertedPrice: number;
+  vatRate: number;
+}
+
 export interface PushRecordResult {
   sourceIndex: number;
   target_id: number | null;
   status: "created" | "updated" | "error";
   errorMsg?: string;
+  vatTransforms?: VATTransformEntry[];
 }
 
 export interface PushResult {

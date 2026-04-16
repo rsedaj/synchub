@@ -1709,6 +1709,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                       const pageSize = 20;
                                       const totalPages = Math.ceil(filtered.length / pageSize);
                                       const pageRecords = filtered.slice(recordsPage * pageSize, (recordsPage + 1) * pageSize);
+                                      const hasVat = (details.syncedRecords as any[]).some((r: any) => r.vatTransforms?.length > 0);
                                       return (
                                         <>
                                           <table className="w-full text-xs">
@@ -1717,6 +1718,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                                 <th className="p-1.5 text-left w-12">{t("syncDash.recordIndex")}</th>
                                                 <th className="p-1.5 text-left">{t("syncDash.target_id")}</th>
                                                 <th className="p-1.5 text-left">{t("syncDash.recordStatus")}</th>
+                                                {hasVat && <th className="p-1.5 text-left">{t("syncDash.vatPriceCol")}</th>}
                                                 <th className="p-1.5 text-left">Info</th>
                                               </tr>
                                             </thead>
@@ -1741,6 +1743,25 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                                         : t("syncDash.statusFailed")}
                                                     </Badge>
                                                   </td>
+                                                  {hasVat && (
+                                                    <td className="p-1.5" data-testid={`cell-vat-${rec.sourceIndex}`}>
+                                                      {rec.vatTransforms?.length > 0 ? (
+                                                        <div className="flex flex-col gap-0.5">
+                                                          {rec.vatTransforms.map((vt: any, vi: number) => (
+                                                            <span key={vi} className="font-mono text-[10px] whitespace-nowrap">
+                                                              <span className="text-muted-foreground">{vt.field}: </span>
+                                                              <span>{vt.originalPrice}</span>
+                                                              <span className="text-muted-foreground mx-1">→</span>
+                                                              <span className="font-semibold">{vt.convertedPrice}</span>
+                                                              <span className="text-muted-foreground ml-1">({t("syncDash.vatPriceRate")} {vt.vatRate}%)</span>
+                                                            </span>
+                                                          ))}
+                                                        </div>
+                                                      ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                      )}
+                                                    </td>
+                                                  )}
                                                   <td className="p-1.5 text-muted-foreground truncate max-w-[200px]">
                                                     {rec.errorMsg || ""}
                                                   </td>

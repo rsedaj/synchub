@@ -4,7 +4,7 @@ import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { pushToTarget } from "./target-push";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
-import type { PushRecordResult } from "./target-push";
+import type { PushRecordResult, VATTransformEntry } from "./target-push";
 
 const activeRuns = new Map<string, { cancelled: boolean }>();
 
@@ -57,8 +57,9 @@ function getNestedValue(obj: Record<string, any>, dotPath: string): any {
 function applyFieldMappings(
   record: Record<string, any>,
   mappings: Array<{ sourceField: string; targetField: string; transform?: string }>
-): Record<string, any> {
+): { result: Record<string, any>; vatTransforms: VATTransformEntry[] } {
   const result: Record<string, any> = {};
+  const vatTransforms: VATTransformEntry[] = [];
 
   function parsePrice(v: any): number {
     let s = String(v || "0").replace(/[^\d.,\-]/g, "");
@@ -91,8 +92,10 @@ function applyFieldMappings(
           case "price_excl_vat": {
             const rateRaw = parseFloat(transformParam ?? "NaN");
             const rate = Number.isFinite(rateRaw) ? rateRaw : 23;
-            const parsed = parsePrice(value);
-            value = Math.round((parsed / (1 + rate / 100)) * 100) / 100;
+            const originalPrice = parsePrice(value);
+            const convertedPrice = Math.round((originalPrice / (1 + rate / 100)) * 100) / 100;
+            vatTransforms.push({ field: mapping.targetField, originalPrice, convertedPrice, vatRate: rate });
+            value = convertedPrice;
             break;
           }
           case "string": value = String(value || ""); break;
@@ -102,7 +105,7 @@ function applyFieldMappings(
     }
     result[mapping.targetField] = value;
   }
-  return result;
+  return { result, vatTransforms };
 }
 
 const PHASE_ORDER = ["preflight", "backup", "fetch", "sync"] as const;
@@ -531,16 +534,22 @@ async function executeAsync(
       const batchRecords = allRecords.slice(i, i + BATCH_SIZE);
 
       const mappedBatch: Record<string, any>[] = [];
+      const batchVatByMappedIdx: (VATTransformEntry[] | undefined)[] = [];
+      let batchLocalIdx = 0;
       for (const rawRecord of batchRecords) {
+        const globalIdx = i + batchLocalIdx;
         try {
-          mappedBatch.push(applyFieldMappings(rawRecord, mappings));
+          const { result, vatTransforms } = applyFieldMappings(rawRecord, mappings);
+          batchVatByMappedIdx.push(vatTransforms.length > 0 ? vatTransforms : undefined);
+          mappedBatch.push(result);
         } catch (err: any) {
           totalFailed++;
-          allErrors.push({ batch: currentBatch, index: i + mappedBatch.length, message: `Mapping error: ${err.message}` });
+          allErrors.push({ batch: currentBatch, index: globalIdx, message: `Mapping error: ${err.message}` });
           if (syncedRecords.length < MAX_SYNCED_RECORDS_STORED) {
-            syncedRecords.push({ sourceIndex: i + mappedBatch.length, target_id: null, status: "error", errorMsg: `Mapping: ${err.message}` });
+            syncedRecords.push({ sourceIndex: globalIdx, target_id: null, status: "error", errorMsg: `Mapping: ${err.message}` });
           }
         }
+        batchLocalIdx++;
       }
 
       let batchErrorCount = 0;
@@ -571,7 +580,9 @@ async function executeAsync(
           }
           for (const r of pushResult.records) {
             if (syncedRecords.length < MAX_SYNCED_RECORDS_STORED) {
-              syncedRecords.push(r);
+              const mappedIdx = r.sourceIndex - (currentBatch - 1) * BATCH_SIZE;
+              const vatTransforms = mappedIdx >= 0 ? batchVatByMappedIdx[mappedIdx] : undefined;
+              syncedRecords.push(vatTransforms ? { ...r, vatTransforms } : r);
             }
           }
         } catch (err: any) {
