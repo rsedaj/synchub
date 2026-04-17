@@ -62,6 +62,8 @@ const createSyncConfigSchema = z.object({
     backupBeforeSync: z.boolean().optional(),
   }).optional(),
   isEnabled: z.boolean().optional(),
+  matchFields: z.array(z.string()).optional(),
+  onMissing: z.enum(["create", "skip"]).optional(),
 });
 
 const updateSyncConfigSchema = z.object({
@@ -84,6 +86,8 @@ const updateSyncConfigSchema = z.object({
     backupBeforeSync: z.boolean().optional(),
   }).optional(),
   isEnabled: z.boolean().optional(),
+  matchFields: z.array(z.string()).optional(),
+  onMissing: z.enum(["create", "skip"]).optional(),
 });
 
 const updateUserSchema = z.object({
