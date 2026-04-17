@@ -143,7 +143,7 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         testUrl = mod.baseUrl;
       }
     } else if (mod.code === "STICKER") {
-      const accessKey = config?.accessKey;
+      const accessKey = config?.accessKey || process.env.STICKER_ACCESS_KEY;
       if (accessKey) {
         testUrl = `http://ws.stricker-europe.com/api/v1/authenticateclient?AccessKey=${accessKey}`;
         headers["Accept"] = "application/json";
@@ -298,7 +298,7 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       }
     }
 
-    if (mod.code === "STICKER" && res.ok && config?.accessKey) {
+    if (mod.code === "STICKER" && res.ok && (config?.accessKey || process.env.STICKER_ACCESS_KEY)) {
       try {
         const data = await res.json();
         if (data.SessionToken) {
@@ -1552,7 +1552,7 @@ async function authenticateStricker(accessKey: string): Promise<string | null> {
 }
 
 async function fetchStrickerData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
-  const accessKey = config?.accessKey;
+  const accessKey = config?.accessKey || process.env.STICKER_ACCESS_KEY;
   if (!accessKey) {
     return {
       success: false,

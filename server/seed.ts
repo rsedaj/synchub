@@ -130,12 +130,15 @@ const MODULE_DEFINITIONS = [
     sortOrder: 7,
     description: "Dodávateľ reklamných predmetov Stricker Europe (Paul Stricker). REST API v2.20 s autentifikáciou cez Access Key + session token. Produkty, ceny, sklady, personalizácia, objednávky.",
     baseUrl: "http://ws.stricker-europe.com",
-    status: "disconnected" as const,
+    status: "connected" as const,
     docsUrl: "https://www.stricker-europe.com",
     dataFields: ["Product Reference", "SKU", "Name", "Description", "Color", "Size", "Capacity", "Category", "Brand", "Material", "Price", "YourPrice", "Catalog Price", "Stock", "Stock PT", "Stock CZ", "Next Quantities", "Customization Options", "Images"],
     config: {
       apiType: "REST",
       authType: "access_key",
+      clientId: process.env.STICKER_CLIENT_ID || "",
+      accessKey: process.env.STICKER_ACCESS_KEY || "",
+      language: "SK",
     },
   },
   {
@@ -258,7 +261,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName", "databasePath"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "clientId", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName", "databasePath"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);
