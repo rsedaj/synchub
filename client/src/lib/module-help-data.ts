@@ -284,4 +284,23 @@ export const MODULE_HELP: Record<string, { description: string; apiInfo: string;
       { label: "Data Feeds Portal", url: "http://www.pfconcept.com/portal/datafeed/" },
     ],
   },
+  PROMOLOG: {
+    description: "Dodávateľ reklamných predmetov PROMOLOG (www.promolog.com). Poskytuje XML API rozhranie pre produktové dáta a stavy skladu, plus dodatočné CSV a XLSX exporty. Podpora troch jazykových mutácií: SK / CZ / EN.\n\nVšetky súbory sa generujú v reálnom čase. Prístup je chránený HTTP Basic Auth — odporúča sa vytvoriť dedikovaného používateľa s rolou „XML\" (špeciálna rola len na čítanie produktových dát cez API).",
+    apiInfo: "REST/XML API dostupné na https://www.promolog.com/{lang}/api/...\n\nDva hlavné endpointy:\n• Stock Feed — aktuálne stavy skladu, dátumy a množstvá najbližších dodávok\n• Products Feed — kompletné produktové dáta (názov, popis, materiál, rozmery, balenie, potlač, ceny, obrázky, kategórie)\n\nFormát: XML. Prístup cez HTTP Basic Auth (login + heslo). Alternatívne podporované POST parametre `bbWidget=user.login&login=...&password=...` priamo v URL.\n\nDodatočné formáty na stiahnutie:\n• XLSX (Excel) — kompletné produktové dáta vrátane katalógových a nákupných cien\n• CSV — kompletné produktové dáta",
+    endpoints: [
+      "GET /{lang}/api/products-{lang} — produktové dáta (XML), lang = sk/cs/en",
+      "GET /en/api/stock — stavy skladu (XML, len anglická verzia)",
+      "GET /{lang}/api/products-promolog-{lang}.xlsx — Excel export",
+      "GET /{lang}/api/promolog-products-{lang}.csv — CSV export",
+    ],
+    authInfo: "HTTP Basic Auth — username + password sa posielajú v hlavičke `Authorization: Basic base64(login:password)`.\n\nAktuálne prístupy (uložené ako secrets):\n• Username: production@hauerland.sk ✅ (env PROMOLOG_USERNAME)\n• Heslo: uložené v env PROMOLOG_PASSWORD ✅\n\nSpráva používateľov: V administrácii e-shopu PROMOLOG → Uživatelský portál → Užívateľské role.\n\nDostupné role:\n• Superadmin — vidí aktivity všetkých, prístup cez API + objednávky + správa používateľov\n• Admin — len vlastné objednávky\n• Read-only — vidí všetko, bez práva nakupovať\n• XML — len API prístup k produktovým dátam (odporúčané pre e-shop integráciu)\n\nProduktové fotky sú dostupné po prihlásení v sekcii „Ke stažení\" v Užívateľskom portáli.",
+    dataFields: "Stock Feed (XML, jednoduchá štruktúra):\n• code — kód produktu (textový reťazec)\n• stock — stav skladu (číslo)\n• delivery_date — dátum najbližšej dodávky (môže sa opakovať)\n• delivery_quantity — množstvo najbližšej dodávky (môže sa opakovať)\n\nProduct Feed (XML, ~50 polí na produkt):\n• Identifikácia: code\n• Lokalizovateľné texty (prípona _sk/_cs/_en): name, colour, short_description, long_description, material, battery, unit_packing, country_of_origin, imprint, category, sub_category, giftbox\n• Atribúty: new (yes/no), eco (yes/no), dimensions, customs_tariff, catalogue_RD_page\n• Balenie:\n  - unit_packing_weight_brutto_netto, unit_packing_dimensions\n  - inner_packing, inner_packing_weight_brutto_netto, inner_packing_dimensions\n  - carton_pcs, carton_weight_brutto_netto, carton_dimensions\n• Potlač (imprint_{lang}): formát „názov technológie|popis pozície|max. veľkosť|počet farieb\" — môže sa opakovať\n• Obrázky: images (názov súboru .jpg, môže sa opakovať)\n• Ceny: catalogue_price_EUR, your_price_EUR\n• Rozmery v mm, hmotnosti v kg",
+    notes: "STAV: ✅ PRIPOJENÉ — XML API funguje cez HTTP Basic Auth\n\nDôležité:\n• URL sú citlivé na jazyk: SK = `/sk/api/products-sk`, CZ = `/cs/api/products-cs`, EN = `/en/api/products-en`\n• Stock feed je len v EN verzii: `/en/api/stock`\n• Login musí byť URL-encoded ak sa použije v URL (napr. `production%40hauerland.sk` namiesto `@`)\n• Niektoré XML elementy sa môžu opakovať: `delivery_date`, `delivery_quantity`, `imprint_{lang}`, `images`, `category_{lang}`, `sub_category_{lang}`\n• Prázdne hodnoty sú reprezentované ako self-closing tagy: `<delivery_date/>`\n\nOdporúčania pre integráciu s ONIX:\n• `code` → `Ns_Number` (číslo skladovej karty)\n• `name_sk` → `Name`\n• `long_description_sk` → `Info` (popis)\n• `your_price_EUR` → `Default_Price` (nákupná cena bez DPH)\n• `customs_tariff` → `Ist_Code` (kód KN, customs HS code)\n• `country_of_origin_sk` → `CountryOfOrigin`\n• `images` → `CustomColumns` (URL na obrázky)\n\nKontakt: production@hauerland.sk (existujúci používateľ s prístupom k API).",
+    links: [
+      { label: "PROMOLOG E-shop", url: "https://www.promolog.com" },
+      { label: "PROMOLOG Login (CZ)", url: "https://www.promolog.com/cs" },
+      { label: "Stock Feed (EN)", url: "https://www.promolog.com/en/api/stock" },
+      { label: "Products Feed (SK)", url: "https://www.promolog.com/sk/api/products-sk" },
+    ],
+  },
 };

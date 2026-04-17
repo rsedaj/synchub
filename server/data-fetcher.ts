@@ -22,6 +22,8 @@ const ALLOWED_HOSTS = new Set([
   "macma.sk",
   "www.pfconcept.com",
   "images.pfconcept.com",
+  "www.promolog.com",
+  "promolog.com",
   "ws.stricker-europe.com",
   "www.stricker-europe.com",
   "xml.andapresent.com",
@@ -185,6 +187,21 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Authorization"] = `Bearer ${token}`;
         headers["Accept"] = "application/json";
       }
+    } else if (mod.code === "PROMOLOG") {
+      const username = config?.username || process.env.PROMOLOG_USERNAME;
+      const password = config?.password || process.env.PROMOLOG_PASSWORD;
+      if (username && password) {
+        testUrl = config?.stockFeedUrl || "https://www.promolog.com/en/api/stock";
+        const credentials = Buffer.from(`${username}:${password}`).toString("base64");
+        headers["Authorization"] = `Basic ${credentials}`;
+        headers["Accept"] = "application/xml";
+      } else {
+        return {
+          success: false,
+          responseTime: Date.now() - start,
+          message: "PROMOLOG credentials missing. Set PROMOLOG_USERNAME and PROMOLOG_PASSWORD secrets.",
+        };
+      }
     } else if (mod.code === "PFCONCEPT") {
       const feedUrl = config?.stockFeedUrl || config?.productFeedUrl || config?.priceFeedUrl;
       if (feedUrl) {
@@ -314,6 +331,16 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       message = `Connection successful — PF Concept Data Feed v3 accessible${sizeKb ? ` (${sizeKb} KB)` : ""}`;
     }
 
+    if (mod.code === "PROMOLOG") {
+      if (res.ok) {
+        const contentLength = res.headers.get("content-length");
+        const sizeKb = contentLength ? Math.round(parseInt(contentLength) / 1024) : 0;
+        message = `Connection successful — PROMOLOG API ready (Basic Auth)${sizeKb ? `, feed size ~${sizeKb} KB` : ""}`;
+      } else if (res.status === 401 || res.status === 403) {
+        message = `Authentication failed — invalid PROMOLOG credentials (HTTP ${res.status}). Check PROMOLOG_USERNAME / PROMOLOG_PASSWORD secrets.`;
+      }
+    }
+
     return {
       success: res.ok,
       statusCode: res.status,
@@ -364,6 +391,8 @@ export async function fetchModuleData(mod: ApiModule, limit = 20, source?: strin
       return fetchGivingEuropeData(config, limit);
     case "PFCONCEPT":
       return fetchPfConceptData(config, source, limit);
+    case "PROMOLOG":
+      return fetchPromologData(config, source, limit);
     default:
       return {
         success: false,
@@ -2059,4 +2088,142 @@ export function flattenObject(obj: any, prefix = ""): Record<string, string> {
     }
   }
   return result;
+}
+
+async function fetchPromologData(config: Record<string, any> | undefined, source: string | undefined, limit: number): Promise<FetchResult> {
+  const username = config?.username || process.env.PROMOLOG_USERNAME;
+  const password = config?.password || process.env.PROMOLOG_PASSWORD;
+  const language = (config?.language || "sk").toLowerCase();
+
+  if (!username || !password) {
+    return {
+      success: false,
+      source: "PROMOLOG",
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "PROMOLOG credentials missing. Set PROMOLOG_USERNAME and PROMOLOG_PASSWORD secrets.",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  const sources: Record<string, { label: string; url: string; rootKeys: string[] }> = {
+    products: {
+      label: "Product Feed",
+      url: config?.productFeedUrl || `https://www.promolog.com/${language}/api/products-${language}`,
+      rootKeys: ["products", "product"],
+    },
+    stock: {
+      label: "Stock Feed",
+      url: config?.stockFeedUrl || "https://www.promolog.com/en/api/stock",
+      rootKeys: ["stock", "products", "product"],
+    },
+  };
+
+  const selectedSource = source && source !== "auto" ? source : "products";
+  const src = sources[selectedSource] || sources.products;
+
+  if (!isUrlAllowed(src.url)) {
+    return {
+      success: false,
+      source: `PROMOLOG ${src.label}`,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: "URL not in allowed hosts list",
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const credentials = Buffer.from(`${username}:${password}`).toString("base64");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    const res = await fetch(src.url, {
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Basic ${credentials}`,
+        "Accept": "application/xml",
+        "User-Agent": "SyncHub/1.0",
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      return {
+        success: false,
+        source: `PROMOLOG ${src.label}`,
+        recordCount: 0,
+        fields: [],
+        preview: [],
+        error: res.status === 401 || res.status === 403
+          ? `Authentication failed (HTTP ${res.status}) — check PROMOLOG credentials`
+          : `HTTP ${res.status}: ${errBody.slice(0, 200) || res.statusText}`,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+
+    const xml = await res.text();
+    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true });
+
+    let items: any[] = [];
+    let cursor: any = parsed;
+    for (const key of Object.keys(parsed)) {
+      cursor = parsed[key];
+      break;
+    }
+    if (cursor && typeof cursor === "object") {
+      const productNode = cursor.product ?? cursor.Product;
+      if (productNode) {
+        items = Array.isArray(productNode) ? productNode : [productNode];
+      } else if (Array.isArray(cursor)) {
+        items = cursor;
+      }
+    }
+
+    if (items.length === 0 && parsed.product) {
+      items = Array.isArray(parsed.product) ? parsed.product : [parsed.product];
+    }
+
+    const totalCount = items.length;
+    const preview = applyLimit(items, limit).map((item: any) => {
+      const row: Record<string, any> = {};
+      for (const [key, val] of Object.entries(item)) {
+        if (val == null) {
+          row[key] = "";
+        } else if (typeof val === "string" || typeof val === "number") {
+          row[key] = val;
+        } else if (Array.isArray(val)) {
+          row[key] = val.map(v => (typeof v === "string" || typeof v === "number") ? String(v) : JSON.stringify(v)).join(" | ");
+        } else if (typeof val === "object") {
+          row[key] = JSON.stringify(val).slice(0, 200);
+        } else {
+          row[key] = String(val);
+        }
+      }
+      return row;
+    });
+
+    const fields = collectAllFields(preview);
+    return {
+      success: true,
+      source: `PROMOLOG ${src.label}`,
+      recordCount: totalCount,
+      fields,
+      preview,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      source: `PROMOLOG ${src.label}`,
+      recordCount: 0,
+      fields: [],
+      preview: [],
+      error: err.name === "AbortError" ? "Request timed out (60s)" : `Failed: ${err.message}`,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 }

@@ -219,6 +219,27 @@ const MODULE_DEFINITIONS = [
       stockFeedUrl: "http://www.pfconcept.com/portal/datafeed/stockfeed_ff7e834a_8a5f_39a8_4014_b6f9c8ca81aa_v3.xml",
     },
   },
+  {
+    code: "PROMOLOG",
+    name: "Promolog",
+    sortOrder: 13,
+    description: "Dodávateľ reklamných predmetov PROMOLOG (www.promolog.com). XML feedy pre produktové dáta a stavy skladu, dostupné cez HTTP Basic Auth. Podpora SK / CZ / EN jazykových mutácií, dodatočné CSV a XLSX exporty.",
+    baseUrl: "https://www.promolog.com",
+    status: "connected" as const,
+    docsUrl: "https://www.promolog.com",
+    dataFields: standardDataFields,
+    config: {
+      apiType: "XML",
+      authType: "credentials",
+      language: "sk",
+      username: process.env.PROMOLOG_USERNAME || "",
+      password: process.env.PROMOLOG_PASSWORD || "",
+      productFeedUrl: "https://www.promolog.com/sk/api/products-sk",
+      stockFeedUrl: "https://www.promolog.com/en/api/stock",
+      csvFeedUrl: "http://www.promolog.com/sk/api/promolog-products-sk.csv",
+      xlsxFeedUrl: "https://www.promolog.com/sk/api/products-promolog-sk.xlsx",
+    },
+  },
 ];
 
 export async function seedData() {
