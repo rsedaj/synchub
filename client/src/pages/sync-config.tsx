@@ -170,6 +170,8 @@ interface EditorState {
   sourceDataSource: string;
   sourceRecordLimit: number;
   fieldMappings: FieldMapping[];
+  matchFields: string[];
+  onMissing: "create" | "skip";
   schedule: Schedule;
   isEnabled: boolean;
   backupBeforeSync: boolean;
@@ -183,6 +185,8 @@ const emptyEditor: EditorState = {
   sourceDataSource: "",
   sourceRecordLimit: 120000,
   fieldMappings: [],
+  matchFields: [],
+  onMissing: "create",
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
   backupBeforeSync: true,
@@ -735,6 +739,8 @@ export default function SyncConfigPage() {
       sourceDataSource: config.sourceDataSource || "",
       sourceRecordLimit: config.sourceRecordLimit ?? 120000,
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
+      matchFields: (config as any).matchFields || [],
+      onMissing: ((config as any).onMissing as "create" | "skip") || "create",
       schedule,
       isEnabled: config.isEnabled,
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
@@ -783,6 +789,8 @@ export default function SyncConfigPage() {
       sourceDataSource: editor.sourceDataSource || null,
       sourceRecordLimit: editor.sourceRecordLimit || 120000,
       fieldMappings: validMappings,
+      matchFields: editor.matchFields.filter(f => f && f.trim()),
+      onMissing: editor.onMissing,
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
     };
@@ -1480,6 +1488,100 @@ export default function SyncConfigPage() {
                     )}
                   </div>
                 )}
+
+                <Separator />
+
+                <div data-testid="section-matching">
+                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {language === "sk" ? "Párovanie záznamov" : "Record Matching"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    {language === "sk"
+                      ? "Vyberte 1–2 zdrojové polia, podľa ktorých sa zistí, či záznam v cieľovom systéme už existuje. Ak nie sú nastavené žiadne polia, použije sa štandardná identifikácia (napr. interné ID)."
+                      : "Choose 1–2 source fields used to detect if a record already exists in the target. If none are set, the default identification (e.g. internal ID) is used."}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    {[0, 1].map(idx => {
+                      const value = editor.matchFields[idx] || "__none__";
+                      const usedSourceFields = editor.fieldMappings
+                        .map(m => m.sourceField)
+                        .filter(f => f && f.trim());
+                      return (
+                        <div key={idx}>
+                          <Label className="text-xs mb-1 block">
+                            {language === "sk" ? `Kľúč ${idx + 1}` : `Key ${idx + 1}`}
+                          </Label>
+                          <Select
+                            value={value}
+                            onValueChange={(val) => {
+                              setEditor(prev => {
+                                const next = [...prev.matchFields];
+                                if (val === "__none__") {
+                                  next[idx] = "";
+                                } else {
+                                  next[idx] = val;
+                                }
+                                return { ...prev, matchFields: next.filter((v, i) => v || i < idx) };
+                              });
+                            }}
+                          >
+                            <SelectTrigger data-testid={`select-match-field-${idx}`}>
+                              <SelectValue placeholder={language === "sk" ? "—" : "—"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">{language === "sk" ? "— žiadne —" : "— none —"}</SelectItem>
+                              {Array.from(new Set(usedSourceFields)).map(f => (
+                                <SelectItem key={f} value={f}>{f}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div>
+                    <Label className="text-xs mb-2 block">
+                      {language === "sk" ? "Ak záznam v cieli neexistuje" : "If record does not exist in target"}
+                    </Label>
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="on-missing"
+                          value="create"
+                          checked={editor.onMissing === "create"}
+                          onChange={() => setEditor(prev => ({ ...prev, onMissing: "create" }))}
+                          className="mt-1"
+                          data-testid="radio-on-missing-create"
+                        />
+                        <div className="text-sm">
+                          <div>{language === "sk" ? "Vytvoriť ako nový" : "Create as new"}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {language === "sk" ? "Ak sa nenájde zhoda, založí sa nový záznam." : "If no match is found, a new record is created."}
+                          </div>
+                        </div>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="on-missing"
+                          value="skip"
+                          checked={editor.onMissing === "skip"}
+                          onChange={() => setEditor(prev => ({ ...prev, onMissing: "skip" }))}
+                          className="mt-1"
+                          data-testid="radio-on-missing-skip"
+                        />
+                        <div className="text-sm">
+                          <div>{language === "sk" ? "Preskočiť" : "Skip"}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {language === "sk" ? "Ak sa nenájde zhoda, záznam sa preskočí (len aktualizácie existujúcich)." : "If no match is found, the record is skipped (updates only)."}
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
 
                 <Separator />
 

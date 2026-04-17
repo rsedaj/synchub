@@ -29,7 +29,7 @@ export interface VATTransformEntry {
 export interface PushRecordResult {
   sourceIndex: number;
   target_id: number | null;
-  status: "created" | "updated" | "error";
+  status: "created" | "updated" | "error" | "skipped";
   errorMsg?: string;
   vatTransforms?: VATTransformEntry[];
 }
@@ -39,6 +39,7 @@ export interface PushResult {
   createdCount: number;
   updatedCount: number;
   errorCount: number;
+  skippedCount?: number;
   errors: Array<{ index: number; message: string }>;
   records: PushRecordResult[];
   avgLatencyMs?: number;
@@ -115,12 +116,19 @@ function sanitizePipedriveBody(body: Record<string, any>, entityType: string): R
   return body;
 }
 
+export interface MatchOptions {
+  matchFields?: string[];
+  onMissing?: "create" | "skip";
+  mappings?: Array<{ sourceField: string; targetField: string }>;
+}
+
 export async function pushToTarget(
   targetModule: ApiModule,
   targetDataSource: string | null,
   records: Record<string, any>[],
   batchIndex: number,
-  sourceRecords?: Record<string, any>[]
+  sourceRecords?: Record<string, any>[],
+  matchOptions?: MatchOptions
 ): Promise<PushResult> {
   const code = targetModule.code.toUpperCase();
 
@@ -133,7 +141,7 @@ export async function pushToTarget(
   }
 
   if (code === "ONIX") {
-    return pushToOnix(targetModule, targetDataSource, records, batchIndex, sourceRecords);
+    return pushToOnix(targetModule, targetDataSource, records, batchIndex, sourceRecords, matchOptions);
   }
 
   return {
@@ -482,7 +490,8 @@ async function pushToOnix(
   dataSource: string | null,
   records: Record<string, any>[],
   batchIndex: number,
-  sourceRecords?: Record<string, any>[]
+  sourceRecords?: Record<string, any>[],
+  matchOptions?: MatchOptions
 ): Promise<PushResult> {
   const config = module.config as Record<string, any> | null;
   const token = config?.apiToken;
@@ -568,6 +577,96 @@ async function pushToOnix(
     hdrs["DatabasePath"] = databasePath;
   }
 
+  const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
+  const onMissing = matchOptions?.onMissing || "create";
+  const matchTargetByMappingsRaw = (matchOptions?.mappings || [])
+    .filter(m => matchFields.includes(m.sourceField))
+    .map(m => ({ sourceField: m.sourceField, targetField: m.targetField }));
+
+  function buildOnixFilterParam(targetField: string, value: any): { key: string; val: string } {
+    const v = value == null ? "" : String(value);
+    if (targetField.startsWith("CustomColumns.")) {
+      const colName = targetField.substring("CustomColumns.".length);
+      return { key: `CustomColumns.${colName}`, val: v };
+    }
+    return { key: targetField, val: v };
+  }
+
+  const matchCache = new Map<string, number | null>();
+
+  function pickMatchValue(record: Record<string, any>, sourceRec: Record<string, any> | undefined, m: { sourceField: string; targetField: string }): string {
+    const mappedVal = record[m.targetField];
+    const sourceVal = sourceRec ? sourceRec[m.sourceField] : undefined;
+    const candidates = [mappedVal, sourceVal];
+    for (const c of candidates) {
+      if (c == null) continue;
+      const s = String(c).trim();
+      if (s.length > 0) return s;
+    }
+    return "";
+  }
+
+  type MatchLookupResult = { id: number | null; ambiguous: boolean };
+
+  async function findOnixIdByMatch(record: Record<string, any>, sourceRec: Record<string, any> | undefined): Promise<MatchLookupResult> {
+    if (matchFields.length === 0 || matchTargetByMappingsRaw.length === 0) return { id: null, ambiguous: false };
+    const params = new URLSearchParams();
+    const cacheKey: string[] = [];
+    const expectedValues: Array<{ targetField: string; value: string }> = [];
+    for (const m of matchTargetByMappingsRaw) {
+      const value = pickMatchValue(record, sourceRec, m);
+      if (!value) return { id: null, ambiguous: false };
+      const f = buildOnixFilterParam(m.targetField, value);
+      params.append(f.key, f.val);
+      cacheKey.push(`${f.key}=${f.val}`);
+      expectedValues.push({ targetField: m.targetField, value });
+    }
+    const ck = cacheKey.sort().join("|");
+    if (matchCache.has(ck)) {
+      const cached = matchCache.get(ck);
+      return { id: cached ?? null, ambiguous: false };
+    }
+
+    try {
+      const lookupUrl = `${baseUrl}${writeDef.endpoint}?${params.toString()}`;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 30000);
+      const res = await fetch(lookupUrl, { headers: hdrs, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) {
+        matchCache.set(ck, null);
+        return { id: null, ambiguous: false };
+      }
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : (Array.isArray(data?.data) ? data.data : []));
+      const matches = arr.filter((r: any) => {
+        for (const ev of expectedValues) {
+          let actual: any = r[ev.targetField];
+          if (ev.targetField.startsWith("CustomColumns.")) {
+            const colName = ev.targetField.substring("CustomColumns.".length);
+            const cc = Array.isArray(r.CustomColumns) ? r.CustomColumns.find((c: any) => c.Name === colName) : null;
+            actual = cc?.Value;
+          }
+          if (String(actual ?? "").trim() !== ev.value) return false;
+        }
+        return true;
+      });
+      if (matches.length > 1) {
+        matchCache.set(ck, null);
+        return { id: null, ambiguous: true };
+      }
+      const found = matches[0];
+      const id = found?.Id ?? found?.id ?? null;
+      const numericId = id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
+      matchCache.set(ck, numericId);
+      return { id: numericId, ambiguous: false };
+    } catch (err: any) {
+      console.warn(`[target-push] ONIX match lookup failed: ${err.message}`);
+      matchCache.set(ck, null);
+      return { id: null, ambiguous: false };
+    }
+  }
+
   async function pushSingleRecord(i: number): Promise<{
     created: number; updated: number; error: number;
     errEntry?: { index: number; message: string };
@@ -578,8 +677,30 @@ async function pushToOnix(
     const globalIndex = batchIndex * 50 + i;
 
     try {
-      const onixId = record._onix_id || record[writeDef.idField] || record.Id || record.id;
-      const isUpdate = onixId && !isNaN(Number(onixId)) && Number(onixId) > 0;
+      let onixId: any = record._onix_id || record[writeDef.idField] || record.Id || record.id;
+      let isUpdate = onixId && !isNaN(Number(onixId)) && Number(onixId) > 0;
+
+      if (!isUpdate && matchFields.length > 0) {
+        const lookup = await findOnixIdByMatch(record, sourceRecords?.[i]);
+        if (lookup.ambiguous) {
+          return {
+            created: 0, updated: 0, error: 1,
+            errEntry: { index: globalIndex, message: "Multiple ONIX records match the configured key fields — record skipped to avoid wrong update" },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: "Ambiguous match: multiple ONIX records found for key fields" },
+            latency: 0,
+          };
+        }
+        if (lookup.id) {
+          onixId = lookup.id;
+          isUpdate = true;
+        } else if (onMissing === "skip") {
+          return {
+            created: 0, updated: 0, error: 0,
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "No match found in target — skipped per configuration" },
+            latency: 0,
+          };
+        }
+      }
 
       const method = isUpdate ? "PUT" : "POST";
       const url = isUpdate
@@ -844,10 +965,12 @@ async function pushToOnix(
   sortedResults.sort((a, b) => a.idx - b.idx);
 
   let loggedErrors = 0;
+  let skippedCount = 0;
   for (const { result } of sortedResults) {
     created += result.created;
     updated += result.updated;
     errorCount += result.error;
+    if (result.recResult.status === "skipped") skippedCount++;
     if (result.errEntry) {
       errors.push(result.errEntry);
       if (loggedErrors < 5) {
@@ -867,13 +990,14 @@ async function pushToOnix(
   const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
   const errorRate = records.length > 0 ? errorCount / records.length : 0;
   const warnOverload = errorRate > 0.3 && errorCount > 3;
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%)` : ""}`);  
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} skipped=${skippedCount} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%)` : ""}`);
 
   return {
     success: errorCount === 0,
     createdCount: created,
     updatedCount: updated,
     errorCount,
+    skippedCount,
     errors: errors.slice(0, 20),
     records: recordResults,
     avgLatencyMs: avgLatency,

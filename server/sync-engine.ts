@@ -508,6 +508,7 @@ async function executeAsync(
     let totalCreated = 0;
     let totalUpdated = 0;
     let totalFailed = 0;
+    let totalSkippedByMatch = 0;
     let currentBatch = 0;
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = [];
@@ -560,11 +561,23 @@ async function executeAsync(
       if (mappedBatch.length > 0) {
         try {
           const batchWallStart = Date.now();
-          const pushResult = await pushToTarget(targetModule, config.targetDataSource || null, mappedBatch, currentBatch - 1, batchRecords);
+          const pushResult = await pushToTarget(
+            targetModule,
+            config.targetDataSource || null,
+            mappedBatch,
+            currentBatch - 1,
+            batchRecords,
+            {
+              matchFields: ((config as any).matchFields || []).filter((f: string) => f && f.trim()),
+              onMissing: ((config as any).onMissing as "create" | "skip") || "create",
+              mappings,
+            }
+          );
           batchWallClockMs = Date.now() - batchWallStart;
           totalCreated += pushResult.createdCount;
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;
+          totalSkippedByMatch += pushResult.skippedCount || 0;
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
           if (pushResult.avgLatencyMs != null && pushResult.avgLatencyMs > 0) {
@@ -778,6 +791,7 @@ async function executeAsync(
       totalCreated,
       totalUpdated,
       totalFailed,
+      totalSkippedByMatch,
       totalProcessed: processedOk,
       sourceRecordCount: totalRecords,
       fieldMappings: mappingNames,
