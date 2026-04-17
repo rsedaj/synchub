@@ -49,6 +49,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ImageIcon,
+  Power,
+  PowerOff,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -367,6 +369,21 @@ export default function ModuleDetailPage() {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/modules/${moduleId}/toggle-active`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/modules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/modules", moduleId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Chyba", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleSave = () => {
     updateMutation.mutate({ name, description, baseUrl, status: status as any, config: configValues });
   };
@@ -407,17 +424,39 @@ export default function ModuleDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl font-semibold tracking-tight" data-testid="text-module-name">
               {mod.sortOrder.toString().padStart(2, "0")}. {mod.name}
             </h1>
             <Badge variant="outline">{mod.code}</Badge>
             <StatusDot status={mod.status} />
+            {!mod.isActive && (
+              <Badge variant="secondary" className="text-[10px] font-mono tracking-widest opacity-70" data-testid="badge-inactive">
+                {t("dashboard.inactiveBadge")}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             {mod.description}
           </p>
         </div>
+        <Button
+          variant={mod.isActive ? "outline" : "secondary"}
+          size="sm"
+          className="gap-2 flex-shrink-0"
+          onClick={() => toggleActiveMutation.mutate()}
+          disabled={toggleActiveMutation.isPending}
+          data-testid="button-toggle-active"
+        >
+          {toggleActiveMutation.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : mod.isActive ? (
+            <Power className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+          ) : (
+            <PowerOff className="h-3.5 w-3.5" />
+          )}
+          {mod.isActive ? t("moduleDetail.deactivate") : t("moduleDetail.activate")}
+        </Button>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">

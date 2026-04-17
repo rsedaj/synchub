@@ -27,6 +27,7 @@ export const apiModules = pgTable("api_modules", {
   baseUrl: text("base_url"),
   sortOrder: integer("sort_order").notNull().default(0),
   status: moduleStatusEnum("status").notNull().default("disconnected"),
+  isActive: boolean("is_active").notNull().default(true),
   config: jsonb("config").$type<Record<string, any>>().default({}),
   dataFields: jsonb("data_fields").$type<string[]>().default([]),
   docsUrl: text("docs_url"),

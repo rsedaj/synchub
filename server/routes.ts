@@ -309,6 +309,26 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/modules/:id/toggle-active", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const newActive = !mod.isActive;
+      const updated = await storage.updateModule(mod.id, { isActive: newActive });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "config_change",
+        entity: "module",
+        entityId: mod.id,
+        details: { code: mod.code, name: mod.name, changedFields: ["isActive"], before: { isActive: mod.isActive }, after: { isActive: newActive } },
+        ipAddress: req.ip || null,
+      });
+      return res.json(updated);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to toggle module active state" });
+    }
+  });
+
   app.post("/api/modules/:id/test-connection", requireAuth, async (req, res) => {
     try {
       const mod = await storage.getModule(req.params.id);
@@ -675,7 +695,21 @@ export async function registerRoutes(
           runsMap.set(run.id, run);
         }
       }
-      return res.json(Array.from(runsMap.values()));
+      const runs = Array.from(runsMap.values());
+      const enriched = await Promise.all(runs.map(async (run) => {
+        let triggeredByName: string | null = null;
+        if (run.triggeredBy) {
+          const user = await storage.getUser(run.triggeredBy);
+          triggeredByName = user?.fullName || user?.username || null;
+        }
+        let configName: string | null = null;
+        if (run.syncConfigId) {
+          const cfg = await storage.getSyncConfig(run.syncConfigId);
+          configName = cfg?.name || null;
+        }
+        return { ...run, triggeredByName, configName };
+      }));
+      return res.json(enriched);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load active runs" });
     }

@@ -23,6 +23,8 @@ import {
   Wifi,
   Server,
   Globe,
+  User,
+  Play,
 } from "lucide-react";
 import type { ApiModule, SyncLog } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -448,6 +450,109 @@ function RecentSyncsPanel({ syncs, modules }: { syncs: SyncLog[]; modules: ApiMo
   );
 }
 
+interface ActiveSyncRun {
+  id: string;
+  syncConfigId: string;
+  status: string;
+  progress: number;
+  recordsProcessed: number;
+  recordsTotal: number;
+  startedAt: string;
+  triggeredByName: string | null;
+  configName: string | null;
+}
+
+function ActiveSyncsPanel() {
+  const { t } = useLanguage();
+  const { data: runs = [] } = useQuery<ActiveSyncRun[]>({
+    queryKey: ["/api/sync-runs/active"],
+    refetchInterval: 5000,
+  });
+
+  const activeRuns = runs.filter(r => r.status === "running" || r.status === "pending");
+
+  const getElapsed = (startedAt: string) => {
+    const start = new Date(startedAt);
+    const diffMs = Date.now() - start.getTime();
+    const secs = Math.floor(diffMs / 1000);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const remainSecs = secs % 60;
+    return `${mins}m ${remainSecs}s`;
+  };
+
+  if (activeRuns.length === 0) return null;
+
+  return (
+    <Card className="border-emerald-500/30 dark:border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/5">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-medium font-mono uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              {t("dashboard.activeSyncs")}
+            </h2>
+            <PulsingDot color="emerald" />
+          </div>
+          <Badge variant="outline" className="font-mono text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
+            {activeRuns.length}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 pb-3">
+        <div className="space-y-2">
+          {activeRuns.map((run) => {
+            const pct = run.recordsTotal > 0 ? Math.min(100, Math.round((run.recordsProcessed / run.recordsTotal) * 100)) : (run.progress ?? 0);
+            return (
+              <div key={run.id} className="flex flex-col gap-1.5 p-3 rounded-md bg-background/60 border border-emerald-500/20" data-testid={`active-run-${run.id}`}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <span className="text-sm font-medium truncate" data-testid={`text-run-config-${run.id}`}>
+                      {run.configName || run.syncConfigId}
+                    </span>
+                    <Badge
+                      variant={run.status === "running" ? "default" : "secondary"}
+                      className="text-[10px] font-mono h-4 px-1.5"
+                    >
+                      {run.status === "running" ? t("dashboard.runningNow") : t("dashboard.pendingNow")}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono flex-shrink-0">
+                    {run.triggeredByName && (
+                      <span className="flex items-center gap-1" data-testid={`text-run-user-${run.id}`}>
+                        <User className="h-3 w-3" />
+                        {run.triggeredByName}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {getElapsed(run.startedAt)}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                    <span>{run.recordsProcessed.toLocaleString()} / {run.recordsTotal > 0 ? run.recordsTotal.toLocaleString() : "?"}</span>
+                    <span>{pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
+                      style={{ width: `${pct}%` }}
+                      data-testid={`progress-run-${run.id}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function TestAllPanel({ modules }: { modules: ApiModule[] }) {
   const { t } = useLanguage();
   const [isRunning, setIsRunning] = useState(false);
@@ -732,6 +837,8 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-[1400px]">
       <CommandCenterHeader data={data} />
+
+      <ActiveSyncsPanel />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard

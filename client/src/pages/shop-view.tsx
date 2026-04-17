@@ -119,6 +119,12 @@ const PRODUCT_SOURCES: Record<string, { value: string; label: string }[]> = {
   STICKER: [
     { value: "products", label: "Products" },
   ],
+  PROMOLOG: [
+    { value: "products_sk", label: "Products XML SK" },
+    { value: "products_cz", label: "Products XML CZ" },
+    { value: "products_en", label: "Products XML EN" },
+    { value: "stock", label: "Stock Feed EN" },
+  ],
   GIVING: [
     { value: "auto", label: "Products" },
   ],

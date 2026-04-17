@@ -163,6 +163,7 @@ export class DatabaseStorage implements IStorage {
 
   async getDashboardStats() {
     const allModules = await this.getAllModules();
+    const activeModules = allModules.filter(m => m.isActive !== false);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -174,12 +175,12 @@ export class DatabaseStorage implements IStorage {
       .limit(10);
 
     return {
-      totalModules: allModules.length,
-      connectedModules: allModules.filter(m => m.status === "connected").length,
+      totalModules: activeModules.length,
+      connectedModules: activeModules.filter(m => m.status === "connected").length,
       todaySyncs: todayLogs.length,
       errorSyncs: todayLogs.filter(l => l.status === "error").length,
       recentSyncs,
-      moduleStatuses: allModules,
+      moduleStatuses: activeModules,
     };
   }
 
