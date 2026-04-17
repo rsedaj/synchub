@@ -73,7 +73,7 @@ export default function ModulesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {modules?.map((mod) => (
-          <Card key={mod.id} className="group" data-testid={`card-module-${mod.code}`}>
+          <Card key={mod.id} className={`group${mod.isActive === false ? " opacity-60" : ""}`} data-testid={`card-module-${mod.code}`}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-3">
@@ -94,7 +94,14 @@ export default function ModulesPage() {
                     </div>
                   </div>
                 </div>
-                <StatusBadge status={mod.status} />
+                <div className="flex flex-col items-end gap-1.5">
+                  {mod.isActive === false && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/40" data-testid={`badge-deactivated-${mod.code}`}>
+                      {t("modules.deactivated")}
+                    </Badge>
+                  )}
+                  <StatusBadge status={mod.status} />
+                </div>
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed mb-4 line-clamp-2">

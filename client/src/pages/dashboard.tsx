@@ -35,6 +35,7 @@ import { useLanguage } from "@/components/language-provider";
 interface DashboardData {
   totalModules: number;
   connectedModules: number;
+  disabledModules: number;
   todaySyncs: number;
   errorSyncs: number;
   recentSyncs: SyncLog[];
@@ -845,6 +846,7 @@ export default function DashboardPage() {
           title={t("dashboard.totalModules")}
           value={data.totalModules}
           icon={Puzzle}
+          subtitle={data.disabledModules > 0 ? `${data.disabledModules} ${t("dashboard.disabled")}` : undefined}
           testId="stat-total-modules"
           accentColor="emerald"
         />

@@ -179,6 +179,7 @@ export class DatabaseStorage implements IStorage {
     return {
       totalModules: activeModules.length,
       connectedModules: activeModules.filter(m => m.status === "connected").length,
+      disabledModules: allModules.filter(m => m.isActive === false).length,
       todaySyncs: todayLogs.length,
       errorSyncs: todayLogs.filter(l => l.status === "error").length,
       recentSyncs,
