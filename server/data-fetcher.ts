@@ -1895,6 +1895,31 @@ async function fetchRaynetData(config: Record<string, any>, source?: string, lim
   }
 }
 
+export const ONIX_KNOWN_TARGET_FIELDS: string[] = [
+  "Ns_Number",
+  "Name",
+  "Type",
+  "Default_Stock",
+  "RecordExternalIdentificator",
+  "Default_Price",
+  "Default_Price_Vat",
+  "Managerial_Price",
+  "Managerial_Price_Vat",
+  "Ist_Code",
+  "Info",
+  "Note",
+  "CountryOfOrigin",
+  "Ns_Code",
+  "Measure_Units_Default_Name",
+  "Weight",
+  "Unit",
+  "CustomColumns.Product_Code",
+  "CustomColumns.EAN",
+  "CustomColumns.Brand",
+  "CustomColumns.URL",
+  "CustomColumns.STOCK_ITEMS_Z_HAUE_SK001_URL_TXT",
+];
+
 const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
   stockitems: { endpoint: "/api/v1/stockitems", label: "Skladové karty" },
   stocks: { endpoint: "/api/v1/stocks", label: "Sklady" },

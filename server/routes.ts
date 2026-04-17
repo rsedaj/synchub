@@ -5,7 +5,7 @@ import path from "path";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData, runMigrations } from "./seed";
-import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields } from "./data-fetcher";
+import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields, ONIX_KNOWN_TARGET_FIELDS } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import passport from "passport";
@@ -641,10 +641,33 @@ export async function registerRoutes(
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const source = (req.query.source as string) || undefined;
       const result = await fetchModuleData(mod, 20, source);
+
+      let fields: string[];
+      let sample: any[];
+      let error: string | undefined;
+
       if (!result.success) {
-        return res.json({ fields: mod.dataFields || [], sample: [], error: result.error });
+        fields = (mod.dataFields as string[]) || [];
+        sample = [];
+        error = result.error;
+      } else {
+        fields = result.fields;
+        sample = result.preview.slice(0, 3);
       }
-      return res.json({ fields: result.fields, sample: result.preview.slice(0, 3) });
+
+      if (mod.code === "ONIX") {
+        const merged = Array.from(new Set([...fields, ...ONIX_KNOWN_TARGET_FIELDS]));
+        merged.sort((a, b) => {
+          const aKnown = ONIX_KNOWN_TARGET_FIELDS.includes(a);
+          const bKnown = ONIX_KNOWN_TARGET_FIELDS.includes(b);
+          if (aKnown && !bKnown) return -1;
+          if (!aKnown && bKnown) return 1;
+          return a.localeCompare(b);
+        });
+        fields = merged;
+      }
+
+      return res.json({ fields, sample, ...(error ? { error } : {}) });
     } catch (err: any) {
       return res.json({ fields: [], sample: [], error: err.message });
     }
