@@ -493,11 +493,12 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
 }
 
 export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">(initialTab || "overview");
   const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
+  const [showResetDialog, setShowResetDialog] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [expandedBackupId, setExpandedBackupId] = useState<number | null>(null);
@@ -763,6 +764,28 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     },
   });
 
+  const resetHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sync-runs/reset-history");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setShowResetDialog(false);
+      toast({
+        title: language === "sk" ? "História vymazaná" : "History cleared",
+        description: language === "sk"
+          ? `Zmazaných ${data.deletedRuns} behov, ${data.deletedLogs} logov, ${data.deletedBaselines} bázových línií.`
+          : `Deleted ${data.deletedRuns} runs, ${data.deletedLogs} logs, ${data.deletedBaselines} baselines.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    },
+    onError: (err: any) => {
+      toast({ title: err.message || (language === "sk" ? "Reset zlyhal" : "Reset failed"), variant: "destructive" });
+    },
+  });
+
   const handleConfigExport = async () => {
     try {
       const res = await apiRequest("POST", "/api/backups/config-export");
@@ -913,6 +936,15 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
               {t("syncDash.backups")}
             </Button>
           </div>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => setShowResetDialog(true)}
+            data-testid="button-reset-history"
+            className="text-destructive border-destructive/40 hover:bg-destructive/10"
+          >
+            <Trash2 className="h-4 w-4 mr-1.5" />
+            {language === "sk" ? "Reset histórie" : "Reset history"}
+          </Button>
           <Button
             variant="outline" size="sm"
             onClick={() => { refetchRuns(); refetchBackups(); }}
@@ -2343,6 +2375,42 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
           )}
         </>
       )}
+
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-destructive" />
+              {language === "sk" ? "Vymazať históriu synchronizácií?" : "Clear sync history?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                {language === "sk"
+                  ? "Táto akcia vymaže všetky behy synchronizácií, logy a bázové línie (delta tracking). Zálohy zostanú zachované."
+                  : "This will permanently delete all sync runs, logs and baselines (delta tracking). Backups will be preserved."}
+              </span>
+              <span className="block font-medium text-destructive">
+                {language === "sk" ? "Akcia je nevratná." : "This action cannot be undone."}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-reset-cancel">
+              {language === "sk" ? "Zrušiť" : "Cancel"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-reset-confirm"
+              onClick={(e) => { e.preventDefault(); resetHistoryMutation.mutate(); }}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              disabled={resetHistoryMutation.isPending}
+            >
+              {resetHistoryMutation.isPending
+                ? (language === "sk" ? "Mazanie..." : "Clearing...")
+                : (language === "sk" ? "Vymazať históriu" : "Clear history")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!confirmDialog} onOpenChange={(open) => { if (!open) setConfirmDialog(null); }}>
         <AlertDialogContent>

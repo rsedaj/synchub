@@ -770,6 +770,22 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sync-runs/reset-history", requireRole("admin"), async (req, res) => {
+    try {
+      const result = await storage.resetSyncHistory();
+      await storage.createAuditLog({
+        userId: (req.user as any)?.id || "system",
+        action: "sync_complete",
+        entity: "sync_runs",
+        entityId: "all",
+        details: { action: "reset_history", ...result },
+      });
+      return res.json({ message: "Sync history reset", ...result });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to reset sync history" });
+    }
+  });
+
   app.post("/api/sync-runs/:id/cancel", requireRole("admin", "operator"), async (req, res) => {
     try {
       const success = cancelSyncRun(req.params.id);

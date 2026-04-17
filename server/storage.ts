@@ -63,6 +63,8 @@ export interface IStorage {
   getBaselines(configId: string): Promise<Map<string, string>>;
   upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void>;
   deleteBaselines(configId: string): Promise<void>;
+
+  resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -290,6 +292,20 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBaselines(configId: string): Promise<void> {
     await db.delete(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
+  }
+
+  async resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }> {
+    const [runsCount] = await db.select({ count: count() }).from(syncRuns);
+    const [logsCount] = await db.select({ count: count() }).from(syncLogs);
+    const [baselinesCount] = await db.select({ count: count() }).from(syncBaselines);
+    await db.delete(syncRuns);
+    await db.delete(syncLogs);
+    await db.delete(syncBaselines);
+    return {
+      deletedRuns: Number(runsCount?.count ?? 0),
+      deletedLogs: Number(logsCount?.count ?? 0),
+      deletedBaselines: Number(baselinesCount?.count ?? 0),
+    };
   }
 }
 
