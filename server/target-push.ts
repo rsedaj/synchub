@@ -118,6 +118,7 @@ function sanitizePipedriveBody(body: Record<string, any>, entityType: string): R
 
 export interface MatchOptions {
   matchFields?: string[];
+  matchOperator?: "and" | "or";
   onMissing?: "create" | "skip";
   mappings?: Array<{ sourceField: string; targetField: string }>;
 }
@@ -578,6 +579,7 @@ async function pushToOnix(
   }
 
   const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
+  const matchOperator: "and" | "or" = (matchOptions?.matchOperator as "and" | "or") || "and";
   const onMissing = matchOptions?.onMissing || "create";
   const matchTargetByMappingsRaw = (matchOptions?.mappings || [])
     .filter(m => matchFields.includes(m.sourceField))
@@ -606,10 +608,68 @@ async function pushToOnix(
     return "";
   }
 
+  function extractOnixId(item: any): number | null {
+    const id = item?.Id ?? item?.id ?? null;
+    return id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
+  }
+
+  async function lookupOnixByField(targetField: string, value: string, expectedValues: Array<{ targetField: string; value: string }>): Promise<{ id: number | null; ambiguous: boolean }> {
+    const f = buildOnixFilterParam(targetField, value);
+    const params = new URLSearchParams();
+    params.append(f.key, f.val);
+    try {
+      const lookupUrl = `${baseUrl}${writeDef.endpoint}?${params.toString()}`;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 30000);
+      const res = await fetch(lookupUrl, { headers: hdrs, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) return { id: null, ambiguous: false };
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : (Array.isArray(data?.data) ? data.data : []));
+      const matches = arr.filter((r: any) => {
+        for (const ev of expectedValues) {
+          let actual: any = r[ev.targetField];
+          if (ev.targetField.startsWith("CustomColumns.")) {
+            const colName = ev.targetField.substring("CustomColumns.".length);
+            const cc = Array.isArray(r.CustomColumns) ? r.CustomColumns.find((c: any) => c.Name === colName) : null;
+            actual = cc?.Value;
+          }
+          if (String(actual ?? "").trim() !== ev.value) return false;
+        }
+        return true;
+      });
+      if (matches.length > 1) return { id: null, ambiguous: true };
+      return { id: extractOnixId(matches[0]), ambiguous: false };
+    } catch {
+      return { id: null, ambiguous: false };
+    }
+  }
+
   type MatchLookupResult = { id: number | null; ambiguous: boolean };
 
   async function findOnixIdByMatch(record: Record<string, any>, sourceRec: Record<string, any> | undefined): Promise<MatchLookupResult> {
     if (matchFields.length === 0 || matchTargetByMappingsRaw.length === 0) return { id: null, ambiguous: false };
+
+    if (matchOperator === "or") {
+      // OR: try each match field independently, return first hit
+      for (const m of matchTargetByMappingsRaw) {
+        const value = pickMatchValue(record, sourceRec, m);
+        if (!value) continue;
+        const ck = `or|${m.targetField}=${value}`;
+        if (matchCache.has(ck)) {
+          const cached = matchCache.get(ck);
+          if (cached !== null) return { id: cached!, ambiguous: false };
+          continue;
+        }
+        const result = await lookupOnixByField(m.targetField, value, [{ targetField: m.targetField, value }]);
+        matchCache.set(ck, result.id);
+        if (result.ambiguous) return { id: null, ambiguous: true };
+        if (result.id !== null) return { id: result.id, ambiguous: false };
+      }
+      return { id: null, ambiguous: false };
+    }
+
+    // AND (default): all fields must match in a single lookup
     const params = new URLSearchParams();
     const cacheKey: string[] = [];
     const expectedValues: Array<{ targetField: string; value: string }> = [];
@@ -655,9 +715,7 @@ async function pushToOnix(
         matchCache.set(ck, null);
         return { id: null, ambiguous: true };
       }
-      const found = matches[0];
-      const id = found?.Id ?? found?.id ?? null;
-      const numericId = id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
+      const numericId = extractOnixId(matches[0]);
       matchCache.set(ck, numericId);
       return { id: numericId, ambiguous: false };
     } catch (err: any) {

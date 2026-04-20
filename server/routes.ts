@@ -63,6 +63,7 @@ const createSyncConfigSchema = z.object({
   }).optional(),
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
+  matchOperator: z.enum(["and", "or"]).optional(),
   onMissing: z.enum(["create", "skip"]).optional(),
 });
 
@@ -87,6 +88,7 @@ const updateSyncConfigSchema = z.object({
   }).optional(),
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
+  matchOperator: z.enum(["and", "or"]).optional(),
   onMissing: z.enum(["create", "skip"]).optional(),
 });
 

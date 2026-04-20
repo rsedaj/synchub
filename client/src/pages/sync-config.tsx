@@ -171,6 +171,7 @@ interface EditorState {
   sourceRecordLimit: number;
   fieldMappings: FieldMapping[];
   matchFields: string[];
+  matchOperator: "and" | "or";
   onMissing: "create" | "skip";
   schedule: Schedule;
   isEnabled: boolean;
@@ -186,6 +187,7 @@ const emptyEditor: EditorState = {
   sourceRecordLimit: 120000,
   fieldMappings: [],
   matchFields: [],
+  matchOperator: "and",
   onMissing: "create",
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
@@ -740,6 +742,7 @@ export default function SyncConfigPage() {
       sourceRecordLimit: config.sourceRecordLimit ?? 120000,
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
       matchFields: (config as any).matchFields || [],
+      matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
       onMissing: ((config as any).onMissing as "create" | "skip") || "create",
       schedule,
       isEnabled: config.isEnabled,
@@ -790,6 +793,7 @@ export default function SyncConfigPage() {
       sourceRecordLimit: editor.sourceRecordLimit || 120000,
       fieldMappings: validMappings,
       matchFields: editor.matchFields.filter(f => f && f.trim()),
+      matchOperator: editor.matchOperator,
       onMissing: editor.onMissing,
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
@@ -1501,14 +1505,14 @@ export default function SyncConfigPage() {
                       ? "Vyberte 1–2 zdrojové polia, podľa ktorých sa zistí, či záznam v cieľovom systéme už existuje. Ak nie sú nastavené žiadne polia, použije sa štandardná identifikácia (napr. interné ID)."
                       : "Choose 1–2 source fields used to detect if a record already exists in the target. If none are set, the default identification (e.g. internal ID) is used."}
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                  <div className="flex items-end gap-2 mb-4">
                     {[0, 1].map(idx => {
                       const value = editor.matchFields[idx] || "__none__";
                       const usedSourceFields = editor.fieldMappings
                         .map(m => m.sourceField)
                         .filter(f => f && f.trim());
                       return (
-                        <div key={idx}>
+                        <div key={idx} className="flex-1 min-w-0">
                           <Label className="text-xs mb-1 block">
                             {language === "sk" ? `Kľúč ${idx + 1}` : `Key ${idx + 1}`}
                           </Label>
@@ -1539,6 +1543,25 @@ export default function SyncConfigPage() {
                         </div>
                       );
                     })}
+                    {editor.matchFields.filter(f => f && f.trim()).length >= 2 && (
+                      <div className="flex flex-col items-center gap-1 pb-0.5 flex-shrink-0">
+                        <Label className="text-xs text-muted-foreground">{language === "sk" ? "Operátor" : "Operator"}</Label>
+                        <div className="flex rounded-md border overflow-hidden h-9">
+                          <button
+                            type="button"
+                            onClick={() => setEditor(prev => ({ ...prev, matchOperator: "and" }))}
+                            className={`px-3 text-xs font-semibold transition-colors ${editor.matchOperator === "and" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                            data-testid="button-match-operator-and"
+                          >AND</button>
+                          <button
+                            type="button"
+                            onClick={() => setEditor(prev => ({ ...prev, matchOperator: "or" }))}
+                            className={`px-3 text-xs font-semibold transition-colors border-l ${editor.matchOperator === "or" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                            data-testid="button-match-operator-or"
+                          >OR</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs mb-2 block">
