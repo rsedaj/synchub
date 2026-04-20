@@ -18,7 +18,7 @@ export interface CheckpointData {
   savedAt: string;
 }
 
-const CHECKPOINT_EVERY_BATCHES = 10;
+const CHECKPOINT_EVERY_BATCHES = 1;
 
 export function cancelSyncRun(runId: string): boolean {
   const state = activeRuns.get(runId);
@@ -544,6 +544,20 @@ async function executeAsync(
       totalBatches,
       currentBatch,
     });
+
+    if (!isResume) {
+      const initialCheckpoint: CheckpointData = {
+        globalOffset: startOffset,
+        totalCreated,
+        totalUpdated,
+        totalFailed,
+        totalSkippedByMatch,
+        errors: [],
+        savedAt: new Date().toISOString(),
+      };
+      storage.updateSyncRun(runId, { checkpointData: initialCheckpoint } as any).catch(() => {});
+      log(`Initial checkpoint saved (offset 0, total ${totalRecords})`);
+    }
 
     for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {

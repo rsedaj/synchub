@@ -115,7 +115,7 @@ export async function registerRoutes(
     let killed = 0;
     for (const z of zombies) {
       const checkpoint = (z as any).checkpointData;
-      if (checkpoint && checkpoint.globalOffset > 0) {
+      if (checkpoint) {
         console.log(`[startup] Auto-resuming run ${z.id.slice(0, 8)} from checkpoint offset ${checkpoint.globalOffset}`);
         setTimeout(() => {
           resumeSyncRun(z.id).catch(err =>
