@@ -101,6 +101,7 @@ export const syncRuns = pgTable("sync_runs", {
   backupId: varchar("backup_id"),
   cancelled: boolean("cancelled").default(false),
   errorMessage: text("error_message"),
+  checkpointData: jsonb("checkpoint_data").$type<Record<string, any> | null>(),
   details: jsonb("details").$type<Record<string, any>>(),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),

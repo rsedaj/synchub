@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData, runMigrations } from "./seed";
 import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields, ONIX_KNOWN_TARGET_FIELDS } from "./data-fetcher";
-import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup } from "./sync-engine";
+import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resumeSyncRun } from "./sync-engine";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import passport from "passport";
 import bcrypt from "bcryptjs";
@@ -111,16 +111,30 @@ export async function registerRoutes(
   try {
     const zombieRuns = await storage.getSyncRuns(undefined, 100);
     const zombies = zombieRuns.filter(r => r.status === "running" || r.status === "pending");
+    let autoResumed = 0;
+    let killed = 0;
     for (const z of zombies) {
-      await storage.updateSyncRun(z.id, {
-        status: "error",
-        errorMessage: "Server restarted — sync process lost",
-        completedAt: new Date(),
-      });
-      console.log(`[startup] Cleaned zombie sync run: ${z.id}`);
+      const checkpoint = (z as any).checkpointData;
+      if (checkpoint && checkpoint.globalOffset > 0) {
+        console.log(`[startup] Auto-resuming run ${z.id.slice(0, 8)} from checkpoint offset ${checkpoint.globalOffset}`);
+        setTimeout(() => {
+          resumeSyncRun(z.id).catch(err =>
+            console.error(`[startup] Failed to auto-resume run ${z.id}:`, err.message)
+          );
+        }, 5000);
+        autoResumed++;
+      } else {
+        await storage.updateSyncRun(z.id, {
+          status: "error",
+          errorMessage: "Server restarted — sync process lost",
+          completedAt: new Date(),
+        });
+        console.log(`[startup] Killed zombie sync run (no checkpoint): ${z.id.slice(0, 8)}`);
+        killed++;
+      }
     }
     if (zombies.length > 0) {
-      console.log(`[startup] Cleaned ${zombies.length} zombie sync run(s)`);
+      console.log(`[startup] Startup cleanup: ${autoResumed} auto-resumed, ${killed} killed`);
     }
   } catch (err: any) {
     console.error("[startup] Failed to clean zombie runs:", err.message);
@@ -810,6 +824,23 @@ export async function registerRoutes(
       return res.status(404).json({ message: "No active run found" });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to cancel sync" });
+    }
+  });
+
+  app.post("/api/sync-runs/:id/resume", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(req.params.id);
+      if (!run) return res.status(404).json({ message: "Run not found" });
+      if (run.status === "running") return res.status(400).json({ message: "Run is already active" });
+      const checkpoint = (run as any).checkpointData;
+      if (!checkpoint || !checkpoint.globalOffset) {
+        return res.status(400).json({ message: "No checkpoint available for this run" });
+      }
+      const ok = await resumeSyncRun(req.params.id);
+      if (!ok) return res.status(500).json({ message: "Failed to resume run" });
+      return res.json({ message: "Resume started", resumeOffset: checkpoint.globalOffset });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to resume sync" });
     }
   });
 

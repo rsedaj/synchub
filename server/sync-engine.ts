@@ -8,6 +8,18 @@ import type { PushRecordResult, VATTransformEntry } from "./target-push";
 
 const activeRuns = new Map<string, { cancelled: boolean }>();
 
+export interface CheckpointData {
+  globalOffset: number;
+  totalCreated: number;
+  totalUpdated: number;
+  totalFailed: number;
+  totalSkippedByMatch: number;
+  errors: Array<{ batch: number; index: number; message: string }>;
+  savedAt: string;
+}
+
+const CHECKPOINT_EVERY_BATCHES = 10;
+
 export function cancelSyncRun(runId: string): boolean {
   const state = activeRuns.get(runId);
   if (state) {
@@ -230,10 +242,12 @@ async function executeAsync(
   sourceModule: any,
   targetModule: any,
   runState: { cancelled: boolean },
-  fullSync: boolean = false
+  fullSync: boolean = false,
+  resumeFrom?: CheckpointData
 ) {
   const startTime = Date.now();
-  const log = (msg: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}] ${msg}`);
+  const isResume = !!resumeFrom;
+  const log = (msg: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}]${isResume ? " [RESUME]" : ""} ${msg}`);
   let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean } | null = null;
 
   try {
@@ -268,7 +282,7 @@ async function executeAsync(
     const schedule = config.schedule as any;
     const doBackup = schedule?.backupBeforeSync !== false;
 
-    if (doBackup) {
+    if (doBackup && !isResume) {
       log("=== PHASE 2/4: BACKUP ===");
       await updatePhase(runId, "backup");
 
@@ -411,7 +425,7 @@ async function executeAsync(
     let totalSkipped = 0;
     const baselineUpdates: Array<{ recordKey: string; fieldHash: string; index: number }> = [];
 
-    if (!fullSync) {
+    if (!fullSync && !isResume) {
       log("=== DELTA MODE: comparing with baseline ===");
       let baselines: Map<string, string>;
       try {
@@ -505,13 +519,14 @@ async function executeAsync(
 
     const BATCH_SIZE = 50;
     const totalBatches = Math.ceil(totalRecords / BATCH_SIZE);
-    let totalCreated = 0;
-    let totalUpdated = 0;
-    let totalFailed = 0;
-    let totalSkippedByMatch = 0;
-    let currentBatch = 0;
+    const startOffset = resumeFrom?.globalOffset ?? 0;
+    let totalCreated = resumeFrom?.totalCreated ?? 0;
+    let totalUpdated = resumeFrom?.totalUpdated ?? 0;
+    let totalFailed = resumeFrom?.totalFailed ?? 0;
+    let totalSkippedByMatch = resumeFrom?.totalSkippedByMatch ?? 0;
+    let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
-    const allErrors: Array<{ batch: number; index: number; message: string }> = [];
+    const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
     const syncedRecords: PushRecordResult[] = [];
     let allLatencyMs = 0;
     let allLatencyCount = 0;
@@ -520,13 +535,17 @@ async function executeAsync(
     const batchSpeeds: number[] = [];
     let globalMaxLatency = 0;
 
+    if (isResume) {
+      log(`Resuming from offset ${startOffset}/${totalRecords} (already processed: created=${totalCreated} updated=${totalUpdated} failed=${totalFailed} skipped=${totalSkippedByMatch})`);
+    }
+
     await storage.updateSyncRun(runId, {
       batchSize: BATCH_SIZE,
       totalBatches,
-      currentBatch: 0,
+      currentBatch,
     });
 
-    for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
+    for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
         return await markCancelled(runId, totalCreated, totalUpdated, totalFailed, 0, totalRecords, allErrors, syncedRecords, currentBatch);
       }
@@ -776,6 +795,20 @@ async function executeAsync(
       }, `batch:${currentBatch}`);
 
       log(`Batch ${currentBatch}/${totalBatches}: created=${totalCreated} updated=${totalUpdated} skipped=${totalSkippedByMatch} fail=${totalFailed} speed=${speedPerSec}/s`);
+
+      if (currentBatch % CHECKPOINT_EVERY_BATCHES === 0) {
+        const checkpoint: CheckpointData = {
+          globalOffset: i + BATCH_SIZE,
+          totalCreated,
+          totalUpdated,
+          totalFailed,
+          totalSkippedByMatch,
+          errors: allErrors.slice(-100),
+          savedAt: new Date().toISOString(),
+        };
+        storage.updateSyncRun(runId, { checkpointData: checkpoint } as any).catch(() => {});
+        log(`Checkpoint saved at offset ${checkpoint.globalOffset}`);
+      }
     }
 
     const processedOk = totalCreated + totalUpdated;
@@ -826,6 +859,7 @@ async function executeAsync(
       recordsSkipped: totalSkippedByMatch,
       progress: 100,
       completedAt: new Date(),
+      checkpointData: null,
       errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
       details: {
         phase: "complete",
@@ -953,6 +987,58 @@ async function markCancelled(
     },
   });
   activeRuns.delete(runId);
+}
+
+export async function resumeSyncRun(runId: string): Promise<boolean> {
+  const run = await storage.getSyncRun(runId);
+  if (!run) return false;
+
+  const checkpoint = (run as any).checkpointData as CheckpointData | null;
+  if (!checkpoint) return false;
+
+  const config = await storage.getSyncConfig(run.syncConfigId);
+  if (!config) return false;
+
+  const sourceModule = await storage.getModule(config.sourceModuleId);
+  if (!sourceModule) return false;
+
+  const targetModule = await storage.getModule(config.targetModuleId);
+  if (!targetModule) return false;
+
+  if (activeRuns.has(runId)) {
+    console.log(`[sync-engine] Resume skipped — run ${runId} is already active`);
+    return false;
+  }
+
+  const runState = { cancelled: false };
+  activeRuns.set(runId, runState);
+
+  await storage.updateSyncRun(runId, {
+    status: "running" as any,
+    errorMessage: null,
+    completedAt: null,
+    details: {
+      phase: "resume",
+      resuming: true,
+      resumeOffset: checkpoint.globalOffset,
+      resumedAt: new Date().toISOString(),
+    },
+  } as any);
+
+  console.log(`[sync-engine] Resuming run ${runId.slice(0, 8)} from checkpoint offset ${checkpoint.globalOffset}`);
+
+  executeAsync(runId, config, sourceModule, targetModule, runState, true, checkpoint).catch((err) => {
+    console.error(`[sync-engine] Fatal error resuming run ${runId}:`, err);
+    storage.updateSyncRun(runId, {
+      status: "error" as any,
+      errorMessage: err.message || "Fatal error during resume",
+      completedAt: new Date(),
+      checkpointData: checkpoint,
+    } as any).catch(() => {});
+    activeRuns.delete(runId);
+  });
+
+  return true;
 }
 
 export async function restoreFromBackup(backupId: string): Promise<{ success: boolean; message: string; recordCount?: number }> {

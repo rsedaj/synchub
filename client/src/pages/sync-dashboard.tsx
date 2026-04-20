@@ -648,6 +648,21 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     },
   });
 
+  const resumeSyncMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", `/api/sync-runs/${runId}/resume`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Sync sa obnovuje", description: `Pokračuje od záznamu ${data.resumeOffset}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+      setTrackingRunId(resumeSyncMutation.variables as string);
+    },
+    onError: () => {
+      toast({ title: "Chyba", description: "Nepodarilo sa obnoviť sync", variant: "destructive" });
+    },
+  });
+
   const restoreBackupMutation = useMutation({
     mutationFn: async (backupId: string) => {
       setBackupError(null);
@@ -1033,6 +1048,16 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       <PhaseIndicator phase={(trackedRun.details as any).phase} phaseHistory={(trackedRun.details as any)?.phaseHistory} t={t} />
                     )}
 
+                    {(trackedRun.details as any)?.resuming && (
+                      <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300" data-testid="badge-resuming">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="font-medium">Obnovuje sa...</span>
+                        {(trackedRun.details as any)?.resumeOffset > 0 && (
+                          <span className="text-blue-500">pokračuje od záznamu {((trackedRun.details as any).resumeOffset).toLocaleString()}</span>
+                        )}
+                      </div>
+                    )}
+
                     {(trackedRun.details as any)?.deltaMode !== undefined && (
                       <div className="flex items-center gap-2 text-xs" data-testid="delta-info">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(trackedRun.details as any).deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
@@ -1327,6 +1352,22 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       >
                         <Square className="h-3.5 w-3.5 mr-1.5" />
                         {t("syncDash.cancel")}
+                      </Button>
+                    )}
+                    {trackedRun.status === "error" && (trackedRun as any).checkpointData?.globalOffset > 0 && (
+                      <Button
+                        variant="outline" size="sm"
+                        onClick={() => resumeSyncMutation.mutate(trackedRun.id)}
+                        disabled={resumeSyncMutation.isPending}
+                        data-testid="button-resume-sync"
+                        className="border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                      >
+                        {resumeSyncMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Obnoviť od záznamu {((trackedRun as any).checkpointData.globalOffset).toLocaleString()}
                       </Button>
                     )}
                   </div>
