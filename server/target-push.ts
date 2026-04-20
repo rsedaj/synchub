@@ -806,7 +806,11 @@ async function pushToOnix(
 
       for (const [k, v] of Object.entries(body)) {
         if (k.startsWith("CustomColumns.")) {
-          const colName = k.substring("CustomColumns.".length);
+          let colName = k.substring("CustomColumns.".length);
+          // Normalize legacy/incorrect URL column names to the correct ONIX custom column name
+          if (colName === "URL" || colName === "STOCK_ITEMS_Z_HAUE_SK001_URL_TXT") {
+            colName = "Z_HAUE_SK001_URL_TXT";
+          }
           customCols.push({ Name: colName, Value: v != null ? String(v) : "" });
           keysToRemove.push(k);
           continue;

@@ -1916,8 +1916,7 @@ export const ONIX_KNOWN_TARGET_FIELDS: string[] = [
   "CustomColumns.Product_Code",
   "CustomColumns.EAN",
   "CustomColumns.Brand",
-  "CustomColumns.URL",
-  "CustomColumns.STOCK_ITEMS_Z_HAUE_SK001_URL_TXT",
+  "CustomColumns.Z_HAUE_SK001_URL_TXT",
 ];
 
 const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
