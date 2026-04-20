@@ -696,7 +696,8 @@ async function executeAsync(
         return;
       }
 
-      const totalProcessed = totalCreated + totalUpdated + totalFailed;
+      // Include skipped in totalProcessed so progress, speed and ETA are correct
+      const totalProcessed = totalCreated + totalUpdated + totalFailed + totalSkippedByMatch;
       const elapsed = Date.now() - startTime;
       const overallSpeedPerSec = elapsed > 0 ? Math.round((totalProcessed / elapsed) * 1000) : 0;
 
@@ -721,10 +722,12 @@ async function executeAsync(
                       r.Description || r.description || r.Title || r.title ||
                       (keys.length > 0 ? String(r[keys[0]]).slice(0, 60) : `record ${i + idx + 1}`);
         const result = lastPushRecords[idx] || null;
+        // Use actual push result status; only fall back to "created" when result exists but has no status
+        const status = result ? (result.status || "created") : "skipped";
         return {
           index: i + idx + 1,
           label: String(label).slice(0, 80),
-          status: result?.status || "created",
+          status,
           targetId: result?.target_id || null,
           fields: mapped ? Object.keys(mapped).length : keys.length,
         };
@@ -732,13 +735,15 @@ async function executeAsync(
 
       const batchCreatedCount = lastPushRecords.filter(r => r.status === "created").length;
       const batchUpdatedCount = lastPushRecords.filter(r => r.status === "updated").length;
+      const batchSkippedCount = lastPushRecords.filter(r => r.status === "skipped").length;
 
       const currentAvgLatency = allLatencyCount > 0 ? Math.round(allLatencyMs / allLatencyCount) : 0;
 
       await resilientDbUpdate(runId, {
         recordsProcessed: totalCreated + totalUpdated,
         recordsFailed: totalFailed,
-        progress: Math.round((totalProcessed / totalRecords) * 100),
+        recordsSkipped: totalSkippedByMatch,
+        progress: totalRecords > 0 ? Math.min(99, Math.round((totalProcessed / totalRecords) * 100)) : 0,
         currentBatch,
         totalBatches,
         batchSize: BATCH_SIZE,
@@ -750,6 +755,7 @@ async function executeAsync(
           totalCreated,
           totalUpdated,
           totalFailed,
+          totalSkippedByMatch,
           batchErrors: allErrors.slice(-20),
           liveBatch: {
             batchNumber: currentBatch,
@@ -757,6 +763,7 @@ async function executeAsync(
             sample: lastBatchSample,
             batchCreated: batchCreatedCount,
             batchUpdated: batchUpdatedCount,
+            batchSkipped: batchSkippedCount,
             batchErrors: batchErrorCount,
             batchAvgLatency,
           },
@@ -768,7 +775,7 @@ async function executeAsync(
         },
       }, `batch:${currentBatch}`);
 
-      log(`Batch ${currentBatch}/${totalBatches}: created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} speed=${speedPerSec}/s`);
+      log(`Batch ${currentBatch}/${totalBatches}: created=${totalCreated} updated=${totalUpdated} skipped=${totalSkippedByMatch} fail=${totalFailed} speed=${speedPerSec}/s`);
     }
 
     const processedOk = totalCreated + totalUpdated;
@@ -816,6 +823,7 @@ async function executeAsync(
       status: finalStatus,
       recordsProcessed: processedOk,
       recordsFailed: totalFailed,
+      recordsSkipped: totalSkippedByMatch,
       progress: 100,
       completedAt: new Date(),
       errorMessage: totalFailed > 0 ? `${totalFailed} records failed` : null,
@@ -826,6 +834,7 @@ async function executeAsync(
         totalCreated,
         totalUpdated,
         totalFailed,
+        totalSkippedByMatch,
         batchErrors: allErrors.slice(-50),
         syncedRecords,
         completionSummary,

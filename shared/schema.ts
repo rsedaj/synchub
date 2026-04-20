@@ -90,6 +90,7 @@ export const syncRuns = pgTable("sync_runs", {
   status: syncStatusEnum("status").notNull().default("pending"),
   recordsProcessed: integer("records_processed").default(0),
   recordsFailed: integer("records_failed").default(0),
+  recordsSkipped: integer("records_skipped").default(0),
   recordsTotal: integer("records_total").default(0),
   progress: integer("progress").default(0),
   batchSize: integer("batch_size").default(100),
