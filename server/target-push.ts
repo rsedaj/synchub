@@ -474,6 +474,92 @@ const ONIX_WRITE_SOURCES: Record<string, { endpoint: string; idField: string }> 
   stockitemgroups: { endpoint: "/api/v1/stockitemgroups", idField: "Id" },
 };
 
+interface OnixIndexEntry {
+  fetchedAt: number;
+  recordCount: number;
+  fieldMap: Map<string, Map<string, number[]>>;
+}
+const _onixIndexCache = new Map<string, OnixIndexEntry>();
+const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
+
+async function buildOnixIndex(
+  baseUrl: string,
+  endpoint: string,
+  hdrs: Record<string, string>,
+  targetFields: string[]
+): Promise<OnixIndexEntry | null> {
+  const cacheKey = `${baseUrl}${endpoint}`;
+  const existing = _onixIndexCache.get(cacheKey);
+  if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
+    return existing;
+  }
+
+  console.log(`[target-push] ONIX pre-fetch: building index for ${endpoint} (fields: ${targetFields.join(", ")})`);
+  const fetchStart = Date.now();
+
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 300000);
+    const fetchHdrs = { ...hdrs };
+    delete fetchHdrs["Content-Type"];
+    const res = await fetch(`${baseUrl}${endpoint}`, { headers: fetchHdrs, signal: ctrl.signal });
+    clearTimeout(t);
+
+    if (!res.ok) {
+      console.warn(`[target-push] ONIX index fetch failed: HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const arr: any[] = Array.isArray(data) ? data :
+      (Array.isArray(data?.value) ? data.value :
+        (Array.isArray(data?.data) ? data.data :
+          (Array.isArray(data?.items) ? data.items : [])));
+
+    const fieldMap = new Map<string, Map<string, number[]>>();
+    for (const tf of targetFields) {
+      fieldMap.set(tf, new Map());
+    }
+
+    for (const item of arr) {
+      const rawId = item?.Id ?? item?.id ?? null;
+      const id = rawId != null && !isNaN(Number(rawId)) && Number(rawId) > 0 ? Number(rawId) : null;
+      if (id === null) continue;
+
+      for (const tf of targetFields) {
+        let value: any;
+        if (tf.startsWith("CustomColumns.")) {
+          const colName = tf.substring("CustomColumns.".length);
+          const cc = Array.isArray(item.CustomColumns)
+            ? item.CustomColumns.find((c: any) => c.Name === colName)
+            : null;
+          value = cc?.Value;
+        } else {
+          value = item[tf];
+        }
+        if (value == null) continue;
+        const normalized = String(value).trim();
+        if (!normalized) continue;
+        const vMap = fieldMap.get(tf)!;
+        const existing = vMap.get(normalized);
+        if (existing) {
+          existing.push(id);
+        } else {
+          vMap.set(normalized, [id]);
+        }
+      }
+    }
+
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: arr.length, fieldMap };
+    _onixIndexCache.set(cacheKey, entry);
+    console.log(`[target-push] ONIX index built: ${arr.length} records in ${Date.now() - fetchStart}ms`);
+    return entry;
+  } catch (err: any) {
+    console.warn(`[target-push] ONIX index build failed: ${err.message}`);
+    return null;
+  }
+}
+
 function sanitizeOnixBody(body: Record<string, any>): Record<string, any> {
   const cleaned: Record<string, any> = {};
   for (const [key, val] of Object.entries(body)) {
@@ -596,6 +682,15 @@ async function pushToOnix(
 
   const matchCache = new Map<string, number | null>();
 
+  const targetFieldsForIndex = matchTargetByMappingsRaw.map(m => m.targetField).filter((v, i, a) => a.indexOf(v) === i);
+  let onixIndex: OnixIndexEntry | null = null;
+  if (targetFieldsForIndex.length > 0) {
+    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex);
+    if (onixIndex) {
+      console.log(`[target-push] ONIX index ready: ${onixIndex.recordCount} records cached, batch ${batchIndex}`);
+    }
+  }
+
   function pickMatchValue(record: Record<string, any>, sourceRec: Record<string, any> | undefined, m: { sourceField: string; targetField: string }): string {
     const mappedVal = record[m.targetField];
     const sourceVal = sourceRec ? sourceRec[m.sourceField] : undefined;
@@ -614,6 +709,13 @@ async function pushToOnix(
   }
 
   async function lookupOnixByField(targetField: string, value: string, expectedValues: Array<{ targetField: string; value: string }>): Promise<{ id: number | null; ambiguous: boolean }> {
+    if (onixIndex) {
+      const vMap = onixIndex.fieldMap.get(targetField);
+      const ids = vMap?.get(value) ?? [];
+      if (ids.length > 1) return { id: null, ambiguous: true };
+      return { id: ids[0] ?? null, ambiguous: false };
+    }
+
     const f = buildOnixFilterParam(targetField, value);
     const params = new URLSearchParams();
     params.append(f.key, f.val);
@@ -669,17 +771,14 @@ async function pushToOnix(
       return { id: null, ambiguous: false };
     }
 
-    // AND (default): all fields must match in a single lookup
-    const params = new URLSearchParams();
+    // AND (default): all fields must match — use index if available
     const cacheKey: string[] = [];
-    const expectedValues: Array<{ targetField: string; value: string }> = [];
+    const fieldValues: Array<{ targetField: string; value: string }> = [];
     for (const m of matchTargetByMappingsRaw) {
       const value = pickMatchValue(record, sourceRec, m);
       if (!value) return { id: null, ambiguous: false };
-      const f = buildOnixFilterParam(m.targetField, value);
-      params.append(f.key, f.val);
-      cacheKey.push(`${f.key}=${f.val}`);
-      expectedValues.push({ targetField: m.targetField, value });
+      cacheKey.push(`${m.targetField}=${value}`);
+      fieldValues.push({ targetField: m.targetField, value });
     }
     const ck = cacheKey.sort().join("|");
     if (matchCache.has(ck)) {
@@ -687,6 +786,40 @@ async function pushToOnix(
       return { id: cached ?? null, ambiguous: false };
     }
 
+    if (onixIndex) {
+      // Intersection of ID sets across all required fields
+      let candidateIds: Set<number> | null = null;
+      for (const fv of fieldValues) {
+        const vMap = onixIndex.fieldMap.get(fv.targetField);
+        const ids = vMap?.get(fv.value) ?? [];
+        const idSet = new Set(ids);
+        if (candidateIds === null) {
+          candidateIds = idSet;
+        } else {
+          for (const id of candidateIds) {
+            if (!idSet.has(id)) candidateIds.delete(id);
+          }
+        }
+        if (candidateIds.size === 0) break;
+      }
+      const finalIds = candidateIds ? Array.from(candidateIds) : [];
+      if (finalIds.length > 1) {
+        matchCache.set(ck, null);
+        return { id: null, ambiguous: true };
+      }
+      const result = finalIds[0] ?? null;
+      matchCache.set(ck, result);
+      return { id: result, ambiguous: false };
+    }
+
+    // Fallback: API lookup
+    const params = new URLSearchParams();
+    const expectedValues: Array<{ targetField: string; value: string }> = [];
+    for (const fv of fieldValues) {
+      const f = buildOnixFilterParam(fv.targetField, fv.value);
+      params.append(f.key, f.val);
+      expectedValues.push(fv);
+    }
     try {
       const lookupUrl = `${baseUrl}${writeDef.endpoint}?${params.toString()}`;
       const ctrl = new AbortController();
