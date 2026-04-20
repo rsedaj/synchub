@@ -1511,57 +1511,60 @@ export default function SyncConfigPage() {
                       const usedSourceFields = editor.fieldMappings
                         .map(m => m.sourceField)
                         .filter(f => f && f.trim());
+                      const bothFilled = editor.matchFields.filter(f => f && f.trim()).length >= 2;
                       return (
-                        <div key={idx} className="flex-1 min-w-0">
-                          <Label className="text-xs mb-1 block">
-                            {language === "sk" ? `Kľúč ${idx + 1}` : `Key ${idx + 1}`}
-                          </Label>
-                          <Select
-                            value={value}
-                            onValueChange={(val) => {
-                              setEditor(prev => {
-                                const next = [...prev.matchFields];
-                                if (val === "__none__") {
-                                  next[idx] = "";
-                                } else {
-                                  next[idx] = val;
-                                }
-                                return { ...prev, matchFields: next.filter((v, i) => v || i < idx) };
-                              });
-                            }}
-                          >
-                            <SelectTrigger data-testid={`select-match-field-${idx}`}>
-                              <SelectValue placeholder={language === "sk" ? "—" : "—"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">{language === "sk" ? "— žiadne —" : "— none —"}</SelectItem>
-                              {Array.from(new Set(usedSourceFields)).map(f => (
-                                <SelectItem key={f} value={f}>{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <>
+                          <div key={`key-${idx}`} className="flex-1 min-w-0">
+                            <Label className="text-xs mb-1 block">
+                              {language === "sk" ? `Kľúč ${idx + 1}` : `Key ${idx + 1}`}
+                            </Label>
+                            <Select
+                              value={value}
+                              onValueChange={(val) => {
+                                setEditor(prev => {
+                                  const next = [...prev.matchFields];
+                                  if (val === "__none__") {
+                                    next[idx] = "";
+                                  } else {
+                                    next[idx] = val;
+                                  }
+                                  return { ...prev, matchFields: next.filter((v, i) => v || i < idx) };
+                                });
+                              }}
+                            >
+                              <SelectTrigger data-testid={`select-match-field-${idx}`}>
+                                <SelectValue placeholder="—" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">{language === "sk" ? "— žiadne —" : "— none —"}</SelectItem>
+                                {Array.from(new Set(usedSourceFields)).map(f => (
+                                  <SelectItem key={f} value={f}>{f}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {idx === 0 && (
+                            <div key="operator" className="flex flex-col items-center gap-1 pb-0.5 flex-shrink-0">
+                              <Label className="text-xs text-muted-foreground">{language === "sk" ? "Operátor" : "Operator"}</Label>
+                              <div className={`flex rounded-md border overflow-hidden h-9 transition-opacity ${bothFilled ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditor(prev => ({ ...prev, matchOperator: "and" }))}
+                                  className={`px-3 text-xs font-semibold transition-colors ${editor.matchOperator === "and" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                                  data-testid="button-match-operator-and"
+                                >AND</button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditor(prev => ({ ...prev, matchOperator: "or" }))}
+                                  className={`px-3 text-xs font-semibold transition-colors border-l ${editor.matchOperator === "or" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
+                                  data-testid="button-match-operator-or"
+                                >OR</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       );
                     })}
-                    {editor.matchFields.filter(f => f && f.trim()).length >= 2 && (
-                      <div className="flex flex-col items-center gap-1 pb-0.5 flex-shrink-0">
-                        <Label className="text-xs text-muted-foreground">{language === "sk" ? "Operátor" : "Operator"}</Label>
-                        <div className="flex rounded-md border overflow-hidden h-9">
-                          <button
-                            type="button"
-                            onClick={() => setEditor(prev => ({ ...prev, matchOperator: "and" }))}
-                            className={`px-3 text-xs font-semibold transition-colors ${editor.matchOperator === "and" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
-                            data-testid="button-match-operator-and"
-                          >AND</button>
-                          <button
-                            type="button"
-                            onClick={() => setEditor(prev => ({ ...prev, matchOperator: "or" }))}
-                            className={`px-3 text-xs font-semibold transition-colors border-l ${editor.matchOperator === "or" ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground"}`}
-                            data-testid="button-match-operator-or"
-                          >OR</button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                   <div>
                     <Label className="text-xs mb-2 block">
