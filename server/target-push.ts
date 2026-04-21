@@ -954,12 +954,17 @@ async function pushToOnix(
         }
       }
 
-      const method = isUpdate ? "PUT" : "POST";
-      const url = isUpdate
-        ? `${baseUrl}${writeDef.endpoint}/${onixId}`
-        : `${baseUrl}${writeDef.endpoint}`;
+      // ONIX API uses POST for both create AND update — update is identified by IdRecord in body
+      // (PUT to /stockitems/{id} returns HTTP 404 — endpoint not supported by ONIX)
+      const method = "POST";
+      const url = `${baseUrl}${writeDef.endpoint}`;
 
       const body = sanitizeOnixBody(record);
+
+      // For updates, include the IdRecord in the body so ONIX knows which record to update
+      if (isUpdate && onixId) {
+        body.IdRecord = Number(onixId);
+      }
 
       const hasVal = (v: any): boolean => {
         if (v == null) return false;
