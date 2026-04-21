@@ -492,11 +492,11 @@ async function buildOnixIndex(
   targetFields: string[],
   targetStock?: string
 ): Promise<OnixIndexEntry | null> {
-  // Build the actual fetch URL first — cache key is based on full URL to avoid collisions
-  const fetchUrl = targetStock
-    ? `${baseUrl}${endpoint}?Default_Stock=${encodeURIComponent(targetStock)}`
-    : `${baseUrl}${endpoint}`;
-  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}`;
+  // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
+  // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
+  // Stock filtering is done in-memory after fetch.
+  const fetchUrl = `${baseUrl}${endpoint}`;
+  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}`;
 
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
@@ -964,17 +964,13 @@ async function pushToOnix(
         }
       }
 
-      // ONIX API uses POST for both create AND update — update is identified by IdRecord in body
-      // (PUT to /stockitems/{id} returns HTTP 404 — endpoint not supported by ONIX)
+      // ONIX API uses POST for both create AND update — ONIX automatically upserts by Ns_Number
+      // (per official Swagger docs: "V prípade, že pridávaná karta už existuje vykoná sa akcia edit")
+      // IdRecord is NOT part of the POST schema — must NOT be included in body (it confuses ONIX)
       const method = "POST";
       const url = `${baseUrl}${writeDef.endpoint}`;
 
       const body = sanitizeOnixBody(record);
-
-      // For updates, include the IdRecord in the body so ONIX knows which record to update
-      if (isUpdate && onixId) {
-        body.IdRecord = Number(onixId);
-      }
 
       const hasVal = (v: any): boolean => {
         if (v == null) return false;
@@ -1011,7 +1007,9 @@ async function pushToOnix(
       if (!hasVal(body.Ns_Code) && !isUpdate) {
         body.Ns_Code = "SK";
       }
-      if (source === "stockitems" && !hasVal(body.Type) && !isUpdate) {
+      // Type is REQUIRED by ONIX on every POST (per Swagger schema), even for updates.
+      // Default 1 = "Skladová karta" (standard stock card).
+      if (source === "stockitems" && !hasVal(body.Type)) {
         body.Type = 1;
       }
       if (source === "stockitems" && !hasVal(body.Measure_Units_Default_Name) && !isUpdate) {
