@@ -733,7 +733,12 @@ async function pushToOnix(
     if (onixIndex) {
       const vMap = onixIndex.fieldMap.get(targetField);
       const ids = vMap?.get(value) ?? [];
-      if (ids.length > 1) return { id: null, ambiguous: true };
+      if (ids.length > 1) {
+        // Multiple ONIX records share this key — pick the lowest (oldest/canonical) IdRecord
+        const chosen = Math.min(...ids);
+        console.warn(`[target-push] ONIX duplicate Ns_Number="${value}": ${ids.length} records (${ids.join(",")}), using lowest IdRecord=${chosen}`);
+        return { id: chosen, ambiguous: false };
+      }
       return { id: ids[0] ?? null, ambiguous: false };
     }
 
@@ -761,7 +766,11 @@ async function pushToOnix(
         }
         return true;
       });
-      if (matches.length > 1) return { id: null, ambiguous: true };
+      if (matches.length > 1) {
+        // Pick the lowest IdRecord among duplicates
+        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id): id is number => id !== null).sort((a, b) => a - b);
+        return { id: sorted[0] ?? null, ambiguous: false };
+      }
       return { id: extractOnixId(matches[0]), ambiguous: false };
     } catch {
       return { id: null, ambiguous: false };
@@ -825,8 +834,10 @@ async function pushToOnix(
       }
       const finalIds = candidateIds ? Array.from(candidateIds) : [];
       if (finalIds.length > 1) {
-        matchCache.set(ck, null);
-        return { id: null, ambiguous: true };
+        // Multiple matches — pick lowest (oldest/canonical) IdRecord deterministically
+        const chosen = Math.min(...finalIds);
+        matchCache.set(ck, chosen);
+        return { id: chosen, ambiguous: false };
       }
       const result = finalIds[0] ?? null;
       if (result === null && _noMatchDebugCount < 3 && onixIndex) {
@@ -876,8 +887,11 @@ async function pushToOnix(
         return true;
       });
       if (matches.length > 1) {
-        matchCache.set(ck, null);
-        return { id: null, ambiguous: true };
+        // Pick lowest IdRecord among duplicates
+        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id): id is number => id !== null).sort((a, b) => a - b);
+        const chosen = sorted[0] ?? null;
+        matchCache.set(ck, chosen);
+        return { id: chosen, ambiguous: false };
       }
       const numericId = extractOnixId(matches[0]);
       matchCache.set(ck, numericId);
