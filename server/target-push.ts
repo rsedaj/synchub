@@ -489,10 +489,11 @@ async function buildOnixIndex(
   hdrs: Record<string, string>,
   targetFields: string[]
 ): Promise<OnixIndexEntry | null> {
-  const cacheKey = `${baseUrl}${endpoint}`;
+  const cacheKey = `${baseUrl}${endpoint}:${targetFields.slice().sort().join(",")}`;
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
-    return existing;
+    const allFieldsPresent = targetFields.every(f => existing.fieldMap.has(f));
+    if (allFieldsPresent) return existing;
   }
 
   console.log(`[target-push] ONIX pre-fetch: building index for ${endpoint} (fields: ${targetFields.join(", ")})`);
