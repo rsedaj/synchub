@@ -524,7 +524,7 @@ async function buildOnixIndex(
     }
 
     for (const item of arr) {
-      const rawId = item?.Id ?? item?.id ?? null;
+      const rawId = item?.Id ?? item?.id ?? item?.IdRecord ?? null;
       const id = rawId != null && !isNaN(Number(rawId)) && Number(rawId) > 0 ? Number(rawId) : null;
       if (id === null) continue;
 
@@ -712,7 +712,7 @@ async function pushToOnix(
   }
 
   function extractOnixId(item: any): number | null {
-    const id = item?.Id ?? item?.id ?? null;
+    const id = item?.Id ?? item?.id ?? item?.IdRecord ?? null;
     return id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
   }
 
@@ -1097,7 +1097,7 @@ async function pushToOnix(
             }
 
             if (!onixRejected) {
-              newId = data?.Id || data?.id || data?.StockItemId || data?.stockItemId ||
+              newId = data?.Id || data?.id || data?.IdRecord || data?.StockItemId || data?.stockItemId ||
                       (typeof data === "number" ? data : null);
               if (!newId && typeof data === "object" && data !== null) {
                 for (const key of Object.keys(data)) {
