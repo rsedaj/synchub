@@ -263,6 +263,9 @@ async function executeAsync(
         details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
       });
       try {
+        await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: "No field mappings configured", triggeredBy: null });
+      } catch {}
+      try {
         await storage.createAuditLog({
           userId: config.createdBy || "system",
           action: "sync_complete",
@@ -363,6 +366,9 @@ async function executeAsync(
           completedAt: new Date(),
           details: { phase: "error", backupError: err.message, phaseHistory: buildErrorPhaseHistory("backup") },
         });
+        try {
+          await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: `Backup failed: ${err.message}`.slice(0, 500), triggeredBy: null });
+        } catch {}
         try {
           await storage.createAuditLog({
             userId: config.createdBy || "system",
@@ -727,6 +733,17 @@ async function executeAsync(
             completionSummary: earlyCompletionSummary,
           },
         });
+        try {
+          await storage.createSyncLog({
+            moduleId: config.sourceModuleId,
+            direction: "import",
+            status: "error",
+            recordsProcessed: totalCreated + totalUpdated,
+            recordsFailed: totalFailed,
+            errorMessage: `Sync stopped: ${consecutiveFailBatches} consecutive batches failed. Last error: ${lastError}`.slice(0, 500),
+            triggeredBy: null,
+          });
+        } catch {}
         try {
           await storage.createAuditLog({
             userId: config.createdBy || "system",
