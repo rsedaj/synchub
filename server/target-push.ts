@@ -487,16 +487,17 @@ async function buildOnixIndex(
   baseUrl: string,
   endpoint: string,
   hdrs: Record<string, string>,
-  targetFields: string[]
+  targetFields: string[],
+  targetStock?: string
 ): Promise<OnixIndexEntry | null> {
-  const cacheKey = `${baseUrl}${endpoint}:${targetFields.slice().sort().join(",")}`;
+  const cacheKey = `${baseUrl}${endpoint}:${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}`;
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
     const allFieldsPresent = targetFields.every(f => existing.fieldMap.has(f));
     if (allFieldsPresent) return existing;
   }
 
-  console.log(`[target-push] ONIX pre-fetch: building index for ${endpoint} (fields: ${targetFields.join(", ")})`);
+  console.log(`[target-push] ONIX pre-fetch: building index for ${endpoint} (fields: ${targetFields.join(", ")}, stock filter: ${targetStock ?? "none"})`);
   const fetchStart = Date.now();
 
   try {
@@ -523,10 +524,20 @@ async function buildOnixIndex(
       fieldMap.set(tf, new Map());
     }
 
+    let filteredByStock = 0;
     for (const item of arr) {
       const rawId = item?.Id ?? item?.id ?? item?.IdRecord ?? null;
       const id = rawId != null && !isNaN(Number(rawId)) && Number(rawId) > 0 ? Number(rawId) : null;
       if (id === null) continue;
+
+      // Filter by targetStock if specified — avoids ambiguous matches across warehouses
+      if (targetStock) {
+        const itemStock = item?.Default_Stock ?? item?.default_stock ?? item?.Stock ?? null;
+        if (itemStock != null && String(itemStock).trim() !== targetStock) {
+          filteredByStock++;
+          continue;
+        }
+      }
 
       for (const tf of targetFields) {
         let value: any;
@@ -552,14 +563,16 @@ async function buildOnixIndex(
       }
     }
 
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: arr.length, fieldMap };
+    const indexedCount = arr.length - filteredByStock;
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap };
     _onixIndexCache.set(cacheKey, entry);
     const sampleLog: string[] = [];
     for (const [field, vMap] of fieldMap.entries()) {
       const samples = Array.from(vMap.keys()).slice(0, 5);
       sampleLog.push(`${field}: [${samples.map(s => JSON.stringify(s)).join(", ")}] (${vMap.size} unique vals)`);
     }
-    console.log(`[target-push] ONIX index built: ${arr.length} records in ${Date.now() - fetchStart}ms | ${sampleLog.join(" | ")}`);
+    const stockMsg = targetStock ? ` | stock filter=${targetStock} skipped=${filteredByStock}` : "";
+    console.log(`[target-push] ONIX index built: ${arr.length} total / ${indexedCount} indexed in ${Date.now() - fetchStart}ms${stockMsg} | ${sampleLog.join(" | ")}`);
     return entry;
   } catch (err: any) {
     console.warn(`[target-push] ONIX index build failed: ${err.message}`);
@@ -693,7 +706,7 @@ async function pushToOnix(
   const targetFieldsForIndex = matchTargetByMappingsRaw.map(m => m.targetField).filter((v, i, a) => a.indexOf(v) === i);
   let onixIndex: OnixIndexEntry | null = null;
   if (targetFieldsForIndex.length > 0) {
-    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex);
+    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock);
     if (onixIndex) {
       console.log(`[target-push] ONIX index ready: ${onixIndex.recordCount} records cached, batch ${batchIndex}`);
     }
