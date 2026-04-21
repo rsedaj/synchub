@@ -412,6 +412,9 @@ async function executeAsync(
         details: { phase: "error", phaseHistory: buildErrorPhaseHistory("fetch") },
       });
       try {
+        await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: fetchError.slice(0, 500), triggeredBy: null });
+      } catch {}
+      try {
         await storage.createAuditLog({
           userId: config.createdBy || "system",
           action: "sync_complete",
