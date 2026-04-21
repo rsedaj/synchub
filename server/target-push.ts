@@ -553,7 +553,12 @@ async function buildOnixIndex(
 
     const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: arr.length, fieldMap };
     _onixIndexCache.set(cacheKey, entry);
-    console.log(`[target-push] ONIX index built: ${arr.length} records in ${Date.now() - fetchStart}ms`);
+    const sampleLog: string[] = [];
+    for (const [field, vMap] of fieldMap.entries()) {
+      const samples = Array.from(vMap.keys()).slice(0, 5);
+      sampleLog.push(`${field}: [${samples.map(s => JSON.stringify(s)).join(", ")}] (${vMap.size} unique vals)`);
+    }
+    console.log(`[target-push] ONIX index built: ${arr.length} records in ${Date.now() - fetchStart}ms | ${sampleLog.join(" | ")}`);
     return entry;
   } catch (err: any) {
     console.warn(`[target-push] ONIX index build failed: ${err.message}`);
@@ -682,6 +687,7 @@ async function pushToOnix(
   }
 
   const matchCache = new Map<string, number | null>();
+  let _noMatchDebugCount = 0;
 
   const targetFieldsForIndex = matchTargetByMappingsRaw.map(m => m.targetField).filter((v, i, a) => a.indexOf(v) === i);
   let onixIndex: OnixIndexEntry | null = null;
@@ -809,6 +815,16 @@ async function pushToOnix(
         return { id: null, ambiguous: true };
       }
       const result = finalIds[0] ?? null;
+      if (result === null && _noMatchDebugCount < 3 && onixIndex) {
+        _noMatchDebugCount++;
+        const debugParts = fieldValues.map(fv => {
+          const vMap = onixIndex!.fieldMap.get(fv.targetField);
+          const inIndex = vMap ? vMap.has(fv.value) : false;
+          const sampleKeys = vMap ? Array.from(vMap.keys()).slice(0, 3).map(k => JSON.stringify(k)).join(", ") : "no map";
+          return `${fv.targetField}=${JSON.stringify(fv.value)} inIndex=${inIndex} samples=[${sampleKeys}]`;
+        });
+        console.log(`[target-push] NO-MATCH #${_noMatchDebugCount}: ${debugParts.join(" AND ")}`);
+      }
       matchCache.set(ck, result);
       return { id: result, ambiguous: false };
     }
