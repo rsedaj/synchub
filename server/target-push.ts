@@ -479,6 +479,8 @@ interface OnixIndexEntry {
   fetchedAt: number;
   recordCount: number;
   fieldMap: Map<string, Map<string, number[]>>;
+  // Map IdRecord → RecordExternalIdentificator (ONIX requires it on every POST, even updates)
+  idToRecExtId: Map<number, string>;
 }
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
@@ -539,6 +541,7 @@ async function buildOnixIndex(
     for (const tf of targetFields) {
       fieldMap.set(tf, new Map());
     }
+    const idToRecExtId = new Map<number, string>();
 
     let filteredByStock = 0;
     for (const item of arr) {
@@ -553,6 +556,12 @@ async function buildOnixIndex(
           filteredByStock++;
           continue;
         }
+      }
+
+      // Capture RecordExternalIdentificator — ONIX requires this on every POST (even updates)
+      const recExtId = item?.RecordExternalIdentificator ?? item?.recordExternalIdentificator;
+      if (recExtId != null && String(recExtId).trim() !== "") {
+        idToRecExtId.set(id, String(recExtId));
       }
 
       for (const tf of targetFields) {
@@ -580,8 +589,9 @@ async function buildOnixIndex(
     }
 
     const indexedCount = arr.length - filteredByStock;
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap };
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId };
     _onixIndexCache.set(cacheKey, entry);
+    console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
     for (const [field, vMap] of fieldMap.entries()) {
       const samples = Array.from(vMap.keys()).slice(0, 5);
@@ -981,8 +991,19 @@ async function pushToOnix(
         sourceRec?.custom_label_0 || sourceRec?.custom_label_1;
       const autoId = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
 
-      if (!hasVal(body.RecordExternalIdentificator) && !isUpdate) {
-        body.RecordExternalIdentificator = autoId;
+      if (!hasVal(body.RecordExternalIdentificator)) {
+        if (isUpdate && onixIndex && onixId) {
+          // For updates, reuse the existing RecordExternalIdentificator from ONIX (don't overwrite)
+          const existingRecExtId = onixIndex.idToRecExtId.get(Number(onixId));
+          if (existingRecExtId) {
+            body.RecordExternalIdentificator = existingRecExtId;
+          } else {
+            // Fallback if not in index — use source autoId (better than empty, ONIX requires it)
+            body.RecordExternalIdentificator = autoId;
+          }
+        } else if (!isUpdate) {
+          body.RecordExternalIdentificator = autoId;
+        }
       }
       if (!hasVal(body.Ns_Number) && !isUpdate) {
         body.Ns_Number = hasVal(body.RecordExternalIdentificator) ? body.RecordExternalIdentificator : autoId;
