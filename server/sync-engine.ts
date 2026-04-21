@@ -418,8 +418,31 @@ async function executeAsync(
       return;
     }
 
-    const allFetchedRecords = sourceResult.preview;
-    log(`Fetched ${allFetchedRecords.length} source records`);
+    const _rawFetchedRecords = sourceResult.preview;
+    log(`Fetched ${_rawFetchedRecords.length} source records`);
+
+    const _srcFilters: Array<{ field: string; operator: string; value: string }> =
+      ((config as any).sourceFilters || []).filter((f: any) => f?.field && f?.value != null && String(f.value).trim() !== "");
+    const allFetchedRecords = _srcFilters.length > 0
+      ? _rawFetchedRecords.filter(rec =>
+          _srcFilters.every(f => {
+            const v = String(rec[f.field] ?? "").trim();
+            const fv = String(f.value).trim();
+            switch (f.operator) {
+              case "starts_with": return v.toLowerCase().startsWith(fv.toLowerCase());
+              case "ends_with":   return v.toLowerCase().endsWith(fv.toLowerCase());
+              case "contains":    return v.toLowerCase().includes(fv.toLowerCase());
+              case "not_contains": return !v.toLowerCase().includes(fv.toLowerCase());
+              case "equals":      return v === fv;
+              case "not_equals":  return v !== fv;
+              default:            return true;
+            }
+          })
+        )
+      : _rawFetchedRecords;
+    if (_srcFilters.length > 0) {
+      log(`Source filters applied (${_srcFilters.length}): ${allFetchedRecords.length}/${_rawFetchedRecords.length} records passed (${_rawFetchedRecords.length - allFetchedRecords.length} filtered out)`);
+    }
 
     let allRecords = allFetchedRecords;
     let totalSkipped = 0;

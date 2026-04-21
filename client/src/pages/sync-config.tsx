@@ -161,6 +161,21 @@ type EnrichedSyncConfig = SyncConfig & {
   sourceModule?: { code: string; name: string; status: string } | null;
 };
 
+interface SourceFilter {
+  field: string;
+  operator: "starts_with" | "ends_with" | "contains" | "not_contains" | "equals" | "not_equals";
+  value: string;
+}
+
+const SOURCE_FILTER_OPERATORS: Array<{ value: SourceFilter["operator"]; labelSk: string; labelEn: string }> = [
+  { value: "starts_with",  labelSk: "začína na",        labelEn: "starts with" },
+  { value: "ends_with",    labelSk: "končí na",          labelEn: "ends with" },
+  { value: "contains",     labelSk: "obsahuje",          labelEn: "contains" },
+  { value: "not_contains", labelSk: "neobsahuje",        labelEn: "does not contain" },
+  { value: "equals",       labelSk: "rovná sa (=)",      labelEn: "equals (=)" },
+  { value: "not_equals",   labelSk: "nerovná sa (≠)",    labelEn: "not equals (≠)" },
+];
+
 interface EditorState {
   id?: string;
   name: string;
@@ -174,6 +189,7 @@ interface EditorState {
   matchOperator: "and" | "or";
   onMissing: "create" | "skip";
   targetStock: string;
+  sourceFilters: SourceFilter[];
   schedule: Schedule;
   isEnabled: boolean;
   backupBeforeSync: boolean;
@@ -191,6 +207,7 @@ const emptyEditor: EditorState = {
   matchOperator: "and",
   onMissing: "create",
   targetStock: "",
+  sourceFilters: [],
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
   backupBeforeSync: true,
@@ -767,6 +784,7 @@ export default function SyncConfigPage() {
       matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
       onMissing: ((config as any).onMissing as "create" | "skip") || "create",
       targetStock: (config as any).targetStock || "",
+      sourceFilters: (config as any).sourceFilters || [],
       schedule,
       isEnabled: config.isEnabled,
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
@@ -819,6 +837,7 @@ export default function SyncConfigPage() {
       matchOperator: editor.matchOperator,
       onMissing: editor.onMissing,
       targetStock: editor.targetStock || null,
+      sourceFilters: editor.sourceFilters.filter(f => f.field && f.value),
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
     };
@@ -1246,6 +1265,135 @@ export default function SyncConfigPage() {
                     language={language}
                   />
                 )}
+
+                <Separator />
+
+                <div data-testid="section-source-filters">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Database className="h-4 w-4" />
+                      {language === "sk" ? "Filtre zdrojových záznamov" : "Source Record Filters"}
+                      {editor.sourceFilters.filter(f => f.field && f.value).length > 0 && (
+                        <span className="ml-1 text-muted-foreground font-normal">
+                          ({editor.sourceFilters.filter(f => f.field && f.value).length})
+                        </span>
+                      )}
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditor(prev => ({
+                        ...prev,
+                        sourceFilters: [...prev.sourceFilters, { field: "", operator: "starts_with", value: "" }]
+                      }))}
+                      data-testid="button-add-source-filter"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      {language === "sk" ? "Pridať filter" : "Add Filter"}
+                    </Button>
+                  </div>
+                  {editor.sourceFilters.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">
+                      {language === "sk"
+                        ? "Žiadne filtre — synchronizujú sa všetky záznamy. Pridajte filter pre obmedzenie podľa hodnoty poľa (napr. custom_label_1 začína na 'H')."
+                        : "No filters — all records are synchronized. Add a filter to limit by field value (e.g. custom_label_1 starts with 'H')."}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {editor.sourceFilters.map((sf, idx) => (
+                        <div key={idx} className="flex gap-2 items-start" data-testid={`source-filter-row-${idx}`}>
+                          <div className="flex-1 min-w-0">
+                            {sourceFields.length > 0 ? (
+                              <Select
+                                value={sf.field || "__none__"}
+                                onValueChange={val => setEditor(prev => {
+                                  const next = [...prev.sourceFilters];
+                                  next[idx] = { ...next[idx], field: val === "__none__" ? "" : val };
+                                  return { ...prev, sourceFilters: next };
+                                })}
+                              >
+                                <SelectTrigger className="h-8 text-xs" data-testid={`source-filter-field-${idx}`}>
+                                  <SelectValue placeholder={language === "sk" ? "Pole..." : "Field..."} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">{language === "sk" ? "— Vybrať pole —" : "— Select field —"}</SelectItem>
+                                  {sourceFields.map(f => (
+                                    <SelectItem key={f} value={f}><span className="font-mono text-xs">{f}</span></SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                className="h-8 text-xs font-mono"
+                                placeholder={language === "sk" ? "Názov poľa..." : "Field name..."}
+                                value={sf.field}
+                                onChange={e => setEditor(prev => {
+                                  const next = [...prev.sourceFilters];
+                                  next[idx] = { ...next[idx], field: e.target.value };
+                                  return { ...prev, sourceFilters: next };
+                                })}
+                                data-testid={`source-filter-field-input-${idx}`}
+                              />
+                            )}
+                          </div>
+                          <div className="w-36 shrink-0">
+                            <Select
+                              value={sf.operator}
+                              onValueChange={val => setEditor(prev => {
+                                const next = [...prev.sourceFilters];
+                                next[idx] = { ...next[idx], operator: val as SourceFilter["operator"] };
+                                return { ...prev, sourceFilters: next };
+                              })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid={`source-filter-op-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {SOURCE_FILTER_OPERATORS.map(op => (
+                                  <SelectItem key={op.value} value={op.value}>
+                                    {language === "sk" ? op.labelSk : op.labelEn}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder={language === "sk" ? "Hodnota..." : "Value..."}
+                              value={sf.value}
+                              onChange={e => setEditor(prev => {
+                                const next = [...prev.sourceFilters];
+                                next[idx] = { ...next[idx], value: e.target.value };
+                                return { ...prev, sourceFilters: next };
+                              })}
+                              data-testid={`source-filter-value-${idx}`}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-red-500 shrink-0"
+                            onClick={() => setEditor(prev => ({
+                              ...prev,
+                              sourceFilters: prev.sourceFilters.filter((_, i) => i !== idx)
+                            }))}
+                            data-testid={`button-remove-source-filter-${idx}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      {editor.sourceFilters.filter(f => f.field && f.value).length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {language === "sk"
+                            ? "Všetky filtre musia byť splnené naraz (AND logika)."
+                            : "All filters must match simultaneously (AND logic)."}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 <Separator />
 
