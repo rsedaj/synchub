@@ -585,7 +585,7 @@ export async function registerRoutes(
       const [configs, modules, statsMap] = await Promise.all([
         storage.getAllSyncConfigs(),
         storage.getAllModules(),
-        storage.getSyncConfigStats(),
+        storage.getSyncConfigStats().catch(() => ({} as Record<string, { totalProcessed: number; totalFailed: number; runCount: number }>)),
       ]);
       const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
       const enriched = configs.map(c => {

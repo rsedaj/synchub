@@ -222,7 +222,6 @@ export class DatabaseStorage implements IStorage {
         runCount: sql<number>`COUNT(*)::int`,
       })
       .from(syncRuns)
-      .where(sql`${syncRuns.status} IN ('completed', 'failed', 'cancelled')`)
       .groupBy(syncRuns.syncConfigId);
     return Object.fromEntries(rows.map(r => [r.syncConfigId, { totalProcessed: r.totalProcessed, totalFailed: r.totalFailed, runCount: r.runCount }]));
   }
