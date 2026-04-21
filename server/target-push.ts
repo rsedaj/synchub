@@ -490,14 +490,22 @@ async function buildOnixIndex(
   targetFields: string[],
   targetStock?: string
 ): Promise<OnixIndexEntry | null> {
-  const cacheKey = `${baseUrl}${endpoint}:${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}`;
+  // Build the actual fetch URL first — cache key is based on full URL to avoid collisions
+  const fetchUrl = targetStock
+    ? `${baseUrl}${endpoint}?Default_Stock=${encodeURIComponent(targetStock)}`
+    : `${baseUrl}${endpoint}`;
+  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}`;
+
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
     const allFieldsPresent = targetFields.every(f => existing.fieldMap.has(f));
-    if (allFieldsPresent) return existing;
+    if (allFieldsPresent) {
+      console.log(`[target-push] ONIX index cache HIT: ${existing.recordCount} records (stock=${targetStock ?? "none"})`);
+      return existing;
+    }
   }
 
-  console.log(`[target-push] ONIX pre-fetch: building index for ${endpoint} (fields: ${targetFields.join(", ")}, stock filter: ${targetStock ?? "none"})`);
+  console.log(`[target-push] ONIX pre-fetch: building index url=${fetchUrl} fields=${targetFields.join(",")}`);
   const fetchStart = Date.now();
 
   try {
@@ -506,11 +514,6 @@ async function buildOnixIndex(
     const fetchHdrs = { ...hdrs };
     delete fetchHdrs["Content-Type"];
 
-    // Try fetching with server-side stock filter first — if ONIX API supports query param filtering
-    let fetchUrl = `${baseUrl}${endpoint}`;
-    if (targetStock) {
-      fetchUrl += `?Default_Stock=${encodeURIComponent(targetStock)}`;
-    }
     const res = await fetch(fetchUrl, { headers: fetchHdrs, signal: ctrl.signal });
     clearTimeout(t);
 
@@ -539,7 +542,7 @@ async function buildOnixIndex(
 
     let filteredByStock = 0;
     for (const item of arr) {
-      const rawId = item?.Id ?? item?.id ?? item?.IdRecord ?? null;
+      const rawId = item?.IdRecord ?? item?.Id ?? item?.id ?? null;
       const id = rawId != null && !isNaN(Number(rawId)) && Number(rawId) > 0 ? Number(rawId) : null;
       if (id === null) continue;
 
@@ -738,7 +741,7 @@ async function pushToOnix(
   }
 
   function extractOnixId(item: any): number | null {
-    const id = item?.Id ?? item?.id ?? item?.IdRecord ?? null;
+    const id = item?.IdRecord ?? item?.Id ?? item?.id ?? null;
     return id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
   }
 
