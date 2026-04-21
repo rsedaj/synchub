@@ -505,7 +505,13 @@ async function buildOnixIndex(
     const t = setTimeout(() => ctrl.abort(), 300000);
     const fetchHdrs = { ...hdrs };
     delete fetchHdrs["Content-Type"];
-    const res = await fetch(`${baseUrl}${endpoint}`, { headers: fetchHdrs, signal: ctrl.signal });
+
+    // Try fetching with server-side stock filter first — if ONIX API supports query param filtering
+    let fetchUrl = `${baseUrl}${endpoint}`;
+    if (targetStock) {
+      fetchUrl += `?Default_Stock=${encodeURIComponent(targetStock)}`;
+    }
+    const res = await fetch(fetchUrl, { headers: fetchHdrs, signal: ctrl.signal });
     clearTimeout(t);
 
     if (!res.ok) {
@@ -518,6 +524,13 @@ async function buildOnixIndex(
       (Array.isArray(data?.value) ? data.value :
         (Array.isArray(data?.data) ? data.data :
           (Array.isArray(data?.items) ? data.items : [])));
+
+    // Log first record structure to diagnose Default_Stock field availability
+    if (arr.length > 0) {
+      const sample = arr[0];
+      const stockVal = sample?.Default_Stock ?? sample?.default_stock ?? sample?.Stock ?? "MISSING";
+      console.log(`[target-push] ONIX index sample record keys=${Object.keys(sample).slice(0, 15).join(",")} Default_Stock="${stockVal}" totalFetched=${arr.length}`);
+    }
 
     const fieldMap = new Map<string, Map<string, number[]>>();
     for (const tf of targetFields) {
