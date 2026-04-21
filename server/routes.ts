@@ -401,6 +401,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/modules/:id/filter-count", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const source = (req.query.source as string) || undefined;
+      const limit = parseInt(req.query.limit as string) || 5000;
+      let filters: Array<{ field: string; operator: string; value: string }> = [];
+      try { filters = JSON.parse((req.query.filters as string) || "[]"); } catch {}
+      const activeFilters = filters.filter(f => f?.field && f?.value != null && String(f.value).trim() !== "");
+      const result = await fetchModuleData(mod, limit, source);
+      if (!result.success) return res.json({ total: 0, matched: 0, error: result.error });
+      const total = result.preview.length;
+      const matched = activeFilters.length === 0
+        ? total
+        : result.preview.filter((rec: any) =>
+            activeFilters.every(f => {
+              const v = String(rec[f.field] ?? "").trim();
+              const fv = String(f.value).trim();
+              switch (f.operator) {
+                case "starts_with":  return v.toLowerCase().startsWith(fv.toLowerCase());
+                case "ends_with":    return v.toLowerCase().endsWith(fv.toLowerCase());
+                case "contains":     return v.toLowerCase().includes(fv.toLowerCase());
+                case "not_contains": return !v.toLowerCase().includes(fv.toLowerCase());
+                case "equals":       return v === fv;
+                case "not_equals":   return v !== fv;
+                default:             return true;
+              }
+            })
+          ).length;
+      return res.json({ total, matched, capped: total >= limit });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to count filtered records" });
+    }
+  });
+
   app.get("/api/sync-logs", requireAuth, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
@@ -547,14 +582,29 @@ export async function registerRoutes(
 
   app.get("/api/sync-configs", requireAuth, async (req, res) => {
     try {
-      const configs = await storage.getAllSyncConfigs();
-      const modules = await storage.getAllModules();
+      const [configs, modules, statsMap] = await Promise.all([
+        storage.getAllSyncConfigs(),
+        storage.getAllModules(),
+        storage.getSyncConfigStats(),
+      ]);
       const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
-      const enriched = configs.map(c => ({
-        ...c,
-        targetModule: moduleMap[c.targetModuleId] || null,
-        sourceModule: moduleMap[c.sourceModuleId] || null,
-      }));
+      const enriched = configs.map(c => {
+        const stats = statsMap[c.id] || { totalProcessed: 0, totalFailed: 0, runCount: 0 };
+        const successRate = stats.runCount === 0
+          ? 100
+          : stats.totalProcessed === 0
+            ? (stats.totalFailed > 0 ? 0 : 100)
+            : Math.round(((stats.totalProcessed - stats.totalFailed) / stats.totalProcessed) * 100);
+        return {
+          ...c,
+          targetModule: moduleMap[c.targetModuleId] || null,
+          sourceModule: moduleMap[c.sourceModuleId] || null,
+          successRate,
+          totalProcessed: stats.totalProcessed,
+          totalFailed: stats.totalFailed,
+          runCount: stats.runCount,
+        };
+      });
       return res.json(enriched);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load sync configs" });

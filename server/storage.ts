@@ -48,6 +48,7 @@ export interface IStorage {
   createSyncConfig(data: InsertSyncConfig): Promise<SyncConfig>;
   updateSyncConfig(id: string, data: Partial<SyncConfig>): Promise<SyncConfig | undefined>;
   deleteSyncConfig(id: string): Promise<void>;
+  getSyncConfigStats(): Promise<Record<string, { totalProcessed: number; totalFailed: number; runCount: number }>>;
   getSyncRuns(configId?: string, limit?: number): Promise<SyncRun[]>;
   getSyncRun(id: string): Promise<SyncRun | undefined>;
   createSyncRun(data: InsertSyncRun): Promise<SyncRun>;
@@ -210,6 +211,20 @@ export class DatabaseStorage implements IStorage {
     await db.delete(syncBackups).where(eq(syncBackups.syncConfigId, id));
     await db.delete(syncRuns).where(eq(syncRuns.syncConfigId, id));
     await db.delete(syncConfigs).where(eq(syncConfigs.id, id));
+  }
+
+  async getSyncConfigStats(): Promise<Record<string, { totalProcessed: number; totalFailed: number; runCount: number }>> {
+    const rows = await db
+      .select({
+        syncConfigId: syncRuns.syncConfigId,
+        totalProcessed: sql<number>`COALESCE(SUM(${syncRuns.recordsProcessed}), 0)::int`,
+        totalFailed: sql<number>`COALESCE(SUM(${syncRuns.recordsFailed}), 0)::int`,
+        runCount: sql<number>`COUNT(*)::int`,
+      })
+      .from(syncRuns)
+      .where(sql`${syncRuns.status} IN ('completed', 'failed', 'cancelled')`)
+      .groupBy(syncRuns.syncConfigId);
+    return Object.fromEntries(rows.map(r => [r.syncConfigId, { totalProcessed: r.totalProcessed, totalFailed: r.totalFailed, runCount: r.runCount }]));
   }
 
   async getSyncRuns(configId?: string, limit = 50): Promise<SyncRun[]> {

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
@@ -159,6 +159,10 @@ type Schedule = { enabled: boolean; frequency: string; timeOfDay?: string; dayOf
 type EnrichedSyncConfig = SyncConfig & {
   targetModule?: { code: string; name: string; status: string } | null;
   sourceModule?: { code: string; name: string; status: string } | null;
+  successRate?: number;
+  totalProcessed?: number;
+  totalFailed?: number;
+  runCount?: number;
 };
 
 interface SourceFilter {
@@ -625,6 +629,34 @@ export default function SyncConfigPage() {
       if (!res.ok) throw new Error("Failed to fetch fields");
       return res.json();
     },
+  });
+
+  const activeFilters = useMemo(() =>
+    editor.sourceFilters.filter(f => f.field && f.value && String(f.value).trim() !== ""),
+    [editor.sourceFilters]
+  );
+
+  const [debouncedFilterKey, setDebouncedFilterKey] = useState("");
+  useEffect(() => {
+    const key = JSON.stringify(activeFilters);
+    const timer = setTimeout(() => setDebouncedFilterKey(key), 400);
+    return () => clearTimeout(timer);
+  }, [activeFilters]);
+
+  const { data: filterCountData, isFetching: filterCountFetching } = useQuery<{ total: number; matched: number; capped?: boolean }>({
+    queryKey: ["/api/modules", editor.sourceModuleId, "filter-count", editor.sourceDataSource, editor.sourceRecordLimit, debouncedFilterKey],
+    enabled: !!editor.sourceModuleId && !!editor.sourceDataSource && editorOpen && activeFilters.length > 0,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        source: editor.sourceDataSource || "",
+        limit: String(editor.sourceRecordLimit || 5000),
+        filters: debouncedFilterKey,
+      });
+      const res = await fetch(`/api/modules/${editor.sourceModuleId}/filter-count?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch filter count");
+      return res.json();
+    },
+    staleTime: 2 * 60 * 1000,
   });
 
   const { data: targetFieldsData, isLoading: targetFieldsLoading } = useQuery<{ fields: string[]; sample: any[]; error?: string }>({
@@ -1270,13 +1302,23 @@ export default function SyncConfigPage() {
 
                 <div data-testid="section-source-filters">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <h3 className="text-sm font-semibold flex items-center gap-2 flex-wrap">
                       <Database className="h-4 w-4" />
                       {language === "sk" ? "Filtre zdrojových záznamov" : "Source Record Filters"}
-                      {editor.sourceFilters.filter(f => f.field && f.value).length > 0 && (
-                        <span className="ml-1 text-muted-foreground font-normal">
-                          ({editor.sourceFilters.filter(f => f.field && f.value).length})
-                        </span>
+                      {activeFilters.length > 0 && (
+                        filterCountFetching ? (
+                          <span className="text-xs font-normal text-muted-foreground animate-pulse">
+                            {language === "sk" ? "počítam…" : "counting…"}
+                          </span>
+                        ) : filterCountData ? (
+                          <Badge
+                            variant="outline"
+                            className={`text-xs font-normal ${filterCountData.matched === 0 ? "border-red-500/40 text-red-600 dark:text-red-400" : filterCountData.matched < filterCountData.total ? "border-amber-500/40 text-amber-700 dark:text-amber-400" : "border-green-500/40 text-green-700 dark:text-green-400"}`}
+                            data-testid="badge-filter-count"
+                          >
+                            {filterCountData.matched} {language === "sk" ? "z" : "of"} {filterCountData.total}{filterCountData.capped ? "+" : ""} {language === "sk" ? "záznamov" : "records"}
+                          </Badge>
+                        ) : null
                       )}
                     </h3>
                     <Button
@@ -2027,6 +2069,24 @@ export default function SyncConfigPage() {
                               {language === "sk" ? "Bez DPH" : "Excl. VAT"}
                             </Badge>
                           )}
+                          {(() => {
+                            const rate = config.successRate ?? 100;
+                            const colorClass = rate >= 95
+                              ? "border-green-500/40 text-green-700 dark:text-green-400"
+                              : rate >= 70
+                                ? "border-amber-500/40 text-amber-700 dark:text-amber-400"
+                                : "border-red-500/40 text-red-600 dark:text-red-400";
+                            return (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] gap-1 ${colorClass}`}
+                                title={`${config.totalProcessed ?? 0} ${language === "sk" ? "spracovaných" : "processed"}, ${config.totalFailed ?? 0} ${language === "sk" ? "chýb" : "failed"}`}
+                                data-testid={`badge-success-rate-${config.id}`}
+                              >
+                                {rate}%
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                           <span className="font-mono">{config.sourceModule?.code || "?"}</span>
