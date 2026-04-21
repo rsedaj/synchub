@@ -862,10 +862,12 @@ async function pushToOnix(
       }
       const finalIds = candidateIds ? Array.from(candidateIds) : [];
       if (finalIds.length > 1) {
-        // Multiple matches — pick lowest (oldest/canonical) IdRecord deterministically
-        const chosen = Math.min(...finalIds);
-        matchCache.set(ck, chosen);
-        return { id: chosen, ambiguous: false };
+        // ONIX has duplicate records sharing the match key. The ONIX REST API has no
+        // endpoint to update a specific IdRecord — POST /stockitems upserts by Ns_Number
+        // and rejects when duplicates exist. Mark as ambiguous so the engine skips
+        // the record cleanly with a clear message instead of a hard failure.
+        console.warn(`[target-push] ONIX duplicate match (AND): ${fieldValues.map(fv => `${fv.targetField}="${fv.value}"`).join(" + ")} → ${finalIds.length} records (${finalIds.join(",")}) — record will be SKIPPED (ONIX data quality issue)`);
+        return { id: null, ambiguous: true };
       }
       const result = finalIds[0] ?? null;
       if (result === null && _noMatchDebugCount < 3 && onixIndex) {
@@ -915,11 +917,10 @@ async function pushToOnix(
         return true;
       });
       if (matches.length > 1) {
-        // Pick lowest IdRecord among duplicates
-        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id): id is number => id !== null).sort((a, b) => a - b);
-        const chosen = sorted[0] ?? null;
-        matchCache.set(ck, chosen);
-        return { id: chosen, ambiguous: false };
+        // ONIX has duplicate records (API fallback path) — same as the index path,
+        // ONIX won't allow targeting a specific IdRecord, so skip cleanly.
+        console.warn(`[target-push] ONIX duplicate match (API fallback): ${expectedValues.map(ev => `${ev.targetField}="${ev.value}"`).join(" + ")} → ${matches.length} records — record will be SKIPPED (ONIX data quality issue)`);
+        return { id: null, ambiguous: true };
       }
       const numericId = extractOnixId(matches[0]);
       matchCache.set(ck, numericId);
