@@ -760,10 +760,12 @@ async function pushToOnix(
       const vMap = onixIndex.fieldMap.get(targetField);
       const ids = vMap?.get(value) ?? [];
       if (ids.length > 1) {
-        // Multiple ONIX records share this key — pick the lowest (oldest/canonical) IdRecord
-        const chosen = Math.min(...ids);
-        console.warn(`[target-push] ONIX duplicate Ns_Number="${value}": ${ids.length} records (${ids.join(",")}), using lowest IdRecord=${chosen}`);
-        return { id: chosen, ambiguous: false };
+        // ONIX has duplicate records sharing this Ns_Number. The ONIX REST API has no
+        // endpoint to update a specific IdRecord — POST /stockitems upserts by Ns_Number
+        // and rejects when duplicates exist. We mark this as ambiguous so the engine
+        // can skip the record with a clear message instead of failing the sync.
+        console.warn(`[target-push] ONIX duplicate ${targetField}="${value}": ${ids.length} records (${ids.join(",")}) — record will be SKIPPED (ONIX data quality issue)`);
+        return { id: null, ambiguous: true };
       }
       return { id: ids[0] ?? null, ambiguous: false };
     }
@@ -945,10 +947,13 @@ async function pushToOnix(
       if (!isUpdate && matchFields.length > 0) {
         const lookup = await findOnixIdByMatch(record, sourceRecords?.[i]);
         if (lookup.ambiguous) {
+          // Duplicate Ns_Number in ONIX itself — ONIX REST API has no way to update a
+          // specific IdRecord, and POST /stockitems would be rejected by ONIX with
+          // "sa nachádza v evidencii viac krát". Skip cleanly (data quality issue on
+          // ONIX side), do NOT count as error so sync continues.
           return {
-            created: 0, updated: 0, error: 1,
-            errEntry: { index: globalIndex, message: "Multiple ONIX records match the configured key fields — record skipped to avoid wrong update" },
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: "Ambiguous match: multiple ONIX records found for key fields" },
+            created: 0, updated: 0, error: 0,
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord." },
             latency: 0,
           };
         }
