@@ -121,6 +121,7 @@ export interface MatchOptions {
   matchOperator?: "and" | "or";
   onMissing?: "create" | "skip";
   mappings?: Array<{ sourceField: string; targetField: string }>;
+  targetStock?: string;
 }
 
 export async function pushToTarget(
@@ -931,7 +932,7 @@ async function pushToOnix(
         body.Measure_Units_Default_Name = "ks";
       }
       if (source === "stockitems" && !hasVal(body.Default_Stock) && !isUpdate) {
-        body.Default_Stock = config?.defaultStock || "SYN";
+        body.Default_Stock = matchOptions?.targetStock || config?.defaultStock || "SYN";
       }
 
       const customCols: Array<{Name: string; Value: string}> = [];

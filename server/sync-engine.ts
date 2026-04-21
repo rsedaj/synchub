@@ -605,6 +605,7 @@ async function executeAsync(
               matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
               onMissing: ((config as any).onMissing as "create" | "skip") || "create",
               mappings,
+              targetStock: (config as any).targetStock || undefined,
             }
           );
           batchWallClockMs = Date.now() - batchWallStart;

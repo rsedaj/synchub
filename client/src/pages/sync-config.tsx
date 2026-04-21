@@ -173,6 +173,7 @@ interface EditorState {
   matchFields: string[];
   matchOperator: "and" | "or";
   onMissing: "create" | "skip";
+  targetStock: string;
   schedule: Schedule;
   isEnabled: boolean;
   backupBeforeSync: boolean;
@@ -189,6 +190,7 @@ const emptyEditor: EditorState = {
   matchFields: [],
   matchOperator: "and",
   onMissing: "create",
+  targetStock: "",
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
   backupBeforeSync: true,
@@ -455,7 +457,7 @@ const MODULE_HINTS: Record<string, (ds: string, srcCode: string) => HintItem[]> 
       hints.push(
         { type: "auto", sk: "Systém automaticky nastaví povinné pole Type = 1 (Tovar). Nemusíte ho mapovať.", en: "The system will automatically set required field Type = 1 (Product). No need to map it." },
         { type: "auto", sk: "Číslo skladu (Ns_Code = \"SK\") a merná jednotka (\"ks\") sa nastavia automaticky, ak ich nenamapujete.", en: "Stock number code (Ns_Code = \"SK\") and measure unit (\"ks\") are set automatically if you don't map them." },
-        { type: "auto", sk: "Hlavný sklad (Default_Stock = \"SK1\" / SKLAD 1) sa priradí automaticky. Ak chcete iný sklad, namapujte pole Default_Stock.", en: "Default warehouse (Default_Stock = \"SK1\" / SKLAD 1) is assigned automatically. Map Default_Stock to override." },
+        { type: "auto", sk: "Cieľový sklad (Default_Stock) vyberiete priamo vo výbere 'Cieľový sklad' vyššie. Ak nie je nastavený, použije sa sklad z konfigurácie modulu.", en: "Target warehouse (Default_Stock) is selected via the 'Target Warehouse' dropdown above. If not set, the module config warehouse is used." },
         { type: "auto", sk: "Identifikátor záznamu (RecordExternalIdentificator) sa vygeneruje z kódu produktu, ak ho nenamapujete.", en: "Record identifier (RecordExternalIdentificator) is auto-generated from product code if not mapped." },
         { type: "info", sk: "Ceny (Default_Price) musia byť čísla. Text ako \"8.44 EUR\" sa automaticky prevedie na číslo 8.44.", en: "Prices (Default_Price) must be numbers. Text like \"8.44 EUR\" is automatically converted to 8.44." },
         { type: "info", sk: "CustomColumns (vlastné stĺpce) sa automaticky prevedú do správneho formátu pre ONIX.", en: "CustomColumns are automatically converted to the correct format for ONIX." },
@@ -622,6 +624,26 @@ export default function SyncConfigPage() {
   const targetFields = targetFieldsData?.fields || [];
   const fieldsReady = sourceFields.length > 0 && targetFields.length > 0;
 
+  const isOnixStockItems = selectedTargetModule?.code === "ONIX" &&
+    (!editor.targetDataSource || editor.targetDataSource === "auto" || editor.targetDataSource === "stockitems");
+
+  const { data: onixStocksData, isLoading: onixStocksLoading } = useQuery<{ preview: any[]; recordCount: number; error?: string }>({
+    queryKey: ["/api/modules", editor.targetModuleId, "data-preview", "stocks"],
+    enabled: isOnixStockItems && !!editor.targetModuleId && editorOpen,
+    queryFn: async () => {
+      const res = await fetch(`/api/modules/${editor.targetModuleId}/data-preview?source=stocks&limit=200`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch stocks");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const onixStocks = (onixStocksData?.preview || []).map((item: any) => {
+    const code = item.Ns_Code ?? item.Code ?? item.code ?? item.Id ?? "";
+    const name = item.Ns_Name ?? item.Name ?? item.name ?? "";
+    return { code: String(code), name: String(name) };
+  }).filter(s => s.code);
+
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/sync-configs", data),
     onSuccess: () => {
@@ -744,6 +766,7 @@ export default function SyncConfigPage() {
       matchFields: (config as any).matchFields || [],
       matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
       onMissing: ((config as any).onMissing as "create" | "skip") || "create",
+      targetStock: (config as any).targetStock || "",
       schedule,
       isEnabled: config.isEnabled,
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
@@ -795,6 +818,7 @@ export default function SyncConfigPage() {
       matchFields: editor.matchFields.filter(f => f && f.trim()),
       matchOperator: editor.matchOperator,
       onMissing: editor.onMissing,
+      targetStock: editor.targetStock || null,
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
     };
@@ -1143,6 +1167,41 @@ export default function SyncConfigPage() {
                               ))}
                             </SelectContent>
                           </Select>
+                        </div>
+                      )}
+                      {isOnixStockItems && (
+                        <div>
+                          <Label className="text-xs">{language === "sk" ? "Cieľový sklad" : "Target Warehouse"}</Label>
+                          <Select
+                            value={editor.targetStock || "__auto__"}
+                            onValueChange={val => setEditor(prev => ({ ...prev, targetStock: val === "__auto__" ? "" : val }))}
+                          >
+                            <SelectTrigger className="mt-1" data-testid="select-target-stock">
+                              {onixStocksLoading
+                                ? <span className="text-xs text-muted-foreground">{language === "sk" ? "Načítavam sklady..." : "Loading warehouses..."}</span>
+                                : <SelectValue placeholder={language === "sk" ? "Automaticky (podľa modulu)" : "Automatic (from module)"} />
+                              }
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__auto__">
+                                {language === "sk" ? "— Automaticky (podľa konfigurácie modulu) —" : "— Automatic (from module config) —"}
+                              </SelectItem>
+                              {onixStocks.length > 0 ? onixStocks.map(s => (
+                                <SelectItem key={s.code} value={s.code}>
+                                  <span className="font-mono font-semibold">{s.code}</span>
+                                  {s.name && s.name !== s.code && <span className="text-muted-foreground ml-2">— {s.name}</span>}
+                                </SelectItem>
+                              )) : !onixStocksLoading && (
+                                <SelectItem value="__none__" disabled>{language === "sk" ? "Sklady sa nenačítali" : "No warehouses loaded"}</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          {editor.targetStock && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {language === "sk" ? "Záznamy sa zapíšu do skladu: " : "Records will be written to warehouse: "}
+                              <span className="font-mono font-semibold">{editor.targetStock}</span>
+                            </p>
+                          )}
                         </div>
                       )}
                       <div className="flex items-center justify-between">
