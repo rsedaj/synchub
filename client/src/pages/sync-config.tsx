@@ -240,7 +240,7 @@ const SEMANTIC_ALIASES: Record<string, string[]> = {
 };
 
 const CRITICAL_TARGET_FIELDS: Record<string, string[]> = {
-  stockitems: ["Ns_Name", "Ns_Number", "Default_Price"],
+  stockitems: ["Ns_Number", "Default_Price"],
   partners: ["Ns_Name"],
   stocks: ["Quantity"],
   catalogprices: ["Default_Price"],
