@@ -1643,9 +1643,25 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               <button
                                 data-testid={`button-export-csv-${run.id}`}
                                 title={language === "sk" ? "Exportovať chyby a preskočené do CSV" : "Export errors & skipped to CSV"}
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  window.open(`/api/sync-runs/${run.id}/export-csv`, "_blank");
+                                  try {
+                                    const resp = await fetch(`/api/sync-runs/${run.id}/export-csv`, { credentials: "include" });
+                                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                    const blob = await resp.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
+                                    a.href = url;
+                                    a.download = `sync-export-${startedAt}.csv`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                  } catch (err) {
+                                    console.error("CSV export failed", err);
+                                    alert(language === "sk" ? "Export sa nepodaril." : "Export failed.");
+                                  }
                                 }}
                                 className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                               >
