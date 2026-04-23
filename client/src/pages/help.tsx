@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/components/language-provider";
+import { useAuth } from "@/lib/auth";
 import { APP_VERSION } from "@shared/version";
 import { MODULE_HELP } from "@/lib/module-help-data";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 
 export default function HelpPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const { data: modules, isLoading } = useQuery<Module[]>({
     queryKey: ["/api/modules"],
@@ -100,10 +102,12 @@ export default function HelpPage() {
             {t("help.subtitle")}
           </p>
         </div>
-        <Button variant="outline" onClick={() => window.print()} data-testid="button-export-pdf">
-          <Printer className="h-4 w-4 mr-2" />
-          {t("help.exportPdf")}
-        </Button>
+        {user?.role === "admin" && (
+          <Button variant="outline" onClick={() => window.print()} data-testid="button-export-pdf">
+            <Printer className="h-4 w-4 mr-2" />
+            {t("help.exportPdf")}
+          </Button>
+        )}
       </div>
 
       <div className="hidden print:block mb-8">
@@ -117,7 +121,7 @@ export default function HelpPage() {
         <section data-testid="section-help-about">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">O aplikácii SyncHub</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            SyncHub je modulárna integračná platforma pre <strong className="text-foreground">SEDAJ s.r.o. / Hauerland</strong>.
+            SyncHub je modulárna integračná platforma.
             Prepája interný ERP systém <strong className="text-foreground">ONIX</strong> s 12 externými systémami
             (dodávatelia, e-shop, CRM) cez REST API, XML feedy a JSON feedy.
             Umožňuje konfiguráciu, automatizovanú synchronizáciu a monitoring dátových tokov v reálnom čase.
@@ -137,7 +141,7 @@ export default function HelpPage() {
                 ["Backend", "Express.js + TypeScript"],
                 ["Databáza", "PostgreSQL + Drizzle ORM"],
                 ["Autentifikácia", "Passport.js (session) + bcrypt"],
-                ["Zálohy", "Google Drive (Replit Connectors SDK)"],
+                ["Zálohy", "Google Drive (Connectors SDK)"],
               ]}
             />
           </div>
@@ -682,7 +686,7 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
                 <li>Checkbox "Full sync" v Quick Sync UI pre force full sync</li>
                 <li>DELTA/FULL badge + štatistiky (stiahnuté / zmenené / preskočené) v run paneli</li>
                 <li>Kompletná in-app dokumentácia (help.tsx) so sekciami o sync engine, delta sync, ONIX integrácii</li>
-                <li>Aktualizovaný replit.md s plnou technickou dokumentáciou projektu</li>
+                <li>Aktualizovaná technická dokumentácia projektu</li>
               </ul>
             </div>
 
