@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "o_2mD1LnJi_z1lDXcxmDg"
+uri = "file://exports/sync_export_2026-04-22.csv"
+type = "table"
+title = "Sync export 22.4.2026 — chyby a preskočené"

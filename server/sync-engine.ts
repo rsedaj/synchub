@@ -559,6 +559,7 @@ async function executeAsync(
     let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
+    const allSkippedItems: Array<{ nsNumber: string; reason: string }> = [];
     const syncedRecords: PushRecordResult[] = [];
     let allLatencyMs = 0;
     let allLatencyCount = 0;
@@ -663,6 +664,9 @@ async function executeAsync(
               const mappedIdx = r.sourceIndex - (currentBatch - 1) * BATCH_SIZE;
               const vatTransforms = mappedIdx >= 0 ? batchVatByMappedIdx[mappedIdx] : undefined;
               syncedRecords.push(vatTransforms ? { ...r, vatTransforms } : r);
+            }
+            if (r.status === "skipped" && r.nsNumber && allSkippedItems.length < 10000) {
+              allSkippedItems.push({ nsNumber: r.nsNumber, reason: r.errorMsg || "Preskočené" });
             }
           }
         } catch (err: any) {
@@ -927,7 +931,8 @@ async function executeAsync(
         totalUpdated,
         totalFailed,
         totalSkippedByMatch,
-        batchErrors: allErrors.slice(-50),
+        batchErrors: allErrors,
+        skippedItems: allSkippedItems,
         syncedRecords,
         completionSummary,
       },

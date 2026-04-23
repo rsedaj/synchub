@@ -31,6 +31,7 @@ export interface PushRecordResult {
   target_id: number | null;
   status: "created" | "updated" | "error" | "skipped";
   errorMsg?: string;
+  nsNumber?: string;
   vatTransforms?: VATTransformEntry[];
 }
 
@@ -952,9 +953,10 @@ async function pushToOnix(
           // specific IdRecord, and POST /stockitems would be rejected by ONIX with
           // "sa nachádza v evidencii viac krát". Skip cleanly (data quality issue on
           // ONIX side), do NOT count as error so sync continues.
+          const nsNum = String(record.Ns_Number ?? record.Ns_Code ?? "");
           return {
             created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord." },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord.", nsNumber: nsNum },
             latency: 0,
           };
         }

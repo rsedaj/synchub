@@ -830,6 +830,45 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/sync-runs/:id/export-csv", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(req.params.id);
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+
+      const details = (run as any).details as Record<string, any> | null;
+      const checkpointData = (run as any).checkpointData as { errors?: Array<{ batch: number; index: number; message: string }> } | null;
+
+      const batchErrors: Array<{ batch?: number; index?: number; message: string }> = [
+        ...(details?.batchErrors ?? []),
+        ...(checkpointData?.errors ?? []),
+      ];
+
+      const skippedItems: Array<{ nsNumber: string; reason: string }> = details?.skippedItems ?? [];
+
+      const BOM = '\uFEFF';
+      const rows: string[] = ['Typ;Ns_Number;Dovod'];
+
+      for (const e of batchErrors) {
+        const match = e.message.match(/NS_NUMBER:\s*([^\s]+)/i);
+        const ns = match ? match[1] : '-';
+        const reason = e.message.replace(/;/g, ',');
+        rows.push(`Chyba;${ns};${reason}`);
+      }
+
+      for (const s of skippedItems) {
+        rows.push(`Preskočené;${s.nsNumber};${s.reason.replace(/;/g, ',')}`);
+      }
+
+      const csv = BOM + rows.join('\r\n') + '\r\n';
+      const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : 'export';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="sync-export-${startedAt}.csv"`);
+      return res.send(csv);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to generate CSV export" });
+    }
+  });
+
   app.get("/api/sync-runs/:id/progress", requireAuth, async (req, res) => {
     try {
       const run = await storage.getSyncRun(req.params.id);

@@ -1639,6 +1639,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             )}
                             <span>{formatDuration(duration)}</span>
                             <span>{formatTimeAgo(run.startedAt)}</span>
+                            {hasDetails && (failed > 0 || skipped > 0) && (
+                              <button
+                                data-testid={`button-export-csv-${run.id}`}
+                                title={language === "sk" ? "Exportovať chyby a preskočené do CSV" : "Export errors & skipped to CSV"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(`/api/sync-runs/${run.id}/export-csv`, "_blank");
+                                }}
+                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             {hasDetails && (
                               isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
                             )}
