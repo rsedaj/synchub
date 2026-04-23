@@ -1,6 +1,15 @@
-import { ReplitConnectors } from "@replit/connectors-sdk";
-
-const connectors = new ReplitConnectors();
+let _connectors: any = null;
+function getConnectors() {
+  if (!_connectors) {
+    if (!process.env.REPLIT_CONNECTORS_HOSTNAME && !process.env.REPL_ID) {
+      throw new Error("Google Drive zálohy sú dostupné iba v Replit prostredí. Na Render.com použite manuálne zálohovanie.");
+    }
+    const { ReplitConnectors } = require("@replit/connectors-sdk");
+    _connectors = new ReplitConnectors();
+  }
+  return _connectors;
+}
+const connectors = { proxy: (...args: any[]) => getConnectors().proxy(...args) };
 
 const TARGET_FOLDER_ID = "0AJCiYKbj09exUk9PVA";
 const SYNCHUB_SUBFOLDER = "SyncHub_Backups";
