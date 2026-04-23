@@ -501,6 +501,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [expandedLogRunId, setExpandedLogRunId] = useState<string | null>(null);
   const [expandedBackupId, setExpandedBackupId] = useState<number | null>(null);
   const [recordsViewRunId, setRecordsViewRunId] = useState<string | null>(null);
   const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "error">("all");
@@ -2007,129 +2008,228 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
         </>
       ) : activeTab === "logs" ? (
         <>
+          {/* Filter bar */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t("syncLogs.filter")}</span>
+              <span className="text-sm text-muted-foreground">{language === "sk" ? "Filter:" : "Filter:"}</span>
             </div>
-            <Select value={filterModule} onValueChange={setFilterModule}>
-              <SelectTrigger className="w-48" data-testid="select-filter-module">
-                <SelectValue placeholder={t("syncLogs.allModules")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("syncLogs.allModules")}</SelectItem>
-                {modules.map((mod) => (
-                  <SelectItem key={mod.id} value={mod.id}>
-                    {mod.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-40" data-testid="select-filter-status">
-                <SelectValue placeholder={t("syncLogs.allStatuses")} />
+              <SelectTrigger className="w-44" data-testid="select-log-filter-status">
+                <SelectValue placeholder={language === "sk" ? "Všetky stavy" : "All statuses"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{t("syncLogs.allStatuses")}</SelectItem>
-                <SelectItem value="success">{t("syncLogs.success")}</SelectItem>
-                <SelectItem value="error">{t("syncLogs.error")}</SelectItem>
-                <SelectItem value="running">{t("syncLogs.running")}</SelectItem>
-                <SelectItem value="pending">{t("syncLogs.pending")}</SelectItem>
+                <SelectItem value="all">{language === "sk" ? "Všetky stavy" : "All statuses"}</SelectItem>
+                <SelectItem value="success">{language === "sk" ? "Úspešné" : "Success"}</SelectItem>
+                <SelectItem value="error">{language === "sk" ? "Chyba" : "Error"}</SelectItem>
+                <SelectItem value="partial">{language === "sk" ? "Čiastočné" : "Partial"}</SelectItem>
+                <SelectItem value="running">{language === "sk" ? "Beží" : "Running"}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <Card>
             <CardContent className="p-0">
-              {filteredLogs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <ArrowLeftRight className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">{t("syncLogs.noLogs")}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {filterModule !== "all" || filterStatus !== "all"
-                      ? t("syncLogs.adjustFilters")
-                      : t("syncLogs.logsWillAppear")}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {filteredLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="flex items-center gap-4 px-5 py-3.5"
-                      data-testid={`row-log-${log.id}`}
-                    >
-                      {log.status === "success" ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                      ) : log.status === "error" ? (
-                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                      ) : log.status === "running" ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : log.status === "partial" ? (
-                        <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                      ) : (
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                      )}
+              {(() => {
+                const logRuns = [...runs]
+                  .filter(r => filterStatus === "all" || r.status === filterStatus)
+                  .sort((a, b) => new Date(b.startedAt ?? 0).getTime() - new Date(a.startedAt ?? 0).getTime());
 
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium">
-                              {getModuleName(log.moduleId)}
-                            </span>
-                            <Badge variant="outline" className="text-xs">
-                              {getModuleCode(log.moduleId)}
-                            </Badge>
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              {log.direction === "import" ? (
-                                <ArrowDownToLine className="h-3 w-3" />
-                              ) : (
-                                <ArrowUpFromLine className="h-3 w-3" />
-                              )}
-                              <span className="text-xs capitalize">{log.direction}</span>
-                            </div>
-                          </div>
-                          {log.errorMessage && (
-                            <p className="text-xs text-red-600 dark:text-red-400 mt-1 line-clamp-1">
-                              {log.errorMessage}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 flex-shrink-0">
-                        <div className="text-right">
-                          <p className="text-sm tabular-nums">
-                            {log.recordsProcessed?.toLocaleString()} {t("syncLogs.records")}
-                          </p>
-                          {(log.recordsFailed ?? 0) > 0 && (
-                            <p className="text-xs text-red-600 dark:text-red-400">
-                              {log.recordsFailed} {t("syncLogs.failed")}
-                            </p>
-                          )}
-                        </div>
-                        <Badge
-                          variant={
-                            log.status === "success" ? "default" :
-                            log.status === "error" ? "destructive" :
-                            log.status === "running" ? "outline" :
-                            "secondary"
-                          }
-                          className="capitalize"
-                          data-testid={`badge-log-status-${log.id}`}
-                        >
-                          {log.status}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground w-24 text-right">
-                          {log.startedAt
-                            ? formatDistanceToNow(new Date(log.startedAt), { addSuffix: true })
-                            : "\u2014"}
-                        </span>
-                      </div>
+                if (logRuns.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <FileText className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                      <p className="text-sm text-muted-foreground">{language === "sk" ? "Žiadne behy." : "No runs yet."}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{language === "sk" ? "Logy sa zobrazia po spustení synchronizácie." : "Logs will appear after running a sync."}</p>
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }
+
+                return (
+                  <div className="divide-y font-mono text-xs">
+                    {logRuns.map((run) => {
+                      const det = (run as any).details as Record<string, any> | null;
+                      const phaseHistory: Record<string, string> = det?.phaseHistory ?? {};
+                      const batchErrors: Array<{ batch?: number; index?: number; message: string }> = det?.batchErrors ?? [];
+                      const skippedItems: Array<{ nsNumber: string; reason: string }> = det?.skippedItems ?? [];
+                      const completionSummary: string | undefined = det?.completionSummary;
+                      const isExpLog = expandedLogRunId === run.id;
+                      const duration = run.startedAt && run.completedAt
+                        ? Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
+                        : null;
+                      const created = det?.totalCreated ?? 0;
+                      const updated = det?.totalUpdated ?? 0;
+                      const failed = run.recordsFailed ?? 0;
+                      const skipped = det?.totalSkippedByMatch ?? 0;
+                      const configName = (run as any).configName ?? run.syncConfigId?.slice(0, 8) ?? "—";
+
+                      const PHASES = [
+                        { key: "preflight", label: "PREFLIGHT" },
+                        { key: "backup",    label: "BACKUP" },
+                        { key: "fetch",     label: "FETCH" },
+                        { key: "sync",      label: "SYNC" },
+                      ];
+
+                      const statusColor = (s: string) => {
+                        if (s === "done" || s === "success") return "text-green-500 dark:text-green-400";
+                        if (s === "running") return "text-blue-500 dark:text-blue-400 animate-pulse";
+                        if (s === "error") return "text-red-500 dark:text-red-400";
+                        return "text-muted-foreground";
+                      };
+                      const phaseIcon = (s: string) => {
+                        if (s === "done") return "✓";
+                        if (s === "running") return "▶";
+                        if (s === "error") return "✗";
+                        return "·";
+                      };
+
+                      const runStatus = run.status;
+                      const runStatusIcon = runStatus === "success" ? "✓" : runStatus === "error" ? "✗" : runStatus === "partial" ? "!" : runStatus === "running" ? "▶" : "·";
+                      const runStatusColor = runStatus === "success" ? "text-green-500 dark:text-green-400" : runStatus === "error" ? "text-red-500 dark:text-red-400" : runStatus === "partial" ? "text-amber-500 dark:text-amber-400" : runStatus === "running" ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground";
+
+                      return (
+                        <div key={run.id} data-testid={`log-run-${run.id}`}>
+                          {/* Header row */}
+                          <button
+                            className="w-full text-left px-4 py-2.5 hover:bg-muted/50 transition-colors flex items-start gap-3"
+                            onClick={() => setExpandedLogRunId(isExpLog ? null : run.id)}
+                            data-testid={`button-log-expand-${run.id}`}
+                          >
+                            <span className={`mt-0.5 w-4 shrink-0 text-center font-bold ${runStatusColor}`}>{runStatusIcon}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="text-muted-foreground">[{run.startedAt ? new Date(run.startedAt).toISOString().replace("T", " ").slice(0, 19) : "—"}]</span>
+                              {" "}<span className="font-semibold text-foreground">{configName}</span>
+                              {" "}<span className={runStatusColor}>{runStatus.toUpperCase()}</span>
+                              {duration != null && <span className="text-muted-foreground ml-2">({duration}s)</span>}
+                              <span className="ml-3 gap-2 inline-flex flex-wrap">
+                                {created > 0 && <span className="text-green-600 dark:text-green-400">+{created.toLocaleString()} nové</span>}
+                                {updated > 0 && <span className="text-blue-600 dark:text-blue-400">↻{updated.toLocaleString()} upd</span>}
+                                {skipped > 0 && <span className="text-amber-500 dark:text-amber-400">⊘{skipped.toLocaleString()} skip</span>}
+                                {failed > 0 && <span className="text-red-500 dark:text-red-400">✗{failed.toLocaleString()} err</span>}
+                              </span>
+                            </span>
+                            <span className="text-muted-foreground shrink-0">{isExpLog ? "▲" : "▼"}</span>
+                          </button>
+
+                          {/* Expanded detail */}
+                          {isExpLog && (
+                            <div className="bg-muted/30 border-t px-6 py-3 space-y-3">
+
+                              {/* Phase pipeline */}
+                              {Object.keys(phaseHistory).length > 0 && (
+                                <div>
+                                  <p className="text-muted-foreground mb-1">{language === "sk" ? "# Fázy:" : "# Phases:"}</p>
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {PHASES.map((ph, i) => {
+                                      const s = phaseHistory[ph.key] ?? "pending";
+                                      return (
+                                        <span key={ph.key} className="flex items-center gap-1">
+                                          <span className={`${statusColor(s)} font-semibold`}>{phaseIcon(s)} {ph.label}</span>
+                                          {i < PHASES.length - 1 && <span className="text-muted-foreground mx-1">→</span>}
+                                        </span>
+                                      );
+                                    })}
+                                    {run.status === "success" || run.status === "partial" ? (
+                                      <span className="flex items-center gap-1">
+                                        <span className="text-muted-foreground mx-1">→</span>
+                                        <span className="text-green-500 dark:text-green-400 font-semibold">✓ DONE</span>
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Completion summary */}
+                              {completionSummary && (
+                                <div>
+                                  <p className="text-muted-foreground mb-1">{language === "sk" ? "# Výsledok:" : "# Result:"}</p>
+                                  <p className="text-foreground whitespace-pre-wrap">{completionSummary}</p>
+                                </div>
+                              )}
+
+                              {/* Error message */}
+                              {run.errorMessage && (
+                                <div>
+                                  <p className="text-muted-foreground mb-1"># ERROR:</p>
+                                  <p className="text-red-500 dark:text-red-400 whitespace-pre-wrap">{run.errorMessage}</p>
+                                </div>
+                              )}
+
+                              {/* Batch errors */}
+                              {batchErrors.length > 0 && (
+                                <div>
+                                  <p className="text-muted-foreground mb-1"># {language === "sk" ? "Chyby záznamu" : "Record errors"} ({batchErrors.length.toLocaleString()}{batchErrors.length > 100 ? `, ${language === "sk" ? "zobrazených prvých 100" : "showing first 100"}` : ""}):</p>
+                                  <div className="space-y-0.5 max-h-60 overflow-y-auto">
+                                    {batchErrors.slice(0, 100).map((e, i) => {
+                                      const nsMatch = e.message.match(/NS_NUMBER:\s*([^\s,]+)/i);
+                                      const ns = nsMatch ? nsMatch[1] : null;
+                                      return (
+                                        <p key={i} className="text-red-400 dark:text-red-300 leading-relaxed">
+                                          {ns ? <span className="text-amber-400 dark:text-amber-300">[{ns}]</span> : null}
+                                          {" "}{e.message}
+                                        </p>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Skipped items */}
+                              {skippedItems.length > 0 && (
+                                <div>
+                                  <p className="text-muted-foreground mb-1"># {language === "sk" ? "Preskočené záznamy" : "Skipped records"} ({skippedItems.length.toLocaleString()}{skippedItems.length > 50 ? `, ${language === "sk" ? "zobrazených prvých 50" : "showing first 50"}` : ""}):</p>
+                                  <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                                    {skippedItems.slice(0, 50).map((s, i) => (
+                                      <p key={i} className="text-amber-500 dark:text-amber-400">
+                                        <span className="text-amber-400 dark:text-amber-300">[{s.nsNumber}]</span> {s.reason}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* CSV download */}
+                              {(failed > 0 || skipped > 0) && (
+                                <div className="pt-1">
+                                  <button
+                                    data-testid={`button-log-csv-${run.id}`}
+                                    className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                                    onClick={async () => {
+                                      try {
+                                        const resp = await fetch(`/api/sync-runs/${run.id}/export-csv`, { credentials: "include" });
+                                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                        const blob = await resp.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement("a");
+                                        const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
+                                        a.href = url;
+                                        a.download = `sync-export-${startedAt}.csv`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                      } catch {
+                                        alert(language === "sk" ? "Export sa nepodaril." : "Export failed.");
+                                      }
+                                    }}
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    {language === "sk" ? "Stiahnuť úplný export (CSV)" : "Download full export (CSV)"}
+                                    {" "}({(failed + skipped).toLocaleString()} {language === "sk" ? "záznamov" : "records"})
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Run ID for reference */}
+                              <p className="text-muted-foreground/50 pt-1">run_id: {run.id}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </>

@@ -780,7 +780,20 @@ export async function registerRoutes(
       const limit = parseInt(req.query.limit as string) || 50;
       const configId = req.query.configId as string | undefined;
       const runs = await storage.getSyncRuns(configId, limit);
-      return res.json(runs);
+      const enriched = await Promise.all(runs.map(async (run) => {
+        let configName: string | null = null;
+        if (run.syncConfigId) {
+          const cfg = await storage.getSyncConfig(run.syncConfigId);
+          configName = cfg?.name || null;
+        }
+        let triggeredByName: string | null = null;
+        if (run.triggeredBy) {
+          const user = await storage.getUser(run.triggeredBy);
+          triggeredByName = user?.fullName || user?.username || null;
+        }
+        return { ...run, configName, triggeredByName };
+      }));
+      return res.json(enriched);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load sync runs" });
     }
