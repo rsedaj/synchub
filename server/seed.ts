@@ -32,8 +32,11 @@ const MODULE_DEFINITIONS = [
       swaggerUrl: "https://onix-api.hauerland.sk/onix_api/swagger/ui/index",
       apiType: "REST",
       authType: "token",
-      apiToken: process.env.ONIX_API_TOKEN || "",
-      databasePath: process.env.ONIX_DATABASE_PATH || "",
+      environment: "test",
+      testApiToken: process.env.ONIX_API_TOKEN || "",
+      testDatabasePath: process.env.ONIX_DATABASE_PATH || "",
+      prodApiToken: "",
+      prodDatabasePath: "",
       defaultStock: "SYN",
       notes: [
         "Swagger DEMO: http://195.146.148.139/onix_api/swagger/ui/index#!/",
@@ -261,7 +264,7 @@ export async function seedData() {
 
   log("Syncing module definitions...", "seed");
 
-  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "clientId", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName", "databasePath"];
+  const sensitiveKeys = ["apiToken", "apiTokenProd", "apiKey", "accessKey", "clientId", "xmlFeedId", "csvFeedId", "username", "password", "shopId", "companyId", "companyDomain", "xmlFeedUrl", "apiBaseUrl", "environment", "language", "productFeedUrl", "pricesFeedUrl", "printDataFeedUrl", "printPricesFeedUrl", "stockFeedUrl", "combinedFeedUrl", "instanceName", "databasePath", "testApiToken", "testDatabasePath", "prodApiToken", "prodDatabasePath"];
 
   for (const modDef of MODULE_DEFINITIONS) {
     const existing = await storage.getModuleByCode(modDef.code);
@@ -274,6 +277,19 @@ export async function seedData() {
           mergedConfig[key] = seedConfig[key];
         } else if (existingConfig[key]) {
           mergedConfig[key] = existingConfig[key];
+        }
+      }
+      // ONIX migration: if user has legacy apiToken/databasePath but no testApiToken/testDatabasePath,
+      // promote legacy values to test* fields so existing setup continues to work.
+      if (modDef.code === "ONIX") {
+        if (!mergedConfig.testApiToken && mergedConfig.apiToken) {
+          mergedConfig.testApiToken = mergedConfig.apiToken;
+        }
+        if (!mergedConfig.testDatabasePath && mergedConfig.databasePath) {
+          mergedConfig.testDatabasePath = mergedConfig.databasePath;
+        }
+        if (!mergedConfig.environment) {
+          mergedConfig.environment = "test";
         }
       }
       await storage.updateModule(existing.id, {

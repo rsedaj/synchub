@@ -628,8 +628,10 @@ async function pushToOnix(
   matchOptions?: MatchOptions
 ): Promise<PushResult> {
   const config = module.config as Record<string, any> | null;
-  const token = config?.apiToken;
-  const databasePath = config?.databasePath;
+  const { getOnixCreds } = await import("./onix-creds");
+  const creds = getOnixCreds(config);
+  const token = creds.token;
+  const databasePath = creds.databasePath;
 
   if (!token) {
     return {
@@ -637,10 +639,11 @@ async function pushToOnix(
       createdCount: 0,
       updatedCount: 0,
       errorCount: records.length,
-      errors: [{ index: 0, message: "ONIX API token not configured" }],
+      errors: [{ index: 0, message: `ONIX API token not configured for environment "${creds.environment}"` }],
       records: [],
     };
   }
+  console.log(`[target-push] ONIX active environment: ${creds.environment} (db: ${databasePath || "n/a"})`);
 
   const source = (!dataSource || dataSource === "auto") ? "stockitems" : dataSource;
   const writeDef = ONIX_WRITE_SOURCES[source];

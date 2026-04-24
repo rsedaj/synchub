@@ -62,10 +62,12 @@ import { formatDistanceToNow } from "date-fns";
 interface ConfigFieldDef {
   key: string;
   label: string;
-  type: "text" | "password" | "url";
+  type: "text" | "password" | "url" | "select";
   placeholder: string;
   required?: boolean;
   helpText?: string;
+  group?: "test" | "prod";
+  selectOptions?: Array<{ value: string; label: string }>;
 }
 
 const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
@@ -73,8 +75,14 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: "apiType", label: "API Type", type: "text", placeholder: "REST" },
     { key: "authType", label: "Auth Type", type: "text", placeholder: "token" },
     { key: "swaggerUrl", label: "Swagger URL", type: "url", placeholder: "http://195.146.148.139/onix_api/swagger/ui/index" },
-    { key: "apiToken", label: "API Token", type: "password", placeholder: "Enter ONIX API token", required: true, helpText: "Authentication token for ONIX API" },
-    { key: "databasePath", label: "Database Path", type: "text", placeholder: "C:\\ONIX\\DATABASE.NDB", required: true, helpText: "Cesta k ONIX databáze na serveri (header DatabasePath). Poskytne vám ju Kros a.s." },
+    { key: "environment", label: "Aktívne prostredie", type: "select", placeholder: "test", required: true, helpText: "Vyber, ktorá databáza sa má použiť pre všetky synchronizácie a Data Preview. Test = bezpečné experimentovanie. Ostrá = produkčné dáta — pozor!", selectOptions: [
+      { value: "test", label: "Testovacia databáza" },
+      { value: "production", label: "Ostrá (produkčná) databáza" },
+    ] },
+    { key: "testApiToken", label: "API Token (Test)", type: "password", placeholder: "Token pre testovaciu databázu", group: "test", helpText: "Bearer token pre prístup k testovacej ONIX databáze" },
+    { key: "testDatabasePath", label: "Database Path (Test)", type: "text", placeholder: "testovacia_hauerland", group: "test", helpText: "Názov/cesta k testovacej databáze (header DatabasePath)" },
+    { key: "prodApiToken", label: "API Token (Ostrá)", type: "password", placeholder: "Token pre ostrú produkčnú databázu", group: "prod", helpText: "Bearer token pre prístup k ostrej produkčnej ONIX databáze. Pozor — práca s reálnymi dátami!" },
+    { key: "prodDatabasePath", label: "Database Path (Ostrá)", type: "text", placeholder: "hauerland_spol_s_ro", group: "prod", helpText: "Názov/cesta k ostrej produkčnej databáze (header DatabasePath)" },
     { key: "defaultStock", label: "Cieľový sklad (Default_Stock)", type: "text", placeholder: "SYN", helpText: "Kód skladu v ONIX, do ktorého sa synchronizujú nové skladové karty. Predvolené: SYN (Sklad_SyncHub). Overené kódy: SYN, SK1, OPP, VOS, VZ, T" },
     { key: "companyId", label: "Company ID", type: "text", placeholder: "Enter company identifier", helpText: "ONIX company/database identifier" },
   ],
@@ -1061,38 +1069,103 @@ export default function ModuleDetailPage() {
                     </div>
                   );
                 }
+                const renderField = (field: ConfigFieldDef) => (
+                  <div key={field.key} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`cfg-${field.key}`}>
+                        {field.label}
+                        {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                      </Label>
+                    </div>
+                    {field.type === "password" ? (
+                      <PasswordField
+                        value={configValues[field.key] || ""}
+                        onChange={(val) => updateConfigValue(field.key, val)}
+                        placeholder={field.placeholder}
+                        testId={`input-config-${field.key}`}
+                      />
+                    ) : field.type === "select" ? (
+                      <Select
+                        value={configValues[field.key] || field.selectOptions?.[0]?.value || ""}
+                        onValueChange={(val) => updateConfigValue(field.key, val)}
+                      >
+                        <SelectTrigger id={`cfg-${field.key}`} data-testid={`select-config-${field.key}`}>
+                          <SelectValue placeholder={field.placeholder} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(field.selectOptions || []).map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} data-testid={`option-${field.key}-${opt.value}`}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`cfg-${field.key}`}
+                        data-testid={`input-config-${field.key}`}
+                        type={field.type === "url" ? "url" : "text"}
+                        value={configValues[field.key] || ""}
+                        onChange={(e) => updateConfigValue(field.key, e.target.value)}
+                        placeholder={field.placeholder}
+                      />
+                    )}
+                    {field.helpText && (
+                      <p className="text-xs text-muted-foreground">{field.helpText}</p>
+                    )}
+                  </div>
+                );
+
+                const ungrouped = fields.filter((f) => !f.group);
+                const testFields = fields.filter((f) => f.group === "test");
+                const prodFields = fields.filter((f) => f.group === "prod");
+                const activeEnv = configValues.environment || "test";
+
                 return (
                   <div className="space-y-4">
-                    {fields.map((field) => (
-                      <div key={field.key} className="space-y-1.5">
+                    {ungrouped.map(renderField)}
+                    {testFields.length > 0 && (
+                      <div
+                        className={`rounded-md border-2 p-4 space-y-4 ${
+                          activeEnv === "test"
+                            ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                            : "border-border bg-muted/30"
+                        }`}
+                        data-testid="section-config-test"
+                      >
                         <div className="flex items-center gap-2">
-                          <Label htmlFor={`cfg-${field.key}`}>
-                            {field.label}
-                            {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                          </Label>
+                          <Database className={`h-4 w-4 ${activeEnv === "test" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />
+                          <span className="text-sm font-semibold">Testovacia databáza</span>
+                          {activeEnv === "test" && (
+                            <Badge variant="default" className="bg-blue-600 hover:bg-blue-600 text-white" data-testid="badge-active-test">
+                              AKTÍVNA
+                            </Badge>
+                          )}
                         </div>
-                        {field.type === "password" ? (
-                          <PasswordField
-                            value={configValues[field.key] || ""}
-                            onChange={(val) => updateConfigValue(field.key, val)}
-                            placeholder={field.placeholder}
-                            testId={`input-config-${field.key}`}
-                          />
-                        ) : (
-                          <Input
-                            id={`cfg-${field.key}`}
-                            data-testid={`input-config-${field.key}`}
-                            type={field.type === "url" ? "url" : "text"}
-                            value={configValues[field.key] || ""}
-                            onChange={(e) => updateConfigValue(field.key, e.target.value)}
-                            placeholder={field.placeholder}
-                          />
-                        )}
-                        {field.helpText && (
-                          <p className="text-xs text-muted-foreground">{field.helpText}</p>
-                        )}
+                        {testFields.map(renderField)}
                       </div>
-                    ))}
+                    )}
+                    {prodFields.length > 0 && (
+                      <div
+                        className={`rounded-md border-2 p-4 space-y-4 ${
+                          activeEnv === "production"
+                            ? "border-red-500 bg-red-50 dark:bg-red-950/30"
+                            : "border-border bg-muted/30"
+                        }`}
+                        data-testid="section-config-prod"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Database className={`h-4 w-4 ${activeEnv === "production" ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`} />
+                          <span className="text-sm font-semibold">Ostrá (produkčná) databáza</span>
+                          {activeEnv === "production" && (
+                            <Badge variant="default" className="bg-red-600 hover:bg-red-600 text-white" data-testid="badge-active-prod">
+                              AKTÍVNA
+                            </Badge>
+                          )}
+                        </div>
+                        {prodFields.map(renderField)}
+                      </div>
+                    )}
                   </div>
                 );
               })()}

@@ -117,14 +117,15 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         testUrl = mod.baseUrl;
       }
     } else if (mod.code === "ONIX") {
-      const token = config?.apiToken;
-      if (token) {
+      const { getOnixCreds } = await import("./onix-creds");
+      const creds = getOnixCreds(config);
+      if (creds.token) {
         const base = (mod.baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
         testUrl = `${base}/api/v1/stocks`;
-        headers["Authorization"] = `Bearer ${token}`;
+        headers["Authorization"] = `Bearer ${creds.token}`;
         headers["Accept"] = "application/json";
-        if (config?.databasePath) {
-          headers["DatabasePath"] = config.databasePath;
+        if (creds.databasePath) {
+          headers["DatabasePath"] = creds.databasePath;
         }
       } else if (mod.baseUrl) {
         testUrl = `${mod.baseUrl}/swagger/ui/index`;
@@ -262,39 +263,44 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       }
     }
 
-    if (mod.code === "ONIX" && config?.apiToken) {
-      if (res.ok) {
-        try {
-          const data = await res.json();
-          const count = Array.isArray(data) ? data.length : (data?.totalCount || data?.length || "N/A");
-          message = `Connection successful — ONIX ERP API ready. Stocks: ${count}`;
-        } catch {
-          message = `Connection successful — ONIX ERP API accessible (HTTP ${res.status})`;
-        }
-      } else if (res.status === 401) {
-        message = `Authentication failed — Invalid API token (HTTP 401)`;
-      } else if (res.status === 500) {
-        try {
-          const errorText = await res.text();
-          const dbMatch = errorText.match(/database "([^"]+)" does not exist/);
-          if (dbMatch) {
-            message = `ONIX API connected, but PostgreSQL database "${dbMatch[1]}" does not exist on the server. Check that the database name matches your DatabasePath (port 20457).`;
-          } else if (errorText.includes("OpenFirm_CantConnect")) {
-            message = `ONIX API connected, but cannot open database — verify DatabasePath and that PostgreSQL service is running (port 20457).`;
-          } else if (errorText.includes("OpenFirm_DBVersionSmaller")) {
-            message = `ONIX API server error: OpenFirm_DBVersionSmaller — Databáza "${config?.databasePath || "testovacia_hauerland"}" má staršiu schému ako vyžaduje ONIX API server. Kontaktujte správcu ONIX (KROS a.s.) — je potrebná migrácia databázy na novšiu verziu. Servis: servis.onix@kros.sk`;
-          } else if (errorText.includes("OpenFirm_DBVersionGreater")) {
-            message = `ONIX API server error: OpenFirm_DBVersionGreater — API server je starší ako databáza. Kontaktujte správcu ONIX (KROS a.s.) na aktualizáciu API servera. Servis: servis.onix@kros.sk`;
-          } else if (!config?.databasePath) {
-            message = `ONIX API connected, but DatabasePath is not configured — add the path to your ONIX database in Configuration tab.`;
-          } else {
-            message = `ONIX API server error (HTTP 500) — ${errorText.slice(0, 200)}`;
+    if (mod.code === "ONIX") {
+      const { getOnixCreds } = await import("./onix-creds");
+      const onixCreds = getOnixCreds(config);
+      if (onixCreds.token) {
+        const envLabel = onixCreds.environment === "production" ? "OSTRÁ DB" : "TEST DB";
+        if (res.ok) {
+          try {
+            const data = await res.json();
+            const count = Array.isArray(data) ? data.length : (data?.totalCount || data?.length || "N/A");
+            message = `Connection successful [${envLabel}: ${onixCreds.databasePath || "n/a"}] — ONIX ERP API ready. Stocks: ${count}`;
+          } catch {
+            message = `Connection successful [${envLabel}] — ONIX ERP API accessible (HTTP ${res.status})`;
           }
-        } catch {
-          message = `ONIX API server error (HTTP 500)`;
+        } else if (res.status === 401) {
+          message = `Authentication failed [${envLabel}] — Invalid API token (HTTP 401)`;
+        } else if (res.status === 500) {
+          try {
+            const errorText = await res.text();
+            const dbMatch = errorText.match(/database "([^"]+)" does not exist/);
+            if (dbMatch) {
+              message = `[${envLabel}] ONIX API connected, but PostgreSQL database "${dbMatch[1]}" does not exist on the server. Check that the database name matches your DatabasePath (port 20457).`;
+            } else if (errorText.includes("OpenFirm_CantConnect")) {
+              message = `[${envLabel}] ONIX API connected, but cannot open database — verify DatabasePath and that PostgreSQL service is running (port 20457).`;
+            } else if (errorText.includes("OpenFirm_DBVersionSmaller")) {
+              message = `[${envLabel}] ONIX API server error: OpenFirm_DBVersionSmaller — Databáza "${onixCreds.databasePath || "n/a"}" má staršiu schému ako vyžaduje ONIX API server. Kontaktujte správcu ONIX (KROS a.s.) — je potrebná migrácia databázy na novšiu verziu. Servis: servis.onix@kros.sk`;
+            } else if (errorText.includes("OpenFirm_DBVersionGreater")) {
+              message = `[${envLabel}] ONIX API server error: OpenFirm_DBVersionGreater — API server je starší ako databáza. Kontaktujte správcu ONIX (KROS a.s.) na aktualizáciu API servera. Servis: servis.onix@kros.sk`;
+            } else if (!onixCreds.databasePath) {
+              message = `[${envLabel}] ONIX API connected, but DatabasePath is not configured — add the path to your ONIX database in Configuration tab.`;
+            } else {
+              message = `[${envLabel}] ONIX API server error (HTTP 500) — ${errorText.slice(0, 200)}`;
+            }
+          } catch {
+            message = `[${envLabel}] ONIX API server error (HTTP 500)`;
+          }
+        } else if (res.status === 503) {
+          message = `[${envLabel}] ONIX API service unavailable (HTTP 503) — service may not be running on the server`;
         }
-      } else if (res.status === 503) {
-        message = `ONIX API service unavailable (HTTP 503) — service may not be running on the server`;
       }
     }
 
@@ -1930,7 +1936,9 @@ const ONIX_SOURCES: Record<string, { endpoint: string; label: string }> = {
 };
 
 async function fetchOnixData(config: Record<string, any>, baseUrl: string, source?: string, limit = 20): Promise<FetchResult> {
-  const token = config?.apiToken;
+  const { getOnixCreds } = await import("./onix-creds");
+  const creds = getOnixCreds(config);
+  const token = creds.token;
   if (!token) {
     return {
       success: false,
@@ -1938,7 +1946,7 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
       recordCount: 0,
       fields: [],
       preview: [],
-      error: "No API token configured. Add your ONIX API token in the Configuration tab.",
+      error: `No API token configured for ${creds.environment === "production" ? "production" : "test"} environment. Add it in the Configuration tab.`,
       fetchedAt: new Date().toISOString(),
     };
   }
@@ -1957,9 +1965,10 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
       "Accept": "application/json",
       "User-Agent": "SyncHub/1.0",
     };
-    if (config?.databasePath) {
-      hdrs["DatabasePath"] = config.databasePath;
+    if (creds.databasePath) {
+      hdrs["DatabasePath"] = creds.databasePath;
     }
+    console.log(`[data-fetcher] ONIX fetch [${creds.environment}: ${creds.databasePath || "n/a"}] ${url}`);
     let res: Response | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
