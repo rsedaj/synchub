@@ -81,8 +81,8 @@ const MODULE_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     ] },
     { key: "testApiToken", label: "API Token (Test)", type: "password", placeholder: "Token pre testovaciu databázu", group: "test", helpText: "Bearer token pre prístup k testovacej ONIX databáze" },
     { key: "testDatabasePath", label: "Database Path (Test)", type: "text", placeholder: "testovacia_hauerland", group: "test", helpText: "Názov/cesta k testovacej databáze (header DatabasePath)" },
-    { key: "prodApiToken", label: "API Token (Ostrá)", type: "password", placeholder: "Token pre ostrú produkčnú databázu", group: "prod", helpText: "Bearer token pre prístup k ostrej produkčnej ONIX databáze. Pozor — práca s reálnymi dátami!" },
-    { key: "prodDatabasePath", label: "Database Path (Ostrá)", type: "text", placeholder: "hauerland_spol_s_ro", group: "prod", helpText: "Názov/cesta k ostrej produkčnej databáze (header DatabasePath)" },
+    { key: "prodApiToken", label: "API Token (Ostrá)", type: "password", placeholder: "Token pre ostrú produkčnú databázu", group: "prod", helpText: "Bearer token pre prístup k ostrej produkčnej ONIX databáze. Pozor — práca s reálnymi dátami! Ak je vyplnený v bezpečnom úložisku, prepíše hodnotu z formulára." },
+    { key: "prodDatabasePath", label: "Database Path (Ostrá)", type: "text", placeholder: "hauerland_spol_s_ro", group: "prod", helpText: "Názov/cesta k ostrej produkčnej databáze (header DatabasePath). Ak je vyplnený v bezpečnom úložisku, prepíše hodnotu z formulára." },
     { key: "defaultStock", label: "Cieľový sklad (Default_Stock)", type: "text", placeholder: "SYN", helpText: "Kód skladu v ONIX, do ktorého sa synchronizujú nové skladové karty. Predvolené: SYN (Sklad_SyncHub). Overené kódy: SYN, SK1, OPP, VOS, VZ, T" },
     { key: "companyId", label: "Company ID", type: "text", placeholder: "Enter company identifier", helpText: "ONIX company/database identifier" },
   ],
@@ -280,6 +280,11 @@ export default function ModuleDetailPage() {
   const { data: syncLogs } = useQuery<SyncLog[]>({
     queryKey: ["/api/sync-logs"],
     select: (logs) => logs.filter(l => l.moduleId === moduleId).slice(0, 20),
+  });
+
+  const { data: vaultStatus } = useQuery<{ prodTokenInVault: boolean; prodDatabaseInVault: boolean }>({
+    queryKey: ["/api/onix/vault-status"],
+    enabled: !!moduleId && mod?.code === "ONIX",
   });
 
   const [name, setName] = useState("");
@@ -1163,6 +1168,22 @@ export default function ModuleDetailPage() {
                             </Badge>
                           )}
                         </div>
+                        {mod?.code === "ONIX" && (vaultStatus?.prodTokenInVault || vaultStatus?.prodDatabaseInVault) && (
+                          <div
+                            className="rounded-md border border-green-500/40 bg-green-50 dark:bg-green-950/30 px-3 py-2 flex items-start gap-2"
+                            data-testid="banner-vault-status"
+                          >
+                            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                            <div className="text-xs text-green-900 dark:text-green-100">
+                              <span className="font-semibold">Uložené v bezpečnom úložisku.</span>{" "}
+                              {vaultStatus.prodTokenInVault && vaultStatus.prodDatabaseInVault
+                                ? "API token aj database path pre ostrú databázu sú uložené mimo databázy v zašifrovanom úložisku — polia nižšie netreba vypĺňať."
+                                : vaultStatus.prodTokenInVault
+                                  ? "API token je uložený v zašifrovanom úložisku. Database path môžete vyplniť nižšie."
+                                  : "Database path je uložená v zašifrovanom úložisku. API token môžete vyplniť nižšie."}
+                            </div>
+                          </div>
+                        )}
                         {prodFields.map(renderField)}
                       </div>
                     )}

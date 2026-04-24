@@ -157,8 +157,8 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
 type FieldMapping = { sourceField: string; targetField: string; transform?: string };
 type Schedule = { enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string };
 type EnrichedSyncConfig = SyncConfig & {
-  targetModule?: { code: string; name: string; status: string } | null;
-  sourceModule?: { code: string; name: string; status: string } | null;
+  targetModule?: { code: string; name: string; status: string; environment?: "test" | "production" | null } | null;
+  sourceModule?: { code: string; name: string; status: string; environment?: "test" | "production" | null } | null;
   successRate?: number;
   totalProcessed?: number;
   totalFailed?: number;
@@ -2092,6 +2092,27 @@ export default function SyncConfigPage() {
                           <span className="font-mono">{config.sourceModule?.code || "?"}</span>
                           <ArrowRight className="h-3 w-3" />
                           <span className="font-mono">{config.targetModule?.code || "?"}</span>
+                          {config.targetModule?.code === "ONIX" && config.targetModule?.environment && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 gap-1 ${
+                                config.targetModule.environment === "production"
+                                  ? "border-red-500/40 text-red-600 dark:text-red-400 bg-red-500/5"
+                                  : "border-blue-500/40 text-blue-600 dark:text-blue-400 bg-blue-500/5"
+                              }`}
+                              title={
+                                config.targetModule.environment === "production"
+                                  ? (language === "sk" ? "Cieľ: ostrá (produkčná) ONIX databáza" : "Target: production ONIX database")
+                                  : (language === "sk" ? "Cieľ: testovacia ONIX databáza" : "Target: test ONIX database")
+                              }
+                              data-testid={`badge-onix-env-${config.id}`}
+                            >
+                              <Database className="h-2.5 w-2.5" />
+                              {config.targetModule.environment === "production"
+                                ? (language === "sk" ? "OSTRÁ DB" : "PROD DB")
+                                : (language === "sk" ? "TEST DB" : "TEST DB")}
+                            </Badge>
+                          )}
                           {config.sourceDataSource && (
                             <span className="text-muted-foreground">({config.sourceDataSource})</span>
                           )}

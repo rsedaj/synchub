@@ -237,6 +237,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/onix/vault-status", requireAuth, async (_req, res) => {
+    try {
+      const { getOnixVaultStatus } = await import("./onix-creds");
+      return res.json(getOnixVaultStatus());
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to read vault status" });
+    }
+  });
+
   app.post("/api/modules/test-all", requireAuth, async (_req, res) => {
     try {
       const modules = await storage.getAllModules();
@@ -587,7 +596,15 @@ export async function registerRoutes(
         storage.getAllModules(),
         storage.getSyncConfigStats().catch(() => ({} as Record<string, { totalProcessed: number; totalFailed: number; runCount: number }>)),
       ]);
-      const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
+      const moduleMap = Object.fromEntries(modules.map(m => {
+        const cfg = (m.config as Record<string, any> | null) || {};
+        return [m.id, {
+          code: m.code,
+          name: m.name,
+          status: m.status,
+          environment: m.code === "ONIX" ? (cfg.environment === "production" ? "production" : "test") : null,
+        }];
+      }));
       const enriched = configs.map(c => {
         const stats = statsMap[c.id] || { totalProcessed: 0, totalFailed: 0, runCount: 0 };
         const successRate = stats.runCount === 0
@@ -616,7 +633,15 @@ export async function registerRoutes(
       const config = await storage.getSyncConfig(req.params.id);
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const modules = await storage.getAllModules();
-      const moduleMap = Object.fromEntries(modules.map(m => [m.id, { code: m.code, name: m.name, status: m.status }]));
+      const moduleMap = Object.fromEntries(modules.map(m => {
+        const cfg = (m.config as Record<string, any> | null) || {};
+        return [m.id, {
+          code: m.code,
+          name: m.name,
+          status: m.status,
+          environment: m.code === "ONIX" ? (cfg.environment === "production" ? "production" : "test") : null,
+        }];
+      }));
       return res.json({
         ...config,
         targetModule: moduleMap[config.targetModuleId] || null,

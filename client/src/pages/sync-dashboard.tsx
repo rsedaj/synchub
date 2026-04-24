@@ -1481,6 +1481,25 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               {config.sourceModule && <span>{config.sourceModule.name}</span>}
                               <span>→</span>
                               {config.targetModule && <span>{config.targetModule.name}</span>}
+                              {config.targetModule?.code === "ONIX" && config.targetModule?.environment && (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] px-1.5 py-0 gap-0.5 ${
+                                    config.targetModule.environment === "production"
+                                      ? "border-red-500/40 text-red-600 dark:text-red-400 bg-red-500/5"
+                                      : "border-blue-500/40 text-blue-600 dark:text-blue-400 bg-blue-500/5"
+                                  }`}
+                                  title={
+                                    config.targetModule.environment === "production"
+                                      ? "Cieľ: ostrá (produkčná) ONIX databáza"
+                                      : "Cieľ: testovacia ONIX databáza"
+                                  }
+                                  data-testid={`badge-onix-env-${config.id}`}
+                                >
+                                  <Database className="h-3 w-3" />
+                                  {config.targetModule.environment === "production" ? "OSTRÁ DB" : "TEST DB"}
+                                </Badge>
+                              )}
                               {lastRun && (
                                 <>
                                   <span>·</span>
