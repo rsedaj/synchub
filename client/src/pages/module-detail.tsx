@@ -1121,10 +1121,18 @@ export default function ModuleDetailPage() {
                   </div>
                 );
 
-                const ungrouped = fields.filter((f) => !f.group);
+                const hasGroupedFields = fields.some((f) => f.group);
+                const ungrouped = fields.filter((f) => !f.group && !(hasGroupedFields && f.key === "environment"));
                 const testFields = fields.filter((f) => f.group === "test");
                 const prodFields = fields.filter((f) => f.group === "prod");
                 const activeEnv = configValues.environment || "test";
+
+                const setActiveEnv = (env: "test" | "production") => {
+                  if (configValues.environment === env) return;
+                  const nextConfig = { ...configValues, environment: env };
+                  setConfigValues(nextConfig);
+                  updateMutation.mutate({ name, description, baseUrl, status: status as any, config: nextConfig });
+                };
 
                 return (
                   <div className="space-y-4">
@@ -1138,13 +1146,28 @@ export default function ModuleDetailPage() {
                         }`}
                         data-testid="section-config-test"
                       >
-                        <div className="flex items-center gap-2">
-                          <Database className={`h-4 w-4 ${activeEnv === "test" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />
-                          <span className="text-sm font-semibold">Testovacia databáza</span>
-                          {activeEnv === "test" && (
-                            <Badge variant="default" className="bg-blue-600 hover:bg-blue-600 text-white" data-testid="badge-active-test">
-                              AKTÍVNA
-                            </Badge>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Database className={`h-4 w-4 ${activeEnv === "test" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />
+                            <span className="text-sm font-semibold">Testovacia databáza</span>
+                            {activeEnv === "test" && (
+                              <Badge variant="default" className="bg-blue-600 hover:bg-blue-600 text-white" data-testid="badge-active-test">
+                                AKTÍVNA
+                              </Badge>
+                            )}
+                          </div>
+                          {activeEnv !== "test" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-blue-500/50 text-blue-700 dark:text-blue-300 hover:bg-blue-500/10"
+                              onClick={() => setActiveEnv("test")}
+                              disabled={updateMutation.isPending}
+                              data-testid="button-activate-test"
+                            >
+                              {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Power className="h-3.5 w-3.5 mr-1.5" />}
+                              Aktivovať testovaciu
+                            </Button>
                           )}
                         </div>
                         {testFields.map(renderField)}
@@ -1159,13 +1182,32 @@ export default function ModuleDetailPage() {
                         }`}
                         data-testid="section-config-prod"
                       >
-                        <div className="flex items-center gap-2">
-                          <Database className={`h-4 w-4 ${activeEnv === "production" ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`} />
-                          <span className="text-sm font-semibold">Ostrá (produkčná) databáza</span>
-                          {activeEnv === "production" && (
-                            <Badge variant="default" className="bg-red-600 hover:bg-red-600 text-white" data-testid="badge-active-prod">
-                              AKTÍVNA
-                            </Badge>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Database className={`h-4 w-4 ${activeEnv === "production" ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`} />
+                            <span className="text-sm font-semibold">Ostrá (produkčná) databáza</span>
+                            {activeEnv === "production" && (
+                              <Badge variant="default" className="bg-red-600 hover:bg-red-600 text-white" data-testid="badge-active-prod">
+                                AKTÍVNA
+                              </Badge>
+                            )}
+                          </div>
+                          {activeEnv !== "production" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-red-500/50 text-red-700 dark:text-red-300 hover:bg-red-500/10"
+                              onClick={() => {
+                                if (window.confirm("Naozaj prepnúť ONIX na OSTRÚ produkčnú databázu? Všetky synchronizácie budú zapisovať do reálnych dát Hauerland.")) {
+                                  setActiveEnv("production");
+                                }
+                              }}
+                              disabled={updateMutation.isPending}
+                              data-testid="button-activate-prod"
+                            >
+                              {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Power className="h-3.5 w-3.5 mr-1.5" />}
+                              Aktivovať ostrú
+                            </Button>
                           )}
                         </div>
                         {mod?.code === "ONIX" && (vaultStatus?.prodTokenInVault || vaultStatus?.prodDatabaseInVault) && (
