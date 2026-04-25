@@ -6,3 +6,9 @@ id = "o_2mD1LnJi_z1lDXcxmDg"
 uri = "file://exports/sync_export_2026-04-22.csv"
 type = "table"
 title = "Sync export 22.4.2026 — chyby a preskočené"
+
+[[outputs]]
+id = "mLDtbAV6poRf8TiJnKuvB"
+uri = "file://sync_errors_2026-04-25.csv"
+type = "table"
+title = "Chybné záznamy – Eshop→ONIX sync 25.4.2026 (76 záznamov)"

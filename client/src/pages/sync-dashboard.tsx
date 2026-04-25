@@ -1605,7 +1605,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       : Date.now() - new Date(run.startedAt).getTime();
                     const details = run.details as any;
                     const hasDetails = run.status !== "running" && run.status !== "pending";
-                    const hasError = run.status === "error" && (run.errorMessage || details?.batchErrors?.length > 0);
+                    const hasError = (run.status === "error" || run.status === "partial") && !!(run.errorMessage || (details?.batchErrors?.length ?? 0) > 0);
                     const isExpanded = expandedRunId === run.id;
                     const showRecords = recordsViewRunId === run.id;
                     const created = details?.totalCreated || 0;
@@ -1722,21 +1722,64 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             )}
 
                             {hasError && (
-                              <div className="p-2.5 rounded bg-destructive/5 text-sm">
-                                <p className="font-medium text-destructive text-xs mb-1">{t("syncDash.errorDetails")}:</p>
+                              <div className="p-2.5 rounded bg-destructive/5 text-sm space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium text-destructive text-xs">{t("syncDash.errorDetails")} ({details?.batchErrors?.length ?? 0}):</p>
+                                  <span className="text-[10px] text-muted-foreground italic">
+                                    {language === "sk" ? "Stiahnuť úplný zoznam →" : "Download full list →"}{" "}
+                                    <button
+                                      className="underline text-primary"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          const resp = await fetch(`/api/sync-runs/${run.id}/export-csv`, { credentials: "include" });
+                                          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                          const blob = await resp.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement("a");
+                                          a.href = url;
+                                          a.download = `sync-export-${run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export"}.csv`;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          document.body.removeChild(a);
+                                          URL.revokeObjectURL(url);
+                                        } catch { alert(language === "sk" ? "Export sa nepodaril." : "Export failed."); }
+                                      }}
+                                    >CSV</button>
+                                  </span>
+                                </div>
                                 {run.errorMessage && (
-                                  <p className="text-xs text-destructive/80 mb-2">{run.errorMessage}</p>
+                                  <p className="text-xs text-destructive/80">{run.errorMessage}</p>
                                 )}
                                 {groupedErrors.length > 0 && (
-                                  <div className="space-y-1">
-                                    {groupedErrors.slice(0, 5).map((eg, i) => (
-                                      <div key={i} className="text-[11px] text-muted-foreground flex justify-between gap-2">
-                                        <span className="truncate">{eg.message}</span>
-                                        <span className="text-destructive/60 flex-shrink-0">(×{eg.count})</span>
-                                      </div>
-                                    ))}
+                                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                                    {groupedErrors.map((eg, i) => {
+                                      const nsMatch = eg.message.match(/NS_NUMBER:\s*([^\s.]+)/i);
+                                      const hcode = nsMatch ? nsMatch[1] : null;
+                                      return (
+                                        <div key={i} className="text-[11px] text-muted-foreground flex justify-between gap-2">
+                                          <span className="truncate">
+                                            {hcode ? <span className="font-mono text-destructive/80 mr-1">{hcode}</span> : null}
+                                            {eg.message.replace(/^ONIX rejected: /, "").replace(/NS_NUMBER: [^\s]+ /, "")}
+                                          </span>
+                                          <span className="text-destructive/60 flex-shrink-0">{eg.count > 1 ? `×${eg.count}` : ""}</span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
+                              </div>
+                            )}
+
+                            {skipped > 0 && !(details?.skippedItems?.length > 0) && (
+                              <div className="p-2 rounded bg-amber-500/5 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="panel-skipped-info">
+                                <span className="mt-0.5">⊘</span>
+                                <span>
+                                  <span className="font-semibold">{skipped.toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}:</span>{" "}
+                                  {language === "sk"
+                                    ? "záznamy bez zmeny (zhoda hash od posledného syncu) — individuálne H kódy nie sú uložené."
+                                    : "records unchanged since last sync (hash match) — individual keys not stored."}
+                                </span>
                               </div>
                             )}
 
