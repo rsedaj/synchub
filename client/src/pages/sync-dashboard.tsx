@@ -1777,8 +1777,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 <span>
                                   <span className="font-semibold">{skipped.toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}:</span>{" "}
                                   {language === "sk"
-                                    ? "záznamy bez zmeny (zhoda hash od posledného syncu) — individuálne H kódy nie sú uložené."
-                                    : "records unchanged since last sync (hash match) — individual keys not stored."}
+                                    ? "záznamy preskočené pri synchronizácii (napr. duplicity v ONIX alebo záznamy bez zhody v cieľovom systéme) — individuálne H kódy neboli uložené v tomto behu."
+                                    : "records skipped during sync (e.g. duplicates in target or unmatched records) — individual keys were not stored in this run."}
                                 </span>
                               </div>
                             )}

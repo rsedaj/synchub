@@ -717,6 +717,24 @@ async function pushToOnix(
   const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
   const matchOperator: "and" | "or" = (matchOptions?.matchOperator as "and" | "or") || "and";
   const onMissing = matchOptions?.onMissing || "create";
+
+  function resolveNsNumber(mappedRec: Record<string, any>, srcRec?: Record<string, any>): string {
+    const fromMapped = mappedRec.Ns_Number ?? mappedRec.Ns_Code;
+    if (fromMapped != null && String(fromMapped).trim() !== "") return String(fromMapped).trim();
+    if (srcRec) {
+      const nsMapping = (matchOptions?.mappings || []).find(
+        m => m.targetField === "Ns_Number" || m.targetField === "Ns_Code"
+      );
+      if (nsMapping) {
+        const fromSrc = srcRec[nsMapping.sourceField];
+        if (fromSrc != null && String(fromSrc).trim() !== "") return String(fromSrc).trim();
+      }
+      const directSrc = srcRec.Ns_Number ?? srcRec.Ns_Code ?? srcRec.custom_label_2;
+      if (directSrc != null && String(directSrc).trim() !== "") return String(directSrc).trim();
+    }
+    return "";
+  }
+
   const matchTargetByMappingsRaw = (matchOptions?.mappings || [])
     .filter(m => matchFields.includes(m.sourceField))
     .map(m => ({ sourceField: m.sourceField, targetField: m.targetField }));
@@ -956,7 +974,7 @@ async function pushToOnix(
           // specific IdRecord, and POST /stockitems would be rejected by ONIX with
           // "sa nachádza v evidencii viac krát". Skip cleanly (data quality issue on
           // ONIX side), do NOT count as error so sync continues.
-          const nsNum = String(record.Ns_Number ?? record.Ns_Code ?? "");
+          const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
           return {
             created: 0, updated: 0, error: 0,
             recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord.", nsNumber: nsNum },
@@ -967,9 +985,10 @@ async function pushToOnix(
           onixId = lookup.id;
           isUpdate = true;
         } else if (onMissing === "skip") {
+          const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
           return {
             created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "No match found in target — skipped per configuration" },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Nenájdené v cieľovom systéme — preskočené podľa konfigurácie", nsNumber: nsNum },
             latency: 0,
           };
         }
