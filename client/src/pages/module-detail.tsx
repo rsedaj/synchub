@@ -269,7 +269,7 @@ export default function ModuleDetailPage() {
   const [, params] = useRoute("/modules/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const moduleId = params?.id;
 
   const { data: mod, isLoading } = useQuery<ApiModule>({
@@ -832,36 +832,68 @@ export default function ModuleDetailPage() {
                                   <span className="font-medium">{totalRows} {t("moduleDetail.rows")}</span>
                                 </div>
                               </div>
-                              {totalPages > 1 && (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-muted-foreground">
-                                    {startIdx + 1}–{endIdx} z {totalRows}
-                                  </span>
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    disabled={safeCurrentPage <= 1}
-                                    onClick={() => setCurrentPage(safeCurrentPage - 1)}
-                                    data-testid="button-prev-page"
-                                  >
-                                    <ChevronLeft className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <span className="text-xs font-medium min-w-[60px] text-center">
-                                    {safeCurrentPage} / {totalPages}
-                                  </span>
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    disabled={safeCurrentPage >= totalPages}
-                                    onClick={() => setCurrentPage(safeCurrentPage + 1)}
-                                    data-testid="button-next-page"
-                                  >
-                                    <ChevronRight className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs gap-1.5"
+                                  data-testid="button-download-csv-preview"
+                                  onClick={() => {
+                                    const rows5 = dataPreview.preview.slice(0, 5);
+                                    const cols = dataPreview.fields;
+                                    const BOM = '\uFEFF';
+                                    const escape = (v: any) => {
+                                      const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+                                      return `"${s.replace(/"/g, '""')}"`;
+                                    };
+                                    const header = cols.map(escape).join(';');
+                                    const lines = rows5.map(row => cols.map(f => escape(row[f])).join(';'));
+                                    const csv = BOM + [header, ...lines].join('\r\n') + '\r\n';
+                                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `${mod?.code || 'module'}-${dataPreview.source || 'data'}-ukazka.csv`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                  }}
+                                >
+                                  <Download className="h-3 w-3" />
+                                  {language === "sk" ? `CSV (${Math.min(5, totalRows)} riadkov)` : `CSV (${Math.min(5, totalRows)} rows)`}
+                                </Button>
+                                {totalPages > 1 && (
+                                  <>
+                                    <span className="text-xs text-muted-foreground">
+                                      {startIdx + 1}–{endIdx} z {totalRows}
+                                    </span>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      disabled={safeCurrentPage <= 1}
+                                      onClick={() => setCurrentPage(safeCurrentPage - 1)}
+                                      data-testid="button-prev-page"
+                                    >
+                                      <ChevronLeft className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <span className="text-xs font-medium min-w-[60px] text-center">
+                                      {safeCurrentPage} / {totalPages}
+                                    </span>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      disabled={safeCurrentPage >= totalPages}
+                                      onClick={() => setCurrentPage(safeCurrentPage + 1)}
+                                      data-testid="button-next-page"
+                                    >
+                                      <ChevronRight className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
                             </div>
 
                             {(() => {
