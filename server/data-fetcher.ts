@@ -488,9 +488,10 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     }
 
     const totalCount = products.length;
+    const fieldSampleSize = Math.max(limit > 0 ? limit : 0, 500);
+    const fieldSample = products.slice(0, fieldSampleSize).map((p: any) => flattenObject(p));
+    const fields = collectAllFields(fieldSample);
     const preview = applyLimit(products, limit).map((p: any) => flattenObject(p));
-
-    const fields = collectAllFields(preview);
 
     return {
       success: true,
@@ -574,7 +575,7 @@ async function fetchPromotronApiData(config: Record<string, any>, baseUrl: strin
     const items: any[] = Array.isArray(data) ? data : (data.items || data.orders || data.data || []);
     const totalCount = items.length;
 
-    const preview = applyLimit(items, limit).map((item: any) => {
+    const transformItem = (item: any): Record<string, any> => {
       const row: Record<string, any> = {};
       for (const [key, val] of Object.entries(item)) {
         if (val === null || val === undefined) {
@@ -590,9 +591,12 @@ async function fetchPromotronApiData(config: Record<string, any>, baseUrl: strin
         }
       }
       return row;
-    });
+    };
 
-    const fields = collectAllFields(preview);
+    const fieldSampleSize = Math.max(limit > 0 ? limit : 0, 500);
+    const fieldSample = items.slice(0, fieldSampleSize).map(transformItem);
+    const fields = collectAllFields(fieldSample);
+    const preview = applyLimit(items, limit).map(transformItem);
 
     return {
       success: true,
@@ -2053,9 +2057,11 @@ async function fetchOnixData(config: Record<string, any>, baseUrl: string, sourc
     }
 
     const totalCount = items.length;
+    const fieldSampleSize = Math.max(limit > 0 ? limit : 0, 500);
+    const fieldSample = items.slice(0, fieldSampleSize).map((item) => flattenObject(item));
+    const fields = collectAllFields(fieldSample);
     const limited = limit > 0 ? items.slice(0, limit) : items;
     const preview = limited.map((item) => flattenObject(item));
-    const fields = collectAllFields(preview.slice(0, 500));
 
     return {
       success: true,
