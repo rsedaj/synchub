@@ -410,6 +410,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/modules/:id/export-csv", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod) return res.status(404).json({ message: "Module not found" });
+      const source = (req.query.source as string) || undefined;
+      console.log(`[export-csv] ${mod.code} source=${source || "auto"}`);
+      const result = await fetchModuleData(mod, 0, source);
+      if (!result.success) {
+        return res.status(502).json({ message: result.error || "Failed to fetch data from source" });
+      }
+      const cols = result.fields;
+      const BOM = '\uFEFF';
+      const escape = (v: any): string => {
+        const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return `"${s.replace(/"/g, '""')}"`;
+      };
+      const header = cols.map(escape).join(';');
+      const lines = result.preview.map((row: Record<string, any>) => cols.map((f: string) => escape(row[f])).join(';'));
+      const csv = BOM + [header, ...lines].join('\r\n') + '\r\n';
+      const filename = `${mod.code}-${source || result.source || 'data'}-${new Date().toISOString().slice(0, 10)}.csv`.replace(/[^a-zA-Z0-9._-]/g, '-');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(csv);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to generate CSV export" });
+    }
+  });
+
   app.get("/api/modules/:id/filter-count", requireAuth, async (req, res) => {
     try {
       const mod = await storage.getModule(req.params.id);

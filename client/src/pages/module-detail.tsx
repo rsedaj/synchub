@@ -296,6 +296,7 @@ export default function ModuleDetailPage() {
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [dataPreview, setDataPreview] = useState<DataPreviewResult | null>(null);
   const [dataSource, setDataSource] = useState<string>("");
+  const [isExporting, setIsExporting] = useState<boolean>(false);
   const [rowLimit, setRowLimit] = useState<number>(50);
   const [showImages, setShowImages] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -838,31 +839,39 @@ export default function ModuleDetailPage() {
                                   variant="outline"
                                   size="sm"
                                   className="h-7 px-2 text-xs gap-1.5"
-                                  data-testid="button-download-csv-preview"
-                                  onClick={() => {
-                                    const rows5 = dataPreview.preview.slice(0, 5);
-                                    const cols = dataPreview.fields;
-                                    const BOM = '\uFEFF';
-                                    const escape = (v: any) => {
-                                      const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-                                      return `"${s.replace(/"/g, '""')}"`;
-                                    };
-                                    const header = cols.map(escape).join(';');
-                                    const lines = rows5.map(row => cols.map(f => escape(row[f])).join(';'));
-                                    const csv = BOM + [header, ...lines].join('\r\n') + '\r\n';
-                                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `${mod?.code || 'module'}-${dataPreview.source || 'data'}-ukazka.csv`;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
-                                    URL.revokeObjectURL(url);
+                                  data-testid="button-export-csv-full"
+                                  disabled={isExporting}
+                                  onClick={async () => {
+                                    setIsExporting(true);
+                                    try {
+                                      const srcParam = dataSource ? `&source=${encodeURIComponent(dataSource)}` : '';
+                                      const resp = await fetch(`/api/modules/${moduleId}/export-csv?_=${Date.now()}${srcParam}`, { credentials: 'include' });
+                                      if (!resp.ok) {
+                                        const err = await resp.json().catch(() => ({ message: 'Export zlyhal' }));
+                                        toast({ title: language === "sk" ? "Chyba exportu" : "Export error", description: err.message, variant: "destructive" });
+                                        return;
+                                      }
+                                      const blob = await resp.blob();
+                                      const cd = resp.headers.get('content-disposition') || '';
+                                      const fnMatch = cd.match(/filename="?([^";\r\n]+)"?/);
+                                      const filename = fnMatch ? fnMatch[1] : `${mod?.code || 'module'}-export.csv`;
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = filename;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      URL.revokeObjectURL(url);
+                                    } finally {
+                                      setIsExporting(false);
+                                    }
                                   }}
                                 >
-                                  <Download className="h-3 w-3" />
-                                  {language === "sk" ? `CSV (${Math.min(5, totalRows)} riadkov)` : `CSV (${Math.min(5, totalRows)} rows)`}
+                                  {isExporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                                  {isExporting
+                                    ? (language === "sk" ? "Exportujem..." : "Exporting...")
+                                    : (language === "sk" ? `Export všetko CSV (${totalRows})` : `Export all CSV (${totalRows})`)}
                                 </Button>
                                 {totalPages > 1 && (
                                   <>
