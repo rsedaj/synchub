@@ -79,9 +79,9 @@ const DAY_OPTIONS = [
 
 const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   PROMOTRON: [
-    { value: "auto", label: "Auto" },
-    { value: "orders", label: "Orders" },
-    { value: "products", label: "Products (XML)" },
+    { value: "auto", label: "Auto (XML Feed)" },
+    { value: "feed", label: "XML Feed (produkty)" },
+    { value: "api", label: "Promotron API (objednávky/produkty)" },
   ],
   MID: [
     { value: "auto", label: "Auto (Products)" },
@@ -109,10 +109,9 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
     { value: "product", label: "Produkty" },
   ],
   GIVING: [
-    { value: "products", label: "Products" },
-    { value: "stock", label: "Stock" },
+    { value: "products", label: "Products (Debtor API)" },
   ],
-  STRICKER: [
+  STICKER: [
     { value: "auto", label: "Auto (Products)" },
     { value: "products", label: "Products" },
     { value: "optionals", label: "Optionals (SKUs)" },
@@ -146,9 +145,15 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
   ],
   ANDA: [
     { value: "auto", label: "Auto (Products)" },
-    { value: "products", label: "Products" },
-    { value: "prices", label: "Prices" },
-    { value: "stock", label: "Inventories" },
+    { value: "products", label: "Products (XML)" },
+    { value: "prices", label: "Prices (XML)" },
+    { value: "inventories", label: "Inventory / Stocks (XML)" },
+    { value: "labeling", label: "Labeling Info (XML)" },
+    { value: "categories", label: "Categories (XML)" },
+    { value: "labeling-prices", label: "Labeling Prices (XML)" },
+    { value: "unique-prices", label: "Unique Prices (XML)" },
+    { value: "products-csv", label: "Products (CSV)" },
+    { value: "prices-csv", label: "Prices (CSV)" },
   ],
   PFCONCEPT: [
     { value: "products", label: "Product Feed" },
@@ -156,8 +161,20 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
     { value: "printprices", label: "Print Price Feed" },
     { value: "stock", label: "Stock Feed" },
   ],
+  PROMOLOG: [
+    { value: "auto", label: "Auto (Products)" },
+    { value: "products", label: "Product Feed" },
+    { value: "stock", label: "Stock Feed" },
+  ],
   ONIX: [
-    { value: "auto", label: "Auto" },
+    { value: "auto", label: "Auto (Skladové karty)" },
+    { value: "stockitems", label: "Skladové karty" },
+    { value: "stocks", label: "Sklady" },
+    { value: "balances", label: "Stav zásob" },
+    { value: "partners", label: "Partneri" },
+    { value: "catalogprices", label: "Cenníky (partnerské ceny)" },
+    { value: "stockitemgroups", label: "Skupiny kariet" },
+    { value: "documents", label: "Typy dokladov" },
   ],
 };
 
