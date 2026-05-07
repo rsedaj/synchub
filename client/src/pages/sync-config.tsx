@@ -115,9 +115,16 @@ const SOURCE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
   STRICKER: [
     { value: "auto", label: "Auto (Products)" },
     { value: "products", label: "Products" },
+    { value: "optionals", label: "Optionals (SKUs)" },
+    { value: "optionalscomplete", label: "Optionals Complete" },
     { value: "stocks", label: "Stocks" },
+    { value: "stocksCz", label: "Stocks CZ" },
+    { value: "stocksPt", label: "Stocks PT" },
     { value: "colors", label: "Colors" },
     { value: "catalogprices", label: "Catalog Prices" },
+    { value: "customizationOptions", label: "Customization Options" },
+    { value: "customizationTables", label: "Customization Tables" },
+    { value: "producttypes", label: "Product Types" },
   ],
   MACMA: [
     { value: "sku", label: "SKU (Products)" },
