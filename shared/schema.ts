@@ -79,7 +79,7 @@ export const syncConfigs = pgTable("sync_configs", {
   onMissing: text("on_missing").default("create"),
   targetStock: text("target_stock"),
   sourceFilters: jsonb("source_filters").$type<Array<{ field: string; operator: string; value: string }>>().default([]),
-  hKodConfig: jsonb("h_kod_config").$type<{ enabled: boolean; prefix: string; nextNumber: number } | null>(),
+  hKodConfig: jsonb("h_kod_config").$type<{ enabled: boolean; prefix: string; nextNumber: number; field: string } | null>(),
   schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string; backupBeforeSync?: boolean }>().default({ enabled: false, frequency: "daily", backupBeforeSync: true }),
   isEnabled: boolean("is_enabled").notNull().default(true),
   createdBy: varchar("created_by").references(() => users.id),

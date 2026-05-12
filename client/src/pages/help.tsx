@@ -517,9 +517,10 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
                 headers={["Pole", "Popis", "Príklad"]}
                 rows={[
                   ["Prepínač povolenia", "Zapne / vypne funkciu H kódu pre danú konfiguráciu", "✅ Povolené"],
-                  ["Prefix H kódu", "Textový prefix pred číselnou časťou kódu", "H20"],
-                  ["Ďalšie číslo", "Nasledujúce poradové číslo, ktoré sa priradí novému záznamu", "125892"],
-                  ["Live náhľad", "Ukážka výsledného formátu kódu", "H20125892"],
+                  ["ONIX pole pre H kód", "Cieľové pole v ONIX, do ktorého sa H kód zapíše a kde sa kontroluje jeho existencia", "Ns_Number (odporúčané)"],
+                  ["Prefix", "Textový prefix pred číselnou časťou kódu", "H20"],
+                  ["Ďalšie číslo", "Nasledujúce poradové číslo, ktoré sa priradí novému záznamu", "45120"],
+                  ["Výsledný formát", "Živá ukážka výsledného kódu", "H2045120"],
                 ]}
               />
             </div>
@@ -568,7 +569,8 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
               <CodeBlock>{`{
   "enabled": true,
   "prefix": "H20",
-  "nextNumber": 125892
+  "nextNumber": 45120,
+  "field": "Ns_Number"
 }`}</CodeBlock>
             </div>
           </div>
@@ -746,6 +748,13 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
 
             <div>
+              <strong className="text-foreground font-mono">v1.46.5</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">H kód — výber cieľového poľa</strong> — nové nastavenie "ONIX pole pre H kód" (dropdown): možnosť vybrať, do ktorého ONIX poľa sa H kód zapíše a kde sa kontroluje existencia (Ns_Number, Ns_Code, Ist_Code, Ist_Code2, Name, RecordExternalIdentificator)</li>
+                <li>Backend: <code className="text-xs bg-muted px-1 rounded">idToHKodFieldVal</code> mapa v ONIX indexe pre non-Ns_Number polia; konfigurácia <code className="text-xs bg-muted px-1 rounded">field</code> uložená v jsonb</li>
+                <li>Popis synchronizácie v UI je dynamický — zobrazuje skutočne vybrané pole a prefix</li>
+              </ul>
+
               <strong className="text-foreground font-mono">v1.46.4</strong> <span className="text-xs">(máj 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li><strong className="text-foreground">H kód — oprava viditeľnosti</strong> — sekcia "H kód" premiestnená na viditeľnejšie miesto v editore (po "Párovanie záznamov", pred "Plánovanie"). Podmienka zobrazenia opravená na <code className="text-xs bg-muted px-1 rounded">selectedTargetModule?.code === "ONIX"</code></li>

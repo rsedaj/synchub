@@ -124,7 +124,7 @@ export interface MatchOptions {
   onMissing?: "create" | "skip";
   mappings?: Array<{ sourceField: string; targetField: string }>;
   targetStock?: string;
-  hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number } | null;
+  hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number; field: string } | null;
 }
 
 export async function pushToTarget(
@@ -486,6 +486,8 @@ interface OnixIndexEntry {
   idToRecExtId: Map<number, string>;
   // Map IdRecord → Ns_Number (for H kód check on existing records)
   idToNsNumber: Map<number, string>;
+  // Map IdRecord → configured H kód field value (when field ≠ Ns_Number)
+  idToHKodFieldVal: Map<number, string>;
 }
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
@@ -495,13 +497,14 @@ async function buildOnixIndex(
   endpoint: string,
   hdrs: Record<string, string>,
   targetFields: string[],
-  targetStock?: string
+  targetStock?: string,
+  hKodField?: string
 ): Promise<OnixIndexEntry | null> {
   // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
   // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
   // Stock filtering is done in-memory after fetch.
   const fetchUrl = `${baseUrl}${endpoint}`;
-  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}`;
+  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
 
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
@@ -548,6 +551,7 @@ async function buildOnixIndex(
     }
     const idToRecExtId = new Map<number, string>();
     const idToNsNumber = new Map<number, string>();
+    const idToHKodFieldVal = new Map<number, string>();
 
     let filteredByStock = 0;
     for (const item of arr) {
@@ -573,6 +577,13 @@ async function buildOnixIndex(
       const nsNumRaw = item?.Ns_Number ?? item?.ns_number;
       if (nsNumRaw != null && String(nsNumRaw).trim() !== "") {
         idToNsNumber.set(id, String(nsNumRaw).trim());
+      }
+      // Capture configured H kód field value (if different from Ns_Number)
+      if (hKodField && hKodField !== "Ns_Number") {
+        const hkRaw = item?.[hKodField];
+        if (hkRaw != null && String(hkRaw).trim() !== "") {
+          idToHKodFieldVal.set(id, String(hkRaw).trim());
+        }
       }
 
       for (const tf of targetFields) {
@@ -600,7 +611,7 @@ async function buildOnixIndex(
     }
 
     const indexedCount = arr.length - filteredByStock;
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber };
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber, idToHKodFieldVal };
     _onixIndexCache.set(cacheKey, entry);
     console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
@@ -767,7 +778,7 @@ async function pushToOnix(
   const targetFieldsForIndex = matchTargetByMappingsRaw.map(m => m.targetField).filter((v, i, a) => a.indexOf(v) === i);
   let onixIndex: OnixIndexEntry | null = null;
   if (targetFieldsForIndex.length > 0) {
-    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock);
+    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock, hKodCfg?.field || "Ns_Number");
     if (onixIndex) {
       console.log(`[target-push] ONIX index ready: ${onixIndex.recordCount} records cached, batch ${batchIndex}`);
     }
@@ -1015,17 +1026,22 @@ async function pushToOnix(
 
       const body = sanitizeOnixBody(record);
 
-      // H kód auto-assignment: assign prefix+number to Ns_Number if existing record lacks H kód
+      // H kód auto-assignment: assign prefix+number to configured field if record lacks H kód
       if (hKodCfg) {
-        let existingNsNumber: string | null = null;
+        const hkField = hKodCfg.field || "Ns_Number";
+        let existingFieldVal: string | null = null;
         if (isUpdate && onixId) {
-          existingNsNumber = onixIndex?.idToNsNumber?.get(Number(onixId)) ?? null;
+          if (hkField === "Ns_Number") {
+            existingFieldVal = onixIndex?.idToNsNumber?.get(Number(onixId)) ?? null;
+          } else {
+            existingFieldVal = onixIndex?.idToHKodFieldVal?.get(Number(onixId)) ?? null;
+          }
         }
-        const alreadyHasHKod = existingNsNumber ? existingNsNumber.startsWith(hKodCfg.prefix) : false;
+        const alreadyHasHKod = existingFieldVal ? existingFieldVal.startsWith(hKodCfg.prefix) : false;
         if (!alreadyHasHKod) {
-          body.Ns_Number = hKodCfg.prefix + hKodCounter++;
+          body[hkField] = hKodCfg.prefix + hKodCounter++;
           if (batchIndex < 2) {
-            console.log(`[target-push] H kód priradený: ${body.Ns_Number} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"})`);
+            console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"})`);
           }
         }
       }
