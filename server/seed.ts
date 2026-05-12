@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { log } from "./index";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const standardDataFields = [
   "Product Code (Supplier)",
@@ -312,6 +314,14 @@ export async function seedData() {
 
 export async function runMigrations() {
   log("Running data migrations...", "seed");
+
+  // Schema migration m003: add h_kod_config column if not exists
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS h_kod_config jsonb`);
+    log("Schema m003: h_kod_config column verified", "seed");
+  } catch (_e) {
+    log("Schema m003: h_kod_config migration skipped", "seed");
+  }
 
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");

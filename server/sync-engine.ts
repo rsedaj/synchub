@@ -599,6 +599,10 @@ async function executeAsync(
       log(`Initial checkpoint saved (offset 0, total ${totalRecords})`);
     }
 
+    let hKodNextNumber: number | undefined = (config as any).hKodConfig?.enabled
+      ? ((config as any).hKodConfig.nextNumber ?? 0)
+      : undefined;
+
     for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
         return await markCancelled(runId, totalCreated, totalUpdated, totalFailed, 0, totalRecords, allErrors, syncedRecords, currentBatch);
@@ -646,8 +650,14 @@ async function executeAsync(
               onMissing: ((config as any).onMissing as "create" | "skip") || "create",
               mappings,
               targetStock: (config as any).targetStock || undefined,
+              hKodConfig: (config as any).hKodConfig?.enabled
+                ? { ...(config as any).hKodConfig, nextNumber: hKodNextNumber ?? (config as any).hKodConfig.nextNumber }
+                : null,
             }
           );
+          if (pushResult.hKodNextNumber !== undefined) {
+            hKodNextNumber = pushResult.hKodNextNumber;
+          }
           batchWallClockMs = Date.now() - batchWallStart;
           totalCreated += pushResult.createdCount;
           totalUpdated += pushResult.updatedCount;
@@ -953,6 +963,17 @@ async function executeAsync(
         log(`Saved ${baselineUpdates.length} baseline entries`);
       } catch (err: any) {
         log(`Failed to save baselines: ${err.message}`);
+      }
+    }
+
+    if ((config as any).hKodConfig?.enabled && hKodNextNumber !== undefined && hKodNextNumber !== (config as any).hKodConfig.nextNumber) {
+      try {
+        await storage.updateSyncConfig(config.id, {
+          hKodConfig: { ...(config as any).hKodConfig, nextNumber: hKodNextNumber },
+        } as any);
+        log(`H kód counter uložený: ${hKodNextNumber}`);
+      } catch (err: any) {
+        log(`H kód counter sa nepodarilo uložiť: ${err.message}`);
       }
     }
 

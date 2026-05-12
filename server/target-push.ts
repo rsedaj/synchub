@@ -46,6 +46,7 @@ export interface PushResult {
   avgLatencyMs?: number;
   minLatencyMs?: number;
   maxLatencyMs?: number;
+  hKodNextNumber?: number;
 }
 
 async function sleep(ms: number) {
@@ -123,6 +124,7 @@ export interface MatchOptions {
   onMissing?: "create" | "skip";
   mappings?: Array<{ sourceField: string; targetField: string }>;
   targetStock?: string;
+  hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number } | null;
 }
 
 export async function pushToTarget(
@@ -482,6 +484,8 @@ interface OnixIndexEntry {
   fieldMap: Map<string, Map<string, number[]>>;
   // Map IdRecord → RecordExternalIdentificator (ONIX requires it on every POST, even updates)
   idToRecExtId: Map<number, string>;
+  // Map IdRecord → Ns_Number (for H kód check on existing records)
+  idToNsNumber: Map<number, string>;
 }
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
@@ -543,6 +547,7 @@ async function buildOnixIndex(
       fieldMap.set(tf, new Map());
     }
     const idToRecExtId = new Map<number, string>();
+    const idToNsNumber = new Map<number, string>();
 
     let filteredByStock = 0;
     for (const item of arr) {
@@ -563,6 +568,11 @@ async function buildOnixIndex(
       const recExtId = item?.RecordExternalIdentificator ?? item?.recordExternalIdentificator;
       if (recExtId != null && String(recExtId).trim() !== "") {
         idToRecExtId.set(id, String(recExtId));
+      }
+      // Capture Ns_Number — needed for H kód check on existing records
+      const nsNumRaw = item?.Ns_Number ?? item?.ns_number;
+      if (nsNumRaw != null && String(nsNumRaw).trim() !== "") {
+        idToNsNumber.set(id, String(nsNumRaw).trim());
       }
 
       for (const tf of targetFields) {
@@ -590,7 +600,7 @@ async function buildOnixIndex(
     }
 
     const indexedCount = arr.length - filteredByStock;
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId };
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber };
     _onixIndexCache.set(cacheKey, entry);
     console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
@@ -717,6 +727,9 @@ async function pushToOnix(
   const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
   const matchOperator: "and" | "or" = (matchOptions?.matchOperator as "and" | "or") || "and";
   const onMissing = matchOptions?.onMissing || "create";
+
+  const hKodCfg = matchOptions?.hKodConfig?.enabled && matchOptions.hKodConfig.prefix ? matchOptions.hKodConfig : null;
+  let hKodCounter = hKodCfg ? hKodCfg.nextNumber : 0;
 
   function resolveNsNumber(mappedRec: Record<string, any>, srcRec?: Record<string, any>): string {
     const fromMapped = mappedRec.Ns_Number ?? mappedRec.Ns_Code;
@@ -1001,6 +1014,21 @@ async function pushToOnix(
       const url = `${baseUrl}${writeDef.endpoint}`;
 
       const body = sanitizeOnixBody(record);
+
+      // H kód auto-assignment: assign prefix+number to Ns_Number if existing record lacks H kód
+      if (hKodCfg) {
+        let existingNsNumber: string | null = null;
+        if (isUpdate && onixId) {
+          existingNsNumber = onixIndex?.idToNsNumber?.get(Number(onixId)) ?? null;
+        }
+        const alreadyHasHKod = existingNsNumber ? existingNsNumber.startsWith(hKodCfg.prefix) : false;
+        if (!alreadyHasHKod) {
+          body.Ns_Number = hKodCfg.prefix + hKodCounter++;
+          if (batchIndex < 2) {
+            console.log(`[target-push] H kód priradený: ${body.Ns_Number} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"})`);
+          }
+        }
+      }
 
       const hasVal = (v: any): boolean => {
         if (v == null) return false;
@@ -1313,5 +1341,6 @@ async function pushToOnix(
     avgLatencyMs: avgLatency,
     minLatencyMs: minLatencyMs === Infinity ? 0 : minLatencyMs,
     maxLatencyMs,
+    hKodNextNumber: hKodCfg ? hKodCounter : undefined,
   };
 }

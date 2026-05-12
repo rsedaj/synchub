@@ -102,6 +102,11 @@ const updateSyncConfigSchema = z.object({
     operator: z.string(),
     value: z.string(),
   })).nullable().optional(),
+  hKodConfig: z.object({
+    enabled: z.boolean(),
+    prefix: z.string(),
+    nextNumber: z.number().int().min(0),
+  }).nullable().optional(),
 });
 
 const updateUserSchema = z.object({
