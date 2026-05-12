@@ -498,6 +498,82 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           </div>
         </section>
 
+        {/* H KÓD */}
+        <section data-testid="section-help-hkod">
+          <h2 className="text-lg font-semibold border-b pb-2 mb-3">H kód — automatické prideľovanie (ONIX)</h2>
+
+          <p className="text-sm leading-relaxed text-muted-foreground mb-4">
+            Funkcia <strong className="text-foreground">H kód</strong> umožňuje automatické prideľovanie interného kódu produktu (napr. <code className="text-xs bg-muted px-1 rounded">H20125892</code>) do poľa <code className="text-xs bg-muted px-1 rounded">Ns_Number</code> v ONIX pri synchronizácii.
+            Aktivuje sa per-konfigurácia v editore sync konfigurácie — zobrazí sa len keď je cieľovým modulom ONIX.
+          </p>
+
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Nastavenie v sync konfigurácii</h3>
+              <p className="text-sm text-muted-foreground mb-2">
+                V editore sync konfigurácie (keď je cieľ ONIX) sa po sekcii <em>Párovanie záznamov</em> zobrazí sekcia <strong className="text-foreground">H kód (automatické prideľovanie)</strong> s týmito poľami:
+              </p>
+              <Table
+                headers={["Pole", "Popis", "Príklad"]}
+                rows={[
+                  ["Prepínač povolenia", "Zapne / vypne funkciu H kódu pre danú konfiguráciu", "✅ Povolené"],
+                  ["Prefix H kódu", "Textový prefix pred číselnou časťou kódu", "H20"],
+                  ["Ďalšie číslo", "Nasledujúce poradové číslo, ktoré sa priradí novému záznamu", "125892"],
+                  ["Live náhľad", "Ukážka výsledného formátu kódu", "H20125892"],
+                ]}
+              />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Logika pri synchronizácii</h3>
+              <CodeBlock>{`Pre každý záznam pri sync s povoleným H kódom:
+
+1. Záznam existuje v ONIX a Ns_Number začína prefixom (napr. "H20..."):
+   → Záznam sa synchronizuje normálne, H kód sa nemení.
+
+2. Záznam existuje v ONIX, ale Ns_Number NEzačína prefixom:
+   → Automaticky sa priradí H kód: Ns_Number = prefix + nextNumber
+   → Counter sa zvýši o 1
+
+3. Nový záznam (v ONIX ešte neexistuje):
+   → Automaticky dostane H kód: Ns_Number = prefix + nextNumber
+   → Counter sa zvýši o 1`}</CodeBlock>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Ukladanie countera</h3>
+              <p className="text-sm text-muted-foreground">
+                Po každej synchronizácii sa aktuálna hodnota countera (o koľko bolo inkrementované) uloží späť do konfigurácie do databázy.
+                Ďalší sync pokračuje od správneho miesta — čísla sa <strong className="text-foreground">nikdy neopakujú</strong>, aj keď sync prebehne viackrát.
+              </p>
+              <div className="mt-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 space-y-1">
+                <p className="font-semibold">ℹ️ Príklad sekvencie</p>
+                <p>
+                  Konfigurácia: prefix = <code className="font-mono">H20</code>, nextNumber = <code className="font-mono">125892</code>
+                </p>
+                <p>
+                  1. sync: pridelí kódy <code className="font-mono">H20125892</code>, <code className="font-mono">H20125893</code>, … uloží nextNumber = <code className="font-mono">125895</code>
+                </p>
+                <p>
+                  2. sync: pokračuje od <code className="font-mono">H20125895</code> — žiadne duplikáty
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Kde sa nastavenie ukladá</h3>
+              <p className="text-sm text-muted-foreground">
+                Konfigurácia H kódu je uložená v stĺpci <code className="text-xs bg-muted px-1 rounded">h_kod_config</code> (typ JSONB) v tabuľke <code className="text-xs bg-muted px-1 rounded">sync_configs</code>:
+              </p>
+              <CodeBlock>{`{
+  "enabled": true,
+  "prefix": "H20",
+  "nextNumber": 125892
+}`}</CodeBlock>
+            </div>
+          </div>
+        </section>
+
         {/* ZÁLOHY */}
         <section data-testid="section-help-backups">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">Zálohovanie a obnova</h2>
@@ -668,6 +744,24 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
         <section data-testid="section-help-changelog" className="print:break-inside-avoid">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">Changelog — čo je nové</h2>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+
+            <div>
+              <strong className="text-foreground font-mono">v1.46.4</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">H kód — oprava viditeľnosti</strong> — sekcia "H kód" premiestnená na viditeľnejšie miesto v editore (po "Párovanie záznamov", pred "Plánovanie"). Podmienka zobrazenia opravená na <code className="text-xs bg-muted px-1 rounded">selectedTargetModule?.code === "ONIX"</code></li>
+                <li>Dokumentácia H kódu pridaná do helpu (sekcia "H kód — automatické prideľovanie")</li>
+              </ul>
+            </div>
+
+            <div>
+              <strong className="text-foreground font-mono">v1.46.3</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">H kód — automatické prideľovanie</strong> — nová funkcia pre ONIX sync konfigurácie. Automatické prideľovanie sekvenčných H kódov (prefix + číslo) do poľa <code className="text-xs bg-muted px-1 rounded">Ns_Number</code> pri synchronizácii</li>
+                <li>DB stĺpec <code className="text-xs bg-muted px-1 rounded">h_kod_config jsonb</code> v tabuľke <code className="text-xs bg-muted px-1 rounded">sync_configs</code> (migrácia m003)</li>
+                <li>Counter sa ukladá po každom sync behu — čísla sa nikdy neopakujú</li>
+                <li>UI sekcia s prepínačom, prefixom, číslom a live náhľadom výsledného formátu</li>
+              </ul>
+            </div>
 
             <div>
               <strong className="text-foreground font-mono">v1.26.0</strong> <span className="text-xs">(apríl 2026)</span>
