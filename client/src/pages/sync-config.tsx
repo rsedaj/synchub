@@ -938,12 +938,22 @@ export default function SyncConfigPage() {
     return idx >= 0 ? transform.substring(idx + 1) : "23";
   }
 
+  function getMultiplyCoeff(transform?: string) {
+    if (!transform) return "1";
+    const idx = transform.indexOf(":");
+    return idx >= 0 ? transform.substring(idx + 1) : "1";
+  }
+
   function handleTransformTypeChange(mappingIdx: number, newType: string) {
     if (newType === "none" || newType === "") {
       updateMapping(mappingIdx, "transform", "");
     } else if (newType === "price_excl_vat") {
       const currentRate = getVatRate(editor.fieldMappings[mappingIdx].transform);
       updateMapping(mappingIdx, "transform", `price_excl_vat:${currentRate}`);
+    } else if (newType === "multiply") {
+      const currentCoeff = getMultiplyCoeff(editor.fieldMappings[mappingIdx].transform);
+      const coeff = currentCoeff === "1" ? "1" : currentCoeff;
+      updateMapping(mappingIdx, "transform", `multiply:${coeff}`);
     } else {
       updateMapping(mappingIdx, "transform", newType);
     }
@@ -952,6 +962,11 @@ export default function SyncConfigPage() {
   function handleVatRateChange(mappingIdx: number, rate: string) {
     const num = rate.replace(/[^\d.]/g, "");
     updateMapping(mappingIdx, "transform", `price_excl_vat:${num || "23"}`);
+  }
+
+  function handleMultiplyCoeffChange(mappingIdx: number, coeff: string) {
+    const num = coeff.replace(/[^\d.]/g, "");
+    updateMapping(mappingIdx, "transform", `multiply:${num || "1"}`);
   }
 
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1582,6 +1597,7 @@ export default function SyncConfigPage() {
                                 <SelectItem value="none" className="text-xs">{language === "sk" ? "— žiadna —" : "— none —"}</SelectItem>
                                 <SelectItem value="price" className="text-xs">{language === "sk" ? "Cena (parsovanie)" : "Price (parse)"}</SelectItem>
                                 <SelectItem value="price_excl_vat" className="text-xs">{language === "sk" ? "Cena bez DPH (÷ 1+sadzba%)" : "Price excl. VAT (÷ 1+rate%)"}</SelectItem>
+                                <SelectItem value="multiply" className="text-xs">{language === "sk" ? "× Koeficient (násobiť)" : "× Coefficient (multiply)"}</SelectItem>
                                 <SelectItem value="number" className="text-xs">{language === "sk" ? "Číslo" : "Number"}</SelectItem>
                                 <SelectItem value="integer" className="text-xs">{language === "sk" ? "Celé číslo" : "Integer"}</SelectItem>
                                 <SelectItem value="string" className="text-xs">{language === "sk" ? "Reťazec (text)" : "String (text)"}</SelectItem>
@@ -1609,6 +1625,27 @@ export default function SyncConfigPage() {
                                   {(() => {
                                     const r = parseFloat(vatRate || "23");
                                     return Number.isFinite(r) ? `(÷ ${(1 + r / 100).toFixed(2)})` : "";
+                                  })()}
+                                </span>
+                              </div>
+                            )}
+                            {transformType === "multiply" && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-muted-foreground">{language === "sk" ? "Koeficient:" : "Coefficient:"}</span>
+                                <span className="text-[10px] text-muted-foreground">×</span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={getMultiplyCoeff(mapping.transform)}
+                                  onChange={e => handleMultiplyCoeffChange(idx, e.target.value)}
+                                  className="h-6 w-16 text-xs text-center px-1"
+                                  data-testid={`input-multiply-coeff-${idx}`}
+                                />
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  {(() => {
+                                    const c = parseFloat(getMultiplyCoeff(mapping.transform) || "1");
+                                    return Number.isFinite(c) ? `(hodnota × ${c})` : "";
                                   })()}
                                 </span>
                               </div>

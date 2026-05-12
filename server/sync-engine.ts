@@ -112,7 +112,13 @@ function applyFieldMappings(
           }
           case "string": value = String(value || ""); break;
           case "boolean": value = Boolean(value); break;
-        }
+          case "multiply": {
+            const coeff = parseFloat(transformParam ?? "NaN");
+            const factor = Number.isFinite(coeff) ? coeff : 1;
+            const num = parseFloat(String(value).replace(/[^\d.,\-]/g, "").replace(",", ".")) || 0;
+            value = Math.round(num * factor * 100000) / 100000;
+            break;
+          }
       } catch { }
     }
     result[mapping.targetField] = value;
