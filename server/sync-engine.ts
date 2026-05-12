@@ -119,7 +119,8 @@ function applyFieldMappings(
             value = Math.round(num * factor * 100000) / 100000;
             break;
           }
-      } catch { }
+        }
+      } catch (_e) { }
     }
     result[mapping.targetField] = value;
   }
