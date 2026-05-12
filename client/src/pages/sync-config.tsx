@@ -1488,89 +1488,6 @@ export default function SyncConfigPage() {
                   )}
                 </div>
 
-                <Separator />
-
-                {/* H kód sekcia — zobrazí sa len keď je cieľ ONIX */}
-                {modules?.find(m => m.id === editor.targetModuleId)?.code === "ONIX" && (
-                  <>
-                    <div data-testid="section-hkod">
-                      <h3 className="text-sm font-semibold mb-3">
-                        {language === "sk" ? "H kód (automatické prideľovanie)" : "H Code (auto-assignment)"}
-                      </h3>
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            id="hkod-enabled"
-                            className="h-4 w-4 rounded border border-input"
-                            checked={editor.hKodConfig.enabled}
-                            onChange={e => setEditor(prev => ({
-                              ...prev,
-                              hKodConfig: { ...prev.hKodConfig, enabled: e.target.checked },
-                            }))}
-                            data-testid="checkbox-hkod-enabled"
-                          />
-                          <label htmlFor="hkod-enabled" className="text-sm cursor-pointer select-none">
-                            {language === "sk" ? "Povoliť automatické prideľovanie H kódu" : "Enable automatic H code assignment"}
-                          </label>
-                        </div>
-                        {editor.hKodConfig.enabled && (
-                          <div className="ml-7 space-y-3 border-l-2 border-muted pl-4">
-                            <div className="flex gap-4 flex-wrap">
-                              <div className="flex flex-col gap-1">
-                                <label className="text-xs text-muted-foreground">
-                                  {language === "sk" ? "Prefix H kódu" : "H code prefix"}
-                                </label>
-                                <Input
-                                  className="h-8 text-xs font-mono w-28"
-                                  placeholder="H20"
-                                  value={editor.hKodConfig.prefix}
-                                  onChange={e => setEditor(prev => ({
-                                    ...prev,
-                                    hKodConfig: { ...prev.hKodConfig, prefix: e.target.value },
-                                  }))}
-                                  data-testid="input-hkod-prefix"
-                                />
-                              </div>
-                              <div className="flex flex-col gap-1">
-                                <label className="text-xs text-muted-foreground">
-                                  {language === "sk" ? "Ďalšie číslo" : "Next number"}
-                                </label>
-                                <Input
-                                  type="number"
-                                  className="h-8 text-xs font-mono w-36"
-                                  placeholder="125892"
-                                  value={editor.hKodConfig.nextNumber}
-                                  onChange={e => setEditor(prev => ({
-                                    ...prev,
-                                    hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
-                                  }))}
-                                  data-testid="input-hkod-next-number"
-                                />
-                              </div>
-                              <div className="flex flex-col gap-1">
-                                <label className="text-xs text-muted-foreground opacity-0 select-none">–</label>
-                                <div className="h-8 flex items-center text-xs text-muted-foreground font-mono">
-                                  {language === "sk" ? "Príklad:" : "Example:"}&nbsp;
-                                  <span className="font-semibold text-foreground">
-                                    {editor.hKodConfig.prefix || "H20"}{editor.hKodConfig.nextNumber || 125892}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {language === "sk"
-                                ? "Pri synchronizácii: ak Ns_Number záznamu v ONIX nezačína prefixom, automaticky sa priradí H kód (prefix + číslo). Číslo sa po každom priradení zvýši o 1 a uloží. Záznamy, ktoré už H kód majú, sa synchronizujú normálne."
-                                : "During sync: if the ONIX record's Ns_Number doesn't start with the prefix, an H code is automatically assigned (prefix + number). The number increments and saves after each assignment. Records that already have an H code sync normally."}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <Separator />
-                  </>
-                )}
-
                 <div data-testid="section-field-mappings">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-semibold">
@@ -2011,6 +1928,88 @@ export default function SyncConfigPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* H kód sekcia — zobrazí sa len keď je cieľ ONIX */}
+                {selectedTargetModule?.code === "ONIX" && (
+                  <>
+                    <Separator />
+                    <div data-testid="section-hkod">
+                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">H</span>
+                        {language === "sk" ? "H kód (automatické prideľovanie)" : "H Code (auto-assignment)"}
+                      </h3>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            id="hkod-enabled"
+                            className="h-4 w-4 rounded border border-input"
+                            checked={editor.hKodConfig.enabled}
+                            onChange={e => setEditor(prev => ({
+                              ...prev,
+                              hKodConfig: { ...prev.hKodConfig, enabled: e.target.checked },
+                            }))}
+                            data-testid="checkbox-hkod-enabled"
+                          />
+                          <label htmlFor="hkod-enabled" className="text-sm cursor-pointer select-none">
+                            {language === "sk" ? "Povoliť automatické prideľovanie H kódu" : "Enable automatic H code assignment"}
+                          </label>
+                        </div>
+                        {editor.hKodConfig.enabled && (
+                          <div className="ml-7 space-y-3 border-l-2 border-muted pl-4">
+                            <div className="flex gap-4 flex-wrap">
+                              <div className="flex flex-col gap-1">
+                                <label className="text-xs text-muted-foreground">
+                                  {language === "sk" ? "Prefix H kódu" : "H code prefix"}
+                                </label>
+                                <Input
+                                  className="h-8 text-xs font-mono w-28"
+                                  placeholder="H20"
+                                  value={editor.hKodConfig.prefix}
+                                  onChange={e => setEditor(prev => ({
+                                    ...prev,
+                                    hKodConfig: { ...prev.hKodConfig, prefix: e.target.value },
+                                  }))}
+                                  data-testid="input-hkod-prefix"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-xs text-muted-foreground">
+                                  {language === "sk" ? "Ďalšie číslo" : "Next number"}
+                                </label>
+                                <Input
+                                  type="number"
+                                  className="h-8 text-xs font-mono w-36"
+                                  placeholder="125892"
+                                  value={editor.hKodConfig.nextNumber}
+                                  onChange={e => setEditor(prev => ({
+                                    ...prev,
+                                    hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
+                                  }))}
+                                  data-testid="input-hkod-next-number"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-xs text-muted-foreground opacity-0 select-none">–</label>
+                                <div className="h-8 flex items-center text-xs text-muted-foreground font-mono">
+                                  {language === "sk" ? "Príklad:" : "Example:"}&nbsp;
+                                  <span className="font-semibold text-foreground">
+                                    {editor.hKodConfig.prefix || "H20"}{editor.hKodConfig.nextNumber || 125892}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {language === "sk"
+                                ? "Pri synchronizácii: ak Ns_Number záznamu v ONIX nezačína prefixom, automaticky sa priradí H kód (prefix + číslo). Číslo sa po každom priradení zvýši o 1 a uloží. Záznamy, ktoré už H kód majú, sa synchronizujú normálne."
+                                : "During sync: if the ONIX record's Ns_Number doesn't start with the prefix, an H code is automatically assigned (prefix + number). The number increments and saves after each assignment. Records that already have an H code sync normally."}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <Separator />
 
