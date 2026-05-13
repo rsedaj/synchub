@@ -748,6 +748,11 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
 
             <div>
+              <strong className="text-foreground font-mono">v1.46.7</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">RecordExternalIdentificator — oprava pre Stricker</strong> — pri vytváraní ONIX záznamu sa teraz ako externý identifikátor používa hodnota nakonfigurovaného match poľa (napr. <code className="text-xs bg-muted px-1 rounded">WebSku</code>). Predtým dostávali všetky Stricker záznamy generický kód <code className="text-xs bg-muted px-1 rounded">SYNCHUB_N</code>, čo sťažovalo vyhľadávanie v ONIX.</li>
+              </ul>
+
               <strong className="text-foreground font-mono">v1.46.6</strong> <span className="text-xs">(máj 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li><strong className="text-foreground">Delta sync — oprava kľúča záznamu</strong> — <code className="text-xs bg-muted px-1 rounded">getRecordKey()</code> teraz používa nakonfigurované zdrojové match polia (napr. <code className="text-xs bg-muted px-1 rounded">WebSku</code> pre Stricker) ako primárny kľúč pre porovnanie MD5 hash. Predtým sa Stricker záznamy nikdy nespárovali s baseline a delta mode bol nefunkčný.</li>

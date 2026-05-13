@@ -1054,12 +1054,20 @@ async function pushToOnix(
       };
 
       const sourceRec = sourceRecords?.[i];
-      const extId = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
-        sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
-        sourceRec?.externalId || sourceRec?.productId || sourceRec?.item_id ||
-        sourceRec?.article_number || sourceRec?.articleNumber ||
-        sourceRec?.custom_label_0 || sourceRec?.custom_label_1;
-      const autoId = extId ? String(extId) : `SYNCHUB_${globalIndex + 1}`;
+      let extId: string | undefined;
+      for (const mf of matchFields) {
+        const v = sourceRec?.[mf];
+        if (v != null && String(v).trim() !== "") { extId = String(v).trim(); break; }
+      }
+      if (!extId) {
+        const raw = sourceRec?.id || sourceRec?.code || sourceRec?.sku ||
+          sourceRec?.Code || sourceRec?.SKU || sourceRec?.product_id ||
+          sourceRec?.externalId || sourceRec?.productId || sourceRec?.item_id ||
+          sourceRec?.article_number || sourceRec?.articleNumber ||
+          sourceRec?.custom_label_0 || sourceRec?.custom_label_1;
+        extId = raw ? String(raw) : undefined;
+      }
+      const autoId = extId || `SYNCHUB_${globalIndex + 1}`;
 
       if (!hasVal(body.RecordExternalIdentificator)) {
         if (isUpdate && onixIndex && onixId) {
