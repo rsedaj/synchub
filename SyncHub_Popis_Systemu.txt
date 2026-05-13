@@ -11,7 +11,7 @@
 
 SyncHub je modulárna integračná platforma vyvinutá na mieru pre spoločnosť
 SEDAJ s.r.o. / Hauerland. Hlavným účelom systému je prepojenie interného ERP
-systému ONIX (KROS a.s.) s 12 externými systémami dodávateľov, e-shopov a CRM
+systému ONIX (KROS a.s.) s 13 externými systémami dodávateľov, e-shopov a CRM
 nástrojov pomocou REST API, XML feedov a JSON feedov.
 
 Platforma zabezpečuje automatizovanú, spoľahlivú a auditovateľnú výmenu dát
@@ -72,7 +72,7 @@ Polia: id, username, password (bcrypt hash), role, fullName, email,
 
 3.2 api_modules
 ----------------
-Konfigurácia všetkých 12+ externých integračných modulov.
+Konfigurácia všetkých 13 externých integračných modulov.
 Polia: id, name, code, baseUrl, config (JSON - API kľúče, tokeny, nastavenia),
        status, lastChecked, createdAt
 
@@ -118,7 +118,7 @@ Polia: id, userId, action, entity, entityId, details (JSON),
 4. MODULY A API INTEGRÁCIE
 ===========================
 
-Systém obsahuje 12 implementovaných integračných modulov:
+Systém obsahuje 13 implementovaných integračných modulov:
 
 4.1 ONIX ERP (KROS a.s.) — kód: ONIX
 ---------------------------------------
@@ -241,18 +241,35 @@ Implementované funkcie:
 - Stav zásob produktov
 - Produktové dáta
 
-4.11 Stricker Europe — kód: STRICKER
---------------------------------------
-Typ: REST API (session-based)
+4.11 Stricker Europe — kód: STICKER
+-------------------------------------
+Typ: REST API v2.20 (session-based)
+URL: http://ws.stricker-europe.com
 Autentifikácia: AccessKey + ClientId (Replit Secrets), session token
 
 Implementované funkcie:
-- Autentifikácia so získaním session tokenu
-- Produktový katalóg
-- Stav zásob
-- Ceny
+- Autentifikácia so získaním session tokenu pre každý beh
+- Produktový katalóg (Product Reference, SKU, Name, Color, Size, Material)
+- Stav zásob (Stock PT, Stock CZ, Next Quantities)
+- Cenník (Price, YourPrice, Catalog Price)
+- Možnosti personalizácie / potlače (Customization Options)
+- Podpora viacerých jazykov (SK)
 
-4.12 Easy Gifts — kód: EASYGIFTS
+4.12 Macma — kód: MACMA
+-------------------------
+Typ: JSON feed (API v2)
+URL: https://macma.sk/api/v2
+Autentifikácia: feed URL s API kľúčom (embedded v URL)
+
+Implementované funkcie:
+- SKU feed (JSON) — kompletný katalóg produktov (kód, názov, popis, značka,
+  veľkosť, hmotnosť, farba, krajina pôvodu, tarifa, kategória, obrázky,
+  materiál, potlač, balenie)
+- Pricelist feed (JSON) — cenník produktov
+- Stock feed (JSON) — stav zásob
+- Paralelné načítanie všetkých troch feedov s následným zlučovaním
+
+4.13 Easy Gifts — kód: EASYGIFTS
 -----------------------------------
 Typ: XML / JSON feed
 Autentifikácia: API kľúč / verejný feed
@@ -386,6 +403,11 @@ POST   /api/config/backup-to-drive     — záloha DB konfigurácie na Google Dr
 GET    /api/config/drive-backups       — zoznam konfigurač. záloh
 POST   /api/config/restore-from-drive — obnova konfigurácie
 
+6.9 Shop View (katalóg produktov)
+-----------------------------------
+POST   /api/shop-view/custom-feed    — načítanie ľubovoľného externého XML/JSON
+                                       feedu podľa URL (bez konfigurácie modulu)
+
 
 7. POUŽÍVATEĽSKÉ ROZHRANIE (UI)
 ================================
@@ -433,6 +455,30 @@ Webová aplikácia s responzívnym dizajnom, slovenskou lokalizáciou (voliteľn
 - Správa používateľov — CRUD pre používateľov, priradenie rolí
 
 - Audit log — kompletný záznam všetkých akcií v systéme (kto, čo, kedy, odkiaľ)
+
+- Shop View (Katalóg produktov) — špeciálna stránka pre vizuálny prehľad
+  produktov naprieč všetkými dodávateľskými modulmi naraz:
+    * Výber jedného alebo viacerých zdrojových feedov naraz (multi-feed)
+    * Paralelné načítanie dát zo všetkých vybraných zdrojov súčasne
+    * Automatická normalizácia heterogénnych dátových formátov:
+      detekcia názvu, SKU, ceny, kategórie, značky, skladu, farby,
+      obrázku a URL produktu z rôznych štruktúr dát
+    * Zobrazenie v mriežke (grid) alebo zozname (list)
+    * Vyhľadávanie naprieč názvom, SKU, popisom, značkou a farbou
+    * Filtrovanie podľa dodávateľa a kategórie
+    * Triedenie podľa názvu, ceny, SKU alebo dodávateľa
+    * Stránkovanie (48 / 96 / 200 produktov na stránku)
+    * Farebné odlíšenie dodávateľa (badge) pri každom produkte
+    * Zobrazenie stavu zásob s indikátorom dostupnosti
+    * Lazy loading obrázkov s fallback pri chybe
+    * Kliknutie na produkt otvára originálnu URL produktu (ak existuje)
+    * Podpora vlastného URL feedu — možnosť pridať ľubovoľný externý
+      XML/JSON feed ako dočasný zdroj bez konfigurácie modulu
+    * Zobrazené štatistiky: počet načítaných produktov per feed,
+      počet chýb načítania
+    * Podporované zdroje v Shop View: ONIX (4 endpointy), PROMOTRON,
+      ANDA, MID, XDCONNECT (2 feedy), EASYGIFTS, MACMA, PFCONCEPT,
+      STICKER, PROMOLOG (4 feedy), GIVING — celkovo 20+ zdrojových feedov
 
 - Pomoc — in-app helpdeskový systém s prehľadom funkcií
 
