@@ -813,6 +813,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/modules/:id/onix-stocks", requireAuth, async (req, res) => {
+    try {
+      const mod = await storage.getModule(req.params.id);
+      if (!mod || mod.code.toUpperCase() !== "ONIX") return res.status(404).json({ message: "ONIX module not found" });
+      const { getOnixCreds } = await import("./onix-creds");
+      const creds = getOnixCreds(mod.config as Record<string, any>);
+      if (!creds.token) return res.status(400).json({ message: `ONIX token not configured for environment "${creds.environment}"` });
+      const rawBase = (mod.baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
+      const hdrs: Record<string, string> = {
+        "Authorization": `Bearer ${creds.token}`,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub/1.0",
+      };
+      if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15000);
+      const stocksRes = await fetch(`${rawBase}/api/v1/stocks`, { headers: hdrs, signal: ctrl.signal });
+      clearTimeout(t);
+      const text = await stocksRes.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = text; }
+      const arr: any[] = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : (Array.isArray(data?.data) ? data.data : []));
+      const stocks = arr.map((s: any) => ({
+        id: s.IdStock ?? s.Id ?? s.id,
+        code: s.Code ?? s.code ?? s.StockCode ?? s.Abbreviation ?? s.abbreviation,
+        name: s.Name ?? s.name ?? s.StockName,
+        type: s.Type ?? s.type,
+        raw: s,
+      }));
+      return res.json({ environment: creds.environment, databasePath: creds.databasePath, httpStatus: stocksRes.status, stocks, raw: arr.slice(0, 5) });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/sync-configs/:id/run", requireRole("admin", "operator"), async (req, res) => {
     try {
       const config = await storage.getSyncConfig(req.params.id);
