@@ -908,6 +908,16 @@ async function executeAsync(
         if (batchBaselineSlice.length > 0) {
           storage.upsertBaselines(config.id, batchBaselineSlice).catch((_e) => {});
         }
+
+        if (
+          (config as any).hKodConfig?.enabled &&
+          hKodNextNumber !== undefined &&
+          hKodNextNumber !== (config as any).hKodConfig.nextNumber
+        ) {
+          storage.updateSyncConfig(config.id, {
+            hKodConfig: { ...(config as any).hKodConfig, nextNumber: hKodNextNumber },
+          } as any).catch((_e) => {});
+        }
       }
     }
 

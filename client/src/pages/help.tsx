@@ -748,6 +748,11 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
 
             <div>
+              <strong className="text-foreground font-mono">v1.46.8</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">H kód counter — ukladanie po každej dávke</strong> — counter sa teraz ukladá do databázy po každých 50 záznamoch (rovnako ako baselines), nie len pri úspešnom dokončení syncu. Pri prerušení alebo zastavení syncu counter nezostane na starej hodnote a ďalší beh neprideľuje duplicitné H kódy.</li>
+              </ul>
+
               <strong className="text-foreground font-mono">v1.46.7</strong> <span className="text-xs">(máj 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li><strong className="text-foreground">RecordExternalIdentificator — oprava pre Stricker</strong> — pri vytváraní ONIX záznamu sa teraz ako externý identifikátor používa hodnota nakonfigurovaného match poľa (napr. <code className="text-xs bg-muted px-1 rounded">WebSku</code>). Predtým dostávali všetky Stricker záznamy generický kód <code className="text-xs bg-muted px-1 rounded">SYNCHUB_N</code>, čo sťažovalo vyhľadávanie v ONIX.</li>
