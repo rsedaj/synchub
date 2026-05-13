@@ -748,6 +748,13 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
 
             <div>
+              <strong className="text-foreground font-mono">v1.46.6</strong> <span className="text-xs">(máj 2026)</span>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                <li><strong className="text-foreground">Delta sync — oprava kľúča záznamu</strong> — <code className="text-xs bg-muted px-1 rounded">getRecordKey()</code> teraz používa nakonfigurované zdrojové match polia (napr. <code className="text-xs bg-muted px-1 rounded">WebSku</code> pre Stricker) ako primárny kľúč pre porovnanie MD5 hash. Predtým sa Stricker záznamy nikdy nespárovali s baseline a delta mode bol nefunkčný.</li>
+                <li><strong className="text-foreground">Delta sync — ukladanie baseline po každej dávke</strong> — baseline hashes sa teraz ukladajú priebežne (každá dávka 50 záznamov), nie len pri úspešnom dokončení. Pri prerušení syncu (reštart servera, chyba) zostávajú spracované záznamy v baseline a ďalší beh ich korektne preskočí.</li>
+                <li><strong className="text-foreground">Nasadenie prepnuté na VM</strong> — produkčný server beží teraz ako "Always-on VM" bez časového limitu inštancie. Dlhé syncy (Stricker 10 778 záznamov ≈ 3 hod.) nebudú prerušené infraštruktúrou.</li>
+              </ul>
+
               <strong className="text-foreground font-mono">v1.46.5</strong> <span className="text-xs">(máj 2026)</span>
               <ul className="list-disc ml-5 mt-1 space-y-0.5">
                 <li><strong className="text-foreground">H kód — výber cieľového poľa</strong> — nové nastavenie "ONIX pole pre H kód" (dropdown): možnosť vybrať, do ktorého ONIX poľa sa H kód zapíše a kde sa kontroluje existencia (Ns_Number, Ns_Code, Ist_Code, Ist_Code2, Name, RecordExternalIdentificator)</li>

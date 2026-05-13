@@ -196,7 +196,13 @@ function computeRecordHash(record: Record<string, any>, mappings: Array<{ source
   return createHash("md5").update(vals.join("|")).digest("hex");
 }
 
-function getRecordKey(record: Record<string, any>): string | null {
+function getRecordKey(record: Record<string, any>, matchFields?: string[]): string | null {
+  if (matchFields && matchFields.length > 0) {
+    for (const mf of matchFields) {
+      const v = record[mf];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
   return record.id || record.code || record.sku || record.gtin ||
     record.Code || record.SKU || record.product_id ||
     record.externalId || record.productId || record.item_id ||
@@ -463,6 +469,9 @@ async function executeAsync(
     let allRecords = allFetchedRecords;
     let totalSkipped = 0;
     const baselineUpdates: Array<{ recordKey: string; fieldHash: string; index: number }> = [];
+    const batchableBaselines: Array<{ recordKey: string; fieldHash: string } | null> = [];
+
+    const cfgMatchFields = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
 
     if (!fullSync && !isResume) {
       log("=== DELTA MODE: comparing with baseline ===");
@@ -478,15 +487,17 @@ async function executeAsync(
       const changedRecords: Record<string, any>[] = [];
       for (let i = 0; i < allFetchedRecords.length; i++) {
         const rec = allFetchedRecords[i];
-        const key = getRecordKey(rec);
+        const key = getRecordKey(rec, cfgMatchFields);
         if (!key) {
           changedRecords.push(rec);
+          batchableBaselines.push(null);
           continue;
         }
         const hash = computeRecordHash(rec, mappings);
         const prevHash = baselines.get(String(key));
         if (prevHash !== hash) {
           changedRecords.push(rec);
+          batchableBaselines.push({ recordKey: String(key), fieldHash: hash });
           baselineUpdates.push({ recordKey: String(key), fieldHash: hash, index: i });
         } else {
           totalSkipped++;
@@ -499,10 +510,13 @@ async function executeAsync(
       log("=== FULL SYNC MODE ===");
       for (let i = 0; i < allFetchedRecords.length; i++) {
         const rec = allFetchedRecords[i];
-        const key = getRecordKey(rec);
+        const key = getRecordKey(rec, cfgMatchFields);
         if (key) {
           const hash = computeRecordHash(rec, mappings);
+          batchableBaselines.push({ recordKey: String(key), fieldHash: hash });
           baselineUpdates.push({ recordKey: String(key), fieldHash: hash, index: i });
+        } else {
+          batchableBaselines.push(null);
         }
       }
     }
@@ -887,6 +901,13 @@ async function executeAsync(
         };
         storage.updateSyncRun(runId, { checkpointData: checkpoint } as any).catch(() => {});
         log(`Checkpoint saved at offset ${checkpoint.globalOffset}`);
+
+        const batchBaselineSlice = batchableBaselines
+          .slice(i, i + BATCH_SIZE)
+          .filter((b): b is { recordKey: string; fieldHash: string } => b !== null);
+        if (batchBaselineSlice.length > 0) {
+          storage.upsertBaselines(config.id, batchBaselineSlice).catch((_e) => {});
+        }
       }
     }
 
