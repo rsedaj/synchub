@@ -12,3 +12,9 @@ id = "mLDtbAV6poRf8TiJnKuvB"
 uri = "file://sync_errors_2026-04-25.csv"
 type = "table"
 title = "Chybné záznamy – Eshop→ONIX sync 25.4.2026 (76 záznamov)"
+
+[[outputs]]
+id = "sjKRNi5wXQSduZETl9gjk"
+uri = "file://SyncHub_Popis_Systemu.txt"
+type = "text"
+title = "SyncHub — Popis systému pre fakturáciu"

@@ -1,0 +1,549 @@
+================================================================================
+  SYNCHUB — INTEGRAČNÁ PLATFORMA HAUERLAND
+  Technický popis systému pre účely fakturácie
+  Objednávateľ: SEDAJ s.r.o. / Hauerland
+  Vypracoval: na základe technickej dokumentácie projektu
+================================================================================
+
+
+1. PREHĽAD SYSTÉMU
+==================
+
+SyncHub je modulárna integračná platforma vyvinutá na mieru pre spoločnosť
+SEDAJ s.r.o. / Hauerland. Hlavným účelom systému je prepojenie interného ERP
+systému ONIX (KROS a.s.) s 12 externými systémami dodávateľov, e-shopov a CRM
+nástrojov pomocou REST API, XML feedov a JSON feedov.
+
+Platforma zabezpečuje automatizovanú, spoľahlivú a auditovateľnú výmenu dát
+medzi systémami bez manuálnych zásahov. Každý synchronizačný cyklus je
+zaznamenávaný s podrobným logom, štatistikami a históriou zmien.
+
+Systém beží ako webová aplikácia dostupná z prehliadača, s bezpečným
+prihlasovaním, riadením rolí a kompletným auditom všetkých operácií.
+
+
+2. TECHNOLÓGIE A ARCHITEKTÚRA
+==============================
+
+2.1 Frontend (používateľské rozhranie)
+---------------------------------------
+- React 18 s TypeScript
+- Vite (build nástroj a dev server)
+- Tailwind CSS (štýlovanie)
+- Shadcn/ui (komponentová knižnica)
+- TanStack Query v5 (správa dát a cache)
+- Wouter (klientske smerovanie / routing)
+- Lucide React (ikony)
+
+2.2 Backend (serverová časť)
+-----------------------------
+- Node.js s Express.js (TypeScript)
+- Passport.js (autentifikácia, session management)
+- bcrypt (hashovanie hesiel)
+- Drizzle ORM (databázová vrstva)
+- PostgreSQL (databáza)
+- Replit Connectors SDK (integrácia Google Drive)
+
+2.3 Databáza
+-------------
+- PostgreSQL (produkčná databáza)
+- Drizzle ORM s automatickými migráciami
+- 8 tabuliek pokrývajúcich celý dátový model systému
+
+2.4 Nasadenie a infraštruktúra
+-------------------------------
+- Nasadenie na cloudovej platforme Replit (Autoscale deployment)
+- Produkčný build: esbuild (Node.js CJS bundle)
+- HTTPS s vlastnou doménou
+- Trvalé úložisko PostgreSQL databázy
+- Bezpečné úložisko API kľúčov cez Replit Secrets (Vault)
+
+
+3. DATABÁZOVÁ SCHÉMA
+====================
+
+Databáza obsahuje 8 tabuliek navrhnutých a implementovaných pre potreby systému:
+
+3.1 users
+----------
+Správa používateľov systému.
+Polia: id, username, password (bcrypt hash), role, fullName, email,
+       createdAt, lastLogin
+
+3.2 api_modules
+----------------
+Konfigurácia všetkých 12+ externých integračných modulov.
+Polia: id, name, code, baseUrl, config (JSON - API kľúče, tokeny, nastavenia),
+       status, lastChecked, createdAt
+
+3.3 sync_configs
+-----------------
+Definícia synchronizačných párov (zdroj → cieľ), mapovanie polí a harmonogram.
+Polia: id, name, sourceModuleId, targetModuleId, fieldMappings (JSON),
+       filterConfig (JSON), schedule, status, lastRun,
+       onMissing (create/skip/error), targetStock, matchFields,
+       hKodConfig (JSON - automatické H-číslovanie), createdAt
+
+3.4 sync_runs
+--------------
+Záznam každého spustenia synchronizácie s live metrikami.
+Polia: id, syncConfigId, startedBy, status, totalRecords, processedRecords,
+       createdRecords, updatedRecords, skippedRecords, errorRecords,
+       startedAt, completedAt, currentBatch, totalBatches, speed,
+       errorMessage, fullSync, phase
+
+3.5 sync_logs
+--------------
+Podrobný log výsledkov každej synchronizácie.
+Polia: id, syncConfigId, runId, level, message, details (JSON), createdAt
+
+3.6 sync_baselines
+-------------------
+MD5 hashové odtlačky záznamov pre Delta synchronizáciu (detekcia zmien).
+Polia: id, sync_config_id, recordKey, hash, updatedAt
+
+3.7 sync_backups
+-----------------
+Metadata záloh uložených na Google Drive pred každou synchronizáciou.
+Polia: id, syncConfigId, runId, fileName, fileId (Google Drive ID),
+       fileSize, recordCount, createdAt
+
+3.8 audit_logs
+---------------
+Kompletný audit všetkých akcií používateľov (bezpečnostný log).
+Polia: id, userId, action, entity, entityId, details (JSON),
+       ipAddress, createdAt
+
+
+4. MODULY A API INTEGRÁCIE
+===========================
+
+Systém obsahuje 12 implementovaných integračných modulov:
+
+4.1 ONIX ERP (KROS a.s.) — kód: ONIX
+---------------------------------------
+Typ: REST API v1
+URL: https://onix-api.hauerland.sk/ONIX_API
+Autentifikácia: Bearer Token (oddelené tokeny pre test a produkciu)
+
+Implementované funkcie:
+- Načítanie skladových kariet (GET /api/v1/stockitems) s filtrovaním
+- Zápis/aktualizácia skladových kariet (POST /api/v1/stockitems)
+- Načítanie partnerov (GET /api/v1/partners)
+- Načítanie skladov (GET /api/v1/stocks)
+- Načítanie cenníkov (GET /api/v1/pricinglists)
+- Podpora multi-environment (test: testovacia_hauerland / prod: hauerland_spol_s_ro)
+- Automatické dopĺňanie povinných polí (RecordExternalIdentificator, Type, Ns_Code)
+- Odstránenie read-only polí z POST tela (StockItemBalance, StockItemGroups, atď.)
+- Podpora formátu CustomColumns (pole [{Name, Value}])
+- Automatické generovanie H-kódov (Ns_Number) s konfigurovateľným prefixom
+- Upsert logika — ak záznam existuje (podľa Ns_Number) aktualizuje, inak vytvorí
+- Retry mechanizmus pri HTTP 429/500 chybách s exponenciálnym backoff
+- SSRF ochrana s allowlistom povolených hostiteľov
+
+4.2 Promotron / TronShop — kód: PROMOTRON
+-------------------------------------------
+Typ: REST API + XML feed
+Autentifikácia: API kľúč + Basic Auth
+
+Implementované funkcie:
+- Načítanie produktového XML feedu (~99 000 produktov, ~121 MB)
+- Spracovanie objednávok, zákazníkov, dopytov
+- Streamované spracovanie veľkých XML feedov (bez načítania do pamäte naraz)
+- Mapovanie produktových polí do ONIX formátu
+
+4.3 Pipedrive CRM — kód: PIPEDRIVE
+-------------------------------------
+Typ: REST API v1
+Autentifikácia: API Token
+
+Implementované funkcie:
+- Deals (obchody) — načítanie, vytváranie, aktualizácia
+- Persons (osoby / kontakty)
+- Organizations (organizácie / firmy)
+- Activities (aktivity)
+- Products (produkty v CRM)
+- Stránkovanie výsledkov (pagination) pre veľké datasety
+
+4.4 Raynet CRM — kód: RAYNET
+------------------------------
+Typ: REST API v2
+Autentifikácia: Basic Auth + X-Instance-Name header
+
+Implementované funkcie:
+- Companies (spoločnosti)
+- Business Cases (obchodné prípady)
+- Leads (potenciálni zákazníci)
+- Activities (aktivity)
+- Invoices (faktúry)
+
+4.5 Midocean — kód: MID
+--------------------------
+Typ: REST API v2.0
+Autentifikácia: x-Gateway-APIKey header
+
+Implementované funkcie:
+- Products (katalóg produktov)
+- Stock (stav zásob)
+- Pricelist (cenník)
+- Print Data (tlačové dáta / potlač)
+- Podpora viacerých endpointov v jednom module
+
+4.6 Giving Europe — kód: GIVING
+---------------------------------
+Typ: REST API (Debtor API)
+Autentifikácia: API kľúč
+
+Implementované funkcie:
+- Produktový katalóg v 7 jazykoch
+- Real-time stav zásob
+- Cenníky podľa jazyka/krajiny
+
+4.7 PF Concept — kód: PFCONCEPT
+----------------------------------
+Typ: XML Feed (Data Feeds Gateway v3)
+Autentifikácia: ClientId + AccessKey (Replit Secrets)
+
+Implementované funkcie:
+- Produktový XML feed (veľkokapacitný)
+- Cenový feed
+- Skladový feed
+- Streamované spracovanie XML
+
+4.8 Anda Present — kód: ANDA
+------------------------------
+Typ: XML / CSV feed
+Autentifikácia: bez autentifikácie / API kľúč
+
+Implementované funkcie:
+- Produktové exporty podľa jazyka a Feed ID
+- 9 rôznych zdrojových feedov
+- XML aj CSV formáty
+
+4.9 XD Connects — kód: XDCONNECT
+-----------------------------------
+Typ: XML / CSV / JSON feed
+Autentifikácia: API kľúč
+
+Implementované funkcie:
+- Products (produkty)
+- Stock (zásoby)
+- Prices (ceny)
+- Print Data (tlačové dáta)
+- Kombinácia viacerých typov feedov
+
+4.10 Promolog — kód: PROMOLOG
+-------------------------------
+Typ: REST API
+Autentifikácia: Basic Auth (Replit Secrets)
+
+Implementované funkcie:
+- Stav zásob produktov
+- Produktové dáta
+
+4.11 Stricker Europe — kód: STRICKER
+--------------------------------------
+Typ: REST API (session-based)
+Autentifikácia: AccessKey + ClientId (Replit Secrets), session token
+
+Implementované funkcie:
+- Autentifikácia so získaním session tokenu
+- Produktový katalóg
+- Stav zásob
+- Ceny
+
+4.12 Easy Gifts — kód: EASYGIFTS
+-----------------------------------
+Typ: XML / JSON feed
+Autentifikácia: API kľúč / verejný feed
+
+Implementované funkcie:
+- Produktový katalóg
+- Stav zásob
+
+
+5. SYNCHRONIZAČNÝ ENGINE (4-FÁZOVÝ PIPELINE)
+=============================================
+
+Jadrom systému je vlastný synchronizačný engine implementovaný v TypeScript
+(server/sync-engine.ts, server/target-push.ts, server/data-fetcher.ts).
+
+5.1 Fáza 1 — Preflight (predbežná kontrola)
+---------------------------------------------
+- Validácia konfigurácie synchronizácie
+- Overenie dostupnosti zdrojového a cieľového modulu
+- Kontrola oprávnení a API kľúčov
+- Overenie mapovania polí
+
+5.2 Fáza 2 — Backup (zálohovanie)
+-----------------------------------
+- Voliteľné zálohovanie cieľových dát pred synchronizáciou
+- Export existujúcich záznamov z ONIX do JSON
+- Uloženie zálohy na Google Drive (cez Replit Connectors)
+- Zaznamenanie metadát zálohy do databázy (fileId, fileSize, recordCount)
+- Možnosť obnovy zálohy (restore) cez UI
+
+5.3 Fáza 3 — Fetch (načítanie dát)
+------------------------------------
+- Načítanie zdrojových dát zo zdroja (REST API / XML feed / JSON feed)
+- Retry logika pri zlyhaní sieťového požiadavku (3 pokusy + backoff)
+- SSRF ochrana — allowlist povolených hostiteľov
+- Streamované spracovanie pre veľké XML feedy (pamäťovo efektívne)
+- Delta Diff — porovnanie MD5 hashov namapovaných polí s uloženou základňou
+  (sync_baselines), vynechanie nezmenených záznamov
+- Meranie rýchlosti načítania a odhadovaného času dokončenia
+
+5.4 Fáza 4 — Sync (synchronizácia)
+-------------------------------------
+- Dávkové spracovanie (50 záznamov / batch)
+- Transformácie dát podľa mapovacej konfigurácie:
+    * Priame mapovanie poľa na pole
+    * Cenové výpočty (násobenie, delenie)
+    * Odstránenie DPH
+    * Zmena veľkosti písmen (uppercase, lowercase, capitalize)
+    * Vlastné JavaScript výrazy
+- Matching záznamov v cieli podľa konfigurovateľných polí (matchFields)
+- Stratégie pri nenájdenom zázname: vytvoriť / preskočiť / chyba
+- Sekvenčné volanie ONIX API (jeden záznam za druhým — požiadavka KROS)
+- Retry mechanizmus pri HTTP chybách (429, 500, 503)
+- Konfigurovateľná konkurencia pre non-ONIX systémy
+- Live progress update cez polling (stav každých ~1s)
+- Early stop podmienky (príliš veľa chýb za sebou)
+- Zombie run cleanup pri reštarte servera
+- Resilient DB write s exponenciálnym backoff (resilientDbUpdate)
+
+5.5 Výsledné metriky každého runu
+-----------------------------------
+- Celkový počet spracovaných záznamov
+- Počet vytvorených / aktualizovaných / preskočených / chybných záznamov
+- Rýchlosť spracovania (záznamy/minútu)
+- Čas začiatku a konca
+- Číslo aktuálneho batchu a celkový počet batchov
+- Detailný log každého záznamu (voliteľne)
+
+
+6. BACKEND API ENDPOINTY
+========================
+
+Systém vystavuje REST API pre frontend s nasledovnými endpointmi:
+
+6.1 Autentifikácia
+-------------------
+POST   /api/auth/login           — prihlásenie (session cookie)
+POST   /api/auth/logout          — odhlásenie
+GET    /api/auth/me              — aktuálny používateľ
+
+6.2 Správa modulov
+-------------------
+GET    /api/modules              — zoznam všetkých modulov
+GET    /api/modules/:id          — detail modulu
+PATCH  /api/modules/:id          — aktualizácia konfigurácie modulu
+POST   /api/modules/:id/test-connection   — test spojenia s API
+GET    /api/modules/:id/data-preview      — náhľad dát zo zdroja
+GET    /api/modules/:id/export-csv        — export dát do CSV
+GET    /api/modules/:id/source-fields     — zoznam dostupných polí zo zdroja
+GET    /api/modules/:id/onix-stocks       — zoznam skladov z ONIX (diagnostika)
+
+6.3 Konfigurácia synchronizácií
+--------------------------------
+GET    /api/sync-configs         — zoznam konfigurácií
+POST   /api/sync-configs         — vytvorenie novej konfigurácie
+GET    /api/sync-configs/:id     — detail konfigurácie
+PATCH  /api/sync-configs/:id     — aktualizácia konfigurácie
+DELETE /api/sync-configs/:id     — vymazanie konfigurácie
+GET    /api/sync-configs/:id/backups     — zoznam záloh konfigurácie
+
+6.4 Spustenie a riadenie synchronizácií
+-----------------------------------------
+POST   /api/sync-configs/:id/run    — spustenie synchronizácie
+POST   /api/sync-runs/:id/cancel    — zrušenie behu
+POST   /api/sync-runs/:id/resume    — obnovenie prerušeného behu
+
+6.5 Monitorovanie a štatistiky
+--------------------------------
+GET    /api/sync-runs            — história behov
+GET    /api/sync-runs/:id        — detail behu s live metrikami
+GET    /api/sync-logs            — synchronizačné logy
+GET    /api/sync-stats           — agregované štatistiky
+GET    /api/dashboard            — dáta pre hlavný dashboard
+
+6.6 Zálohy a obnova
+---------------------
+POST   /api/backups/:id/restore  — obnova zálohy z Google Drive
+
+6.7 Bezpečnosť a používatelia
+-------------------------------
+GET    /api/users                — zoznam používateľov (admin)
+POST   /api/users                — vytvorenie používateľa (admin)
+PATCH  /api/users/:id            — úprava používateľa (admin)
+DELETE /api/users/:id            — vymazanie používateľa (admin)
+GET    /api/audit-logs           — bezpečnostný audit log
+GET    /api/onix/vault-status    — stav API kľúčov vo Vault
+
+6.8 Zálohovanie konfigurácie
+------------------------------
+POST   /api/config/backup-to-drive     — záloha DB konfigurácie na Google Drive
+GET    /api/config/drive-backups       — zoznam konfigurač. záloh
+POST   /api/config/restore-from-drive — obnova konfigurácie
+
+
+7. POUŽÍVATEĽSKÉ ROZHRANIE (UI)
+================================
+
+Webová aplikácia s responzívnym dizajnom, slovenskou lokalizáciou (voliteľne EN),
+čiernobielym štýlom a podporou svetlého/tmavého režimu.
+
+7.1 Stránky aplikácie
+----------------------
+- Dashboard — prehľad stavu všetkých modulov, dnešné synchronizácie, posledné
+  aktivity, sieťová mapa prepojení, rýchle akcie
+
+- Moduly — zoznam všetkých integračných modulov s indikátorom stavu (online/
+  offline/neznámy), počtom záznanov, poslednou kontrolou
+
+- Detail modulu — konfigurácia API kľúčov, endpointov, testovanie spojenia,
+  náhľad dát, export do CSV
+
+- Sync konfigurácie — zoznam a správa synchronizačných úloh, frekvencia,
+  stav posledného behu
+
+- Konfigurátor synchronizácie — vizuálny builder pre:
+    * Výber zdroja a cieľa
+    * Mapovanie polí (drag & drop style)
+    * Konfigurácia transformácií
+    * Delta sync nastavenia
+    * H-číslovanie (Ns_Number) pre ONIX
+    * Filtrovacie podmienky
+    * Plán / harmonogram
+
+- Sync Dashboard — živé monitorovanie prebiehajúcich synchronizácií:
+    * Progress bar (počet spracovaných / celkových záznamov)
+    * Rýchlosť (záznamy/minútu)
+    * Odhadovaný čas dokončenia
+    * Počty: vytvorené / aktualizované / preskočené / chybné
+    * Fáza behu (Preflight / Backup / Fetch / Sync)
+    * Log posledných udalostí
+
+- Logy — kompletná história všetkých synchronizačných behov s filtrovaním
+  podľa modulu, stavu, dátumu
+
+- API Key Vault — bezpečná správa citlivých credentials (produkčné ONIX tokeny,
+  API kľúče dodávateľov)
+
+- Správa používateľov — CRUD pre používateľov, priradenie rolí
+
+- Audit log — kompletný záznam všetkých akcií v systéme (kto, čo, kedy, odkiaľ)
+
+- Pomoc — in-app helpdeskový systém s prehľadom funkcií
+
+
+8. BEZPEČNOSŤ
+=============
+
+8.1 Autentifikácia a autorizácia
+----------------------------------
+- Session-based autentifikácia (express-session + PostgreSQL session store)
+- bcrypt hashovanie hesiel (cost factor 10)
+- Tri roly s rôznymi oprávneniami:
+    * Admin — plný prístup vrátane správy používateľov
+    * Operator — správa modulov, synchronizácií, spúšťanie behov
+    * Viewer — iba čítanie, monitorovanie
+- requireAuth / requireRole middleware na každom endpointe
+
+8.2 SSRF ochrana
+-----------------
+- Allowlist povolených externých hostiteľov pre sieťové požiadavky
+- Zamedzenie volania interných/lokálnych IP adries
+
+8.3 Bezpečné úložisko kľúčov
+------------------------------
+- API kľúče a tokeny dodávateľov uložené v Replit Secrets (šifrované)
+- Produkčné ONIX tokeny uložené oddelene od testovacích
+- Vault stránka pre správu a overenie dostupnosti kľúčov
+
+8.4 Audit logging
+------------------
+- Každá kritická akcia je zaznamenaná s IP adresou, časom a ID používateľa
+- Logované akcie: prihlásenie/odhlásenie, zmena konfigurácie, spustenie syncu,
+  zmena používateľov, prístup k Vault, zálohy a obnovy
+
+
+9. CLOUDOVÉ INTEGRÁCIE
+=======================
+
+9.1 Google Drive (zálohovanie)
+-------------------------------
+- Integrácia cez Replit Connectors SDK (OAuth2)
+- Automatické zálohovanie pred každou synchronizáciou
+- Záloha dát vo formáte JSON
+- Záloha systémovej konfigurácie (moduly, sync configs)
+- Zoznam záloh dostupný priamo v UI
+- Obnova zálohy jedným kliknutím
+
+9.2 PostgreSQL (trvalé úložisko)
+---------------------------------
+- Replit-managed PostgreSQL databáza
+- Drizzle ORM s type-safe schémou
+- Automatická inicializácia schémy pri štarte
+
+
+10. ŠPECIÁLNE FUNKCIE A VÝKONNOSTNÉ OPTIMALIZÁCIE
+===================================================
+
+10.1 Delta synchronizácia (Incremental sync)
+---------------------------------------------
+- MD5 hashovanie hodnôt namapovaných polí každého záznamu
+- Porovnanie s uloženou základňou (sync_baselines tabuľka)
+- Ak sa hash nezmenil → záznam sa preskočí (žiadne API volanie)
+- Dramatické zníženie počtu API volaní pri opakovaných bežiach
+- Voliteľný "Full sync" tlačidlom (ignoruje baseline)
+
+10.2 H-číslovanie (automatické kódovanie pre ONIX)
+----------------------------------------------------
+- Konfigurovateľný prefix (napr. "H20")
+- Automatické prideľovanie sekvenčného čísla každému novému záznamu
+- Perzistentné ukladanie posledného použitého čísla (per konfigurácia)
+- Zabezpečuje jedinečnosť Ns_Number v ONIX
+
+10.3 Dávkové spracovanie
+-------------------------
+- Záznamy spracovávané po 50-kusových dávkach (batches)
+- Zamedzenie timeoutov pri veľkých datasetoch
+- Progress reporting po každom batchi
+
+10.4 Retry mechanizmus
+-----------------------
+- Automatický retry pri HTTP 429 (rate limit), 500, 503
+- Exponenciálny backoff (1s → 2s → 4s)
+- Maximálne 3 pokusy na záznam / API volanie
+
+10.5 Resilient DB zápis
+------------------------
+- Kritické databázové zápisy (update stavu behu) s retry logikou
+- Zamedzenie straty metadát pri krátkodobom výpadku DB
+
+10.6 Zombie run cleanup
+------------------------
+- Pri štarte servera automaticky ukončí visiaće ("zombie") synchronizáčné behy
+- Zamedzenie nekonzistentného stavu po reštarte
+
+10.7 CSV export
+----------------
+- Export dát ľubovoľného modulu do CSV súboru priamo z UI
+- Užitočné pre ad-hoc analýzy a overovanie dát
+
+
+11. VERZIA A HISTÓRIA
+======================
+
+Aktuálna verzia: v1.46.8
+Správa verzií: centralizovaná v shared/version.ts, zobrazovaná v UI aj logoch.
+
+Systém bol vyvíjaný iteratívne s priebežným nasadzovaním a testovaním
+na produkčnom prostredí Replit Autoscale.
+
+
+================================================================================
+  Koniec dokumentu
+  SEDAJ s.r.o. — Interný technický dokument
+================================================================================
