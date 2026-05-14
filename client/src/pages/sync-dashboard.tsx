@@ -442,6 +442,158 @@ function SpeedRatingBadge({ rating, t }: { rating: string; t: (key: string) => s
   return <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${c.color}`} data-testid="badge-speed-rating-summary">{c.label}</Badge>;
 }
 
+function SparklineChart({ data, label }: { data: Array<{b: number; s: number}>; label?: string }) {
+  if (!data || data.length < 2) return null;
+  const maxS = Math.max(...data.map(d => d.s), 1);
+  const W = 120, H = 28, barW = Math.max(2, Math.floor((W - data.length) / data.length));
+  const gap = 1;
+  const totalWidth = (barW + gap) * data.length - gap;
+  const offsetX = (W - totalWidth) / 2;
+  return (
+    <div className="flex items-center gap-2" data-testid="sparkline-chart">
+      <svg width={W} height={H} className="flex-shrink-0">
+        {data.map((d, i) => {
+          const h = Math.max(2, Math.round((d.s / maxS) * (H - 2)));
+          const x = offsetX + i * (barW + gap);
+          const y = H - h;
+          const isLast = i === data.length - 1;
+          return (
+            <rect key={i} x={x} y={y} width={barW} height={h}
+              className={isLast ? "fill-foreground" : "fill-foreground/30"}
+              rx="0.5"
+            />
+          );
+        })}
+      </svg>
+      {label && <span className="text-[10px] text-muted-foreground">{label}</span>}
+    </div>
+  );
+}
+
+function ResultBreakdownBar({ created, updated, skipped, failed }: { created: number; updated: number; skipped: number; failed: number }) {
+  const total = created + updated + skipped + failed;
+  if (total === 0) return null;
+  const pct = (n: number) => Math.max(n > 0 ? 2 : 0, Math.round((n / total) * 100));
+  const segments = [
+    { val: created, pct: pct(created), cls: "bg-green-500", label: "Vytvorené" },
+    { val: updated, pct: pct(updated), cls: "bg-blue-500", label: "Aktualizované" },
+    { val: skipped, pct: pct(skipped), cls: "bg-amber-400", label: "Preskočené" },
+    { val: failed, pct: pct(failed), cls: "bg-red-500", label: "Chyby" },
+  ].filter(s => s.val > 0);
+  return (
+    <div className="space-y-1" data-testid="result-breakdown-bar">
+      <div className="flex w-full h-2 rounded-full overflow-hidden gap-px">
+        {segments.map((s, i) => (
+          <div key={i} className={`${s.cls} transition-all duration-500`} style={{ width: `${s.pct}%` }} title={`${s.label}: ${s.val.toLocaleString()}`} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {segments.map((s, i) => (
+          <span key={i} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.cls}`} />
+            {s.label}: <span className="font-medium text-foreground">{s.val.toLocaleString()}</span>
+            <span className="text-[9px]">({s.pct}%)</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TopErrorsPanel({ errors, language }: { errors: Array<{message: string; count: number}>; language: string }) {
+  const [open, setOpen] = useState(false);
+  if (!errors || errors.length === 0) return null;
+  const totalErrors = errors.reduce((s, e) => s + e.count, 0);
+  return (
+    <div className="border border-destructive/20 rounded-lg overflow-hidden" data-testid="top-errors-panel">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs bg-destructive/5 hover:bg-destructive/10 transition-colors"
+        data-testid="button-toggle-top-errors"
+      >
+        <span className="flex items-center gap-1.5 font-medium text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {language === "sk" ? "Analýza chýb" : "Error analysis"}
+          <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">{totalErrors}</Badge>
+        </span>
+        {open ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="divide-y divide-border">
+          {errors.map((e, i) => (
+            <div key={i} className="flex items-start gap-2 px-3 py-1.5 text-xs">
+              <span className="font-semibold text-destructive w-8 flex-shrink-0 text-right">{e.count}×</span>
+              <span className="font-mono text-[11px] text-foreground/80 break-all leading-tight">{e.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HKodRangeDisplay({ range, language }: { range: {prefix: string; padding: number; first: number; last: number; count: number} | undefined; language: string }) {
+  if (!range) return null;
+  const fmt = (n: number) => `${range.prefix}${String(n).padStart(range.padding, "0")}`;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/20 text-xs" data-testid="hkod-range-display">
+      <Database className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+      <span className="text-muted-foreground">{language === "sk" ? "H-kódy pridelené:" : "H-codes assigned:"}</span>
+      <span className="font-mono font-semibold">{fmt(range.first)}</span>
+      <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
+      <span className="font-mono font-semibold">{fmt(range.last)}</span>
+      <Badge variant="secondary" className="text-[10px] h-4 px-1.5 ml-1">{range.count.toLocaleString()}×</Badge>
+    </div>
+  );
+}
+
+function VatSamplesPanel({ samples, vatRate, language }: { samples: Array<{field: string; original: number; converted: number; rate: string}>; vatRate: string | null; language: string }) {
+  if (!samples || samples.length === 0) return null;
+  return (
+    <div className="px-3 py-2 rounded-lg border bg-muted/20 text-xs space-y-1.5" data-testid="vat-samples-panel">
+      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
+        <Percent className="h-3.5 w-3.5" />
+        <span>{language === "sk" ? "Ukážka DPH konverzie" : "VAT conversion preview"}</span>
+        {vatRate && <Badge variant="outline" className="text-[10px] h-4 px-1.5">÷{parseFloat(vatRate) > 1 ? `${vatRate}%` : `1.${vatRate}`}</Badge>}
+      </div>
+      <div className="space-y-0.5">
+        {samples.map((s, i) => (
+          <div key={i} className="flex items-center gap-2 font-mono text-[11px]">
+            <span className="text-muted-foreground w-24 truncate" title={s.field}>{s.field}:</span>
+            <span className="text-foreground/70">{typeof s.original === "number" ? s.original.toFixed(4) : s.original}</span>
+            <span className="text-muted-foreground">→</span>
+            <span className="font-semibold text-foreground">{typeof s.converted === "number" ? s.converted.toFixed(2) : s.converted}</span>
+            <span className="text-[10px] text-muted-foreground ml-auto">VAT {s.rate}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveElapsedTimer({ startedAt, isRunning }: { startedAt: string | Date; isRunning: boolean }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!isRunning) {
+      setElapsed(Date.now() - new Date(startedAt).getTime());
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsed(Date.now() - new Date(startedAt).getTime());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRunning, startedAt]);
+  const secs = Math.floor(elapsed / 1000);
+  const mins = Math.floor(secs / 60);
+  const hrs = Math.floor(mins / 60);
+  const display = hrs > 0
+    ? `${hrs}:${String(mins % 60).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`
+    : `${String(mins).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+  return (
+    <span className="font-mono text-sm font-semibold tabular-nums" data-testid="live-elapsed-timer">{display}</span>
+  );
+}
+
 function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }) {
   const days: Record<string, { success: number; error: number; total: number }> = {};
   for (let i = dayCount - 1; i >= 0; i--) {
@@ -1080,7 +1232,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
                       <>
-                        {/* Live counters row — always visible even when all zeros */}
+                        {/* Live counters row */}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs py-1 px-2 rounded-md bg-muted/30 border">
                           <span className="text-green-600 dark:text-green-400 font-medium" data-testid="text-live-created">
                             +{((trackedRun.details as any).totalCreated || 0).toLocaleString()} {t("syncDash.created")}
@@ -1100,6 +1252,18 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             {(((trackedRun.details as any).totalCreated || 0) + ((trackedRun.details as any).totalUpdated || 0) + ((trackedRun as any).recordsSkipped || (trackedRun.details as any).totalSkippedByMatch || 0) + (trackedRun.recordsFailed || 0)).toLocaleString()} / {(trackedRun.recordsTotal || 0).toLocaleString()} {language === "sk" ? "spracovaných" : "processed"}
                           </span>
                         </div>
+
+                        {/* Result breakdown bar */}
+                        <ResultBreakdownBar
+                          created={(trackedRun.details as any).totalCreated || 0}
+                          updated={(trackedRun.details as any).totalUpdated || 0}
+                          skipped={(trackedRun as any).recordsSkipped || (trackedRun.details as any).totalSkippedByMatch || 0}
+                          failed={trackedRun.recordsFailed || 0}
+                        />
+
+                        {/* H-kód range (live) */}
+                        <HKodRangeDisplay range={(trackedRun.details as any)?.hKodRange} language={language} />
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
                             <span className="text-muted-foreground">{language === "sk" ? "Odoslaných do ONIX:" : "Pushed to target:"}</span>
@@ -1128,13 +1292,44 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           </div>
                         </div>
 
-                        {((trackedRun.details as any)?.avgLatencyMs || 0) > 0 && (
-                          <div className="mt-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
-                              {(trackedRun.details as any)?.speedRating && <SpeedRatingBadge rating={(trackedRun.details as any).speedRating} t={t} />}
+                        {/* Throughput sparkline + latency panel */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                          {((trackedRun.details as any)?.batchSpeedHistory?.length >= 2) && (
+                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border bg-muted/20 flex-shrink-0">
+                              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+                              <SparklineChart data={(trackedRun.details as any).batchSpeedHistory} />
+                              <span className="text-[10px] text-muted-foreground">{language === "sk" ? "rýchlosť/dávka" : "speed/batch"}</span>
                             </div>
-                            <SpeedGauge avgLatencyMs={(trackedRun.details as any).avgLatencyMs} t={t} />
+                          )}
+                          {((trackedRun.details as any)?.avgLatencyMs || 0) > 0 && (
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
+                                {(trackedRun.details as any)?.speedRating && <SpeedRatingBadge rating={(trackedRun.details as any).speedRating} t={t} />}
+                                <span className="text-[10px] text-muted-foreground ml-auto">
+                                  min <span className="font-medium text-foreground">{(trackedRun.details as any).minLatencyMs || 0}ms</span>
+                                  {" · "}avg <span className="font-medium text-foreground">{(trackedRun.details as any).avgLatencyMs}ms</span>
+                                  {" · "}max <span className="font-medium text-foreground">{(trackedRun.details as any).maxLatencyMs || 0}ms</span>
+                                </span>
+                              </div>
+                              <SpeedGauge avgLatencyMs={(trackedRun.details as any).avgLatencyMs} t={t} />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Live error rate */}
+                        {((trackedRun.details as any)?.errorRate || 0) > 0 && (
+                          <div className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md border border-destructive/20 bg-destructive/5" data-testid="live-error-rate">
+                            <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                            <span className="text-muted-foreground">{language === "sk" ? "Miera chýb:" : "Error rate:"}</span>
+                            <span className={`font-semibold ${(trackedRun.details as any).errorRate > 5 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+                              {(trackedRun.details as any).errorRate}%
+                            </span>
+                            <span className="text-[10px] text-muted-foreground ml-auto">
+                              {(trackedRun.details as any).errorRate <= 1 ? (language === "sk" ? "nízka" : "low") :
+                               (trackedRun.details as any).errorRate <= 5 ? (language === "sk" ? "stredná" : "medium") :
+                               (language === "sk" ? "vysoká" : "high")}
+                            </span>
                           </div>
                         )}
                       </>
@@ -1142,19 +1337,34 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.liveBatch && (
                       <div className="mt-2 border rounded-lg bg-muted/20 p-3" data-testid="panel-live-batch">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Activity className="h-3.5 w-3.5 text-blue-500 animate-pulse" />
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <Activity className="h-3.5 w-3.5 text-blue-500 animate-pulse flex-shrink-0" />
                           <span className="text-xs font-semibold">{t("syncDash.liveActivity")}</span>
                           <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
                             {t("syncDash.batchOf")
                               .replace("{current}", String((trackedRun.details as any).liveBatch.batchNumber))
                               .replace("{total}", String(trackedRun.totalBatches || 0))}
                           </Badge>
-                          {(trackedRun.details as any)?.elapsedMs && (
-                            <span className="text-[10px] text-muted-foreground ml-auto">
-                              {formatDuration((trackedRun.details as any).elapsedMs)}
-                            </span>
+                          {/* Per-batch mini counters */}
+                          {((trackedRun.details as any).liveBatch.batchCreated > 0 || (trackedRun.details as any).liveBatch.batchUpdated > 0 || (trackedRun.details as any).liveBatch.batchErrors > 0) && (
+                            <div className="flex items-center gap-1.5 text-[10px]">
+                              {(trackedRun.details as any).liveBatch.batchCreated > 0 && (
+                                <span className="text-green-600 dark:text-green-400">+{(trackedRun.details as any).liveBatch.batchCreated}</span>
+                              )}
+                              {(trackedRun.details as any).liveBatch.batchUpdated > 0 && (
+                                <span className="text-blue-600 dark:text-blue-400">↻{(trackedRun.details as any).liveBatch.batchUpdated}</span>
+                              )}
+                              {(trackedRun.details as any).liveBatch.batchErrors > 0 && (
+                                <span className="text-destructive">✗{(trackedRun.details as any).liveBatch.batchErrors}</span>
+                              )}
+                              {(trackedRun.details as any).liveBatch.batchAvgLatency > 0 && (
+                                <span className="text-muted-foreground">{(trackedRun.details as any).liveBatch.batchAvgLatency}ms</span>
+                              )}
+                            </div>
                           )}
+                          <div className="ml-auto flex items-center gap-2">
+                            <LiveElapsedTimer startedAt={trackedRun.startedAt} isRunning={true} />
+                          </div>
                         </div>
                         <div className="space-y-0.5">
                           {((trackedRun.details as any).liveBatch.sample || []).slice(0, 5).map((item: any, idx: number) => {
@@ -1249,16 +1459,54 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3 text-xs">
+                          {/* Visual breakdown bar */}
+                          <ResultBreakdownBar
+                            created={cs.totalCreated || 0}
+                            updated={cs.totalUpdated || 0}
+                            skipped={cs.totalSkippedByMatch || 0}
+                            failed={cs.totalFailed || 0}
+                          />
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                             <div>
                               <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>
-                              <p className="font-medium">{cs.sourceRecordCount || 0}</p>
+                              <p className="font-medium">{(cs.sourceRecordCount || 0).toLocaleString()}</p>
                             </div>
                             <div>
                               <span className="text-muted-foreground">{t("syncDash.fieldCount")}:</span>
                               <p className="font-medium">{cs.fieldCount || 0}</p>
                             </div>
+                            {(cs.sourceFiltersApplied || 0) > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">{language === "sk" ? "Filtrované:" : "Filtered out:"}</span>
+                                <p className="font-medium text-amber-600 dark:text-amber-400">−{(cs.sourceFiltersApplied || 0).toLocaleString()}</p>
+                              </div>
+                            )}
+                            {(cs.errorRate || 0) > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">{language === "sk" ? "Miera chýb:" : "Error rate:"}</span>
+                                <p className={`font-medium ${cs.errorRate > 5 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>{cs.errorRate}%</p>
+                              </div>
+                            )}
                           </div>
+
+                          {/* Throughput sparkline in completion */}
+                          {cs.batchSpeedHistory && cs.batchSpeedHistory.length >= 3 && (
+                            <div className="flex items-center gap-3 px-2.5 py-1.5 rounded-md border bg-muted/20 text-xs">
+                              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                              <span className="text-muted-foreground">{language === "sk" ? "Priebeh rýchlosti:" : "Speed trend:"}</span>
+                              <SparklineChart data={cs.batchSpeedHistory} />
+                              <span className="text-[10px] text-muted-foreground ml-auto">
+                                {language === "sk" ? "max" : "peak"}: <span className="font-medium text-foreground">{Math.max(...cs.batchSpeedHistory.map((d: any) => d.s))} rec/s</span>
+                              </span>
+                            </div>
+                          )}
+
+                          {/* H-kód range */}
+                          <HKodRangeDisplay range={cs.hKodRange} language={language} />
+
+                          {/* VAT samples */}
+                          <VatSamplesPanel samples={cs.vatSamples} vatRate={cs.vatDividerRate} language={language} />
 
                           {cs.fieldMappings && cs.fieldMappings.length > 0 && (
                             <div className="text-xs">
@@ -1339,6 +1587,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             <div className="text-xs border-t pt-2 border-foreground/10">
                               <p className="text-muted-foreground italic">{t("syncDash.noTargetIds")}</p>
                             </div>
+                          )}
+
+                          {/* Top errors analysis */}
+                          {cs.topErrors && cs.topErrors.length > 0 && (
+                            <TopErrorsPanel errors={cs.topErrors} language={language} />
                           )}
                         </div>
                       );

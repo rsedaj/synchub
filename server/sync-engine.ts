@@ -587,6 +587,10 @@ async function executeAsync(
     let globalMinLatency = Infinity;
     const ETA_WINDOW = 5;
     const batchSpeeds: number[] = [];
+    const batchSpeedHistory: Array<{b: number; s: number}> = [];
+    const vatSamples: Array<{field: string; original: number; converted: number; rate: string}> = [];
+    const sourceFiltersApplied = _rawFetchedRecords.length - allFetchedRecords.length;
+    let hKodStartNumber: number | undefined;
     let globalMaxLatency = 0;
 
     if (isResume) {
@@ -616,6 +620,7 @@ async function executeAsync(
     let hKodNextNumber: number | undefined = (config as any).hKodConfig?.enabled
       ? ((config as any).hKodConfig.nextNumber ?? 0)
       : undefined;
+    if (hKodNextNumber !== undefined) hKodStartNumber = hKodNextNumber;
 
     for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
@@ -642,6 +647,16 @@ async function executeAsync(
           }
         }
         batchLocalIdx++;
+      }
+
+      if (vatSamples.length < 3) {
+        for (const vt of batchVatByMappedIdx) {
+          if (vt && vt.length > 0 && vatSamples.length < 3) {
+            for (const entry of vt) {
+              if (vatSamples.length < 3) vatSamples.push(entry);
+            }
+          }
+        }
       }
 
       let batchErrorCount = 0;
@@ -819,6 +834,8 @@ async function executeAsync(
         const batchSpeed = (batchProcessed / batchWallClockMs) * 1000;
         batchSpeeds.push(batchSpeed);
         if (batchSpeeds.length > ETA_WINDOW) batchSpeeds.shift();
+        batchSpeedHistory.push({ b: currentBatch, s: Math.round(batchSpeed) });
+        if (batchSpeedHistory.length > 30) batchSpeedHistory.shift();
       }
 
       const windowSpeed = batchSpeeds.length > 0
@@ -885,6 +902,16 @@ async function executeAsync(
           minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
           maxLatencyMs: globalMaxLatency,
           speedRating: currentAvgLatency === 0 ? "unknown" : currentAvgLatency < 200 ? "fast" : currentAvgLatency < 1000 ? "normal" : currentAvgLatency < 3000 ? "slow" : "very_slow",
+          batchSpeedHistory: batchSpeedHistory.slice(),
+          errorRate: (totalCreated + totalUpdated + totalFailed) > 0 ? Math.round((totalFailed / (totalCreated + totalUpdated + totalFailed)) * 1000) / 10 : 0,
+          sourceFiltersApplied,
+          hKodRange: hKodStartNumber !== undefined && hKodNextNumber !== undefined && hKodNextNumber > hKodStartNumber ? {
+            prefix: (config as any).hKodConfig?.prefix || "H",
+            padding: (config as any).hKodConfig?.padding || 6,
+            first: hKodStartNumber,
+            last: hKodNextNumber - 1,
+            count: hKodNextNumber - hKodStartNumber,
+          } : undefined,
         },
       }, `batch:${currentBatch}`);
 
@@ -939,6 +966,28 @@ async function executeAsync(
     const vatMapping = mappings.find(m => m.transform && m.transform.startsWith("price_excl_vat"));
     const vatDividerRate = vatMapping ? (vatMapping.transform!.split(":")[1] || "23") : null;
 
+    const errorCounts = new Map<string, number>();
+    for (const e of allErrors) {
+      const msg = e.message.slice(0, 150);
+      errorCounts.set(msg, (errorCounts.get(msg) || 0) + 1);
+    }
+    const topErrors = Array.from(errorCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([message, count]) => ({ message, count }));
+
+    const finalHKodRange = hKodStartNumber !== undefined && hKodNextNumber !== undefined && hKodNextNumber > hKodStartNumber ? {
+      prefix: (config as any).hKodConfig?.prefix || "H",
+      padding: (config as any).hKodConfig?.padding || 6,
+      first: hKodStartNumber,
+      last: hKodNextNumber - 1,
+      count: hKodNextNumber - hKodStartNumber,
+    } : undefined;
+
+    const finalErrorRate = (totalCreated + totalUpdated + totalFailed) > 0
+      ? Math.round((totalFailed / (totalCreated + totalUpdated + totalFailed)) * 1000) / 10
+      : 0;
+
     const completionSummary = {
       totalCreated,
       totalUpdated,
@@ -961,6 +1010,12 @@ async function executeAsync(
       speedRating,
       hasVatDivider: !!vatMapping,
       vatDividerRate,
+      topErrors,
+      hKodRange: finalHKodRange,
+      vatSamples: vatSamples.slice(0, 3),
+      sourceFiltersApplied,
+      errorRate: finalErrorRate,
+      batchSpeedHistory: batchSpeedHistory.slice(),
     };
 
     await resilientDbUpdate(runId, {
