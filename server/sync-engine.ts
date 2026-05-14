@@ -116,7 +116,7 @@ function applyFieldMappings(
             const coeff = parseFloat(transformParam ?? "NaN");
             const factor = Number.isFinite(coeff) ? coeff : 1;
             const num = parseFloat(String(value).replace(/[^\d.,\-]/g, "").replace(",", ".")) || 0;
-            value = Math.round(num * factor * 100000) / 100000;
+            value = Math.round(num * factor * 100) / 100;
             break;
           }
         }
@@ -667,6 +667,7 @@ async function executeAsync(
               hKodConfig: (config as any).hKodConfig?.enabled
                 ? { ...(config as any).hKodConfig, nextNumber: hKodNextNumber ?? (config as any).hKodConfig.nextNumber }
                 : null,
+              onixFixedFields: (config as any).onixFixedFields?.length ? (config as any).onixFixedFields : null,
             }
           );
           if (pushResult.hKodNextNumber !== undefined) {

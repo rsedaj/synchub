@@ -211,6 +211,12 @@ interface HKodConfig {
   field: string;
 }
 
+interface OnixFixedField {
+  field: string;
+  value: string;
+  condition: "always" | "if_empty";
+}
+
 interface EditorState {
   id?: string;
   name: string;
@@ -226,6 +232,7 @@ interface EditorState {
   targetStock: string;
   sourceFilters: SourceFilter[];
   hKodConfig: HKodConfig;
+  onixFixedFields: OnixFixedField[];
   schedule: Schedule;
   isEnabled: boolean;
   backupBeforeSync: boolean;
@@ -245,6 +252,7 @@ const emptyEditor: EditorState = {
   targetStock: "",
   sourceFilters: [],
   hKodConfig: { enabled: false, prefix: "H20", nextNumber: 125892, field: "Ns_Number" },
+  onixFixedFields: [],
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
   backupBeforeSync: true,
@@ -853,6 +861,7 @@ export default function SyncConfigPage() {
       hKodConfig: (config as any).hKodConfig
         ? { enabled: false, prefix: "H20", nextNumber: 125892, field: "Ns_Number", ...(config as any).hKodConfig }
         : { enabled: false, prefix: "H20", nextNumber: 125892, field: "Ns_Number" },
+      onixFixedFields: Array.isArray((config as any).onixFixedFields) ? (config as any).onixFixedFields : [],
       schedule,
       isEnabled: config.isEnabled,
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
@@ -907,6 +916,7 @@ export default function SyncConfigPage() {
       targetStock: editor.targetStock || null,
       sourceFilters: editor.sourceFilters.filter(f => f.field && f.value),
       hKodConfig: editor.hKodConfig,
+      onixFixedFields: editor.onixFixedFields.filter(f => f.field.trim()),
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
     };
@@ -1930,9 +1940,117 @@ export default function SyncConfigPage() {
                   </div>
                 </div>
 
-                {/* H kód sekcia — zobrazí sa len keď je cieľ ONIX */}
+                {/* ONIX pevné polia + H kód — zobrazí sa len keď je cieľ ONIX */}
                 {selectedTargetModule?.code === "ONIX" && (
                   <>
+                    <Separator />
+                    <div data-testid="section-onix-fixed-fields">
+                      <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">ONIX</span>
+                        {language === "sk" ? "Pevné hodnoty polí (ONIX)" : "Fixed field values (ONIX)"}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        {language === "sk"
+                          ? "Polia, ktoré sa zapíšu do každého záznamu v ONIX — bez ohľadu na mapovanie. Napr. Ns_Code = \"H\", Ist_Dmj = 0."
+                          : "Fields written to every ONIX record — regardless of mappings. E.g. Ns_Code = \"H\", Ist_Dmj = 0."}
+                      </p>
+                      <div className="space-y-2">
+                        {editor.onixFixedFields.map((ff, idx) => (
+                          <div key={idx} className="flex items-center gap-2 flex-wrap" data-testid={`row-fixed-field-${idx}`}>
+                            <Input
+                              className="h-8 text-xs font-mono w-44"
+                              placeholder="Ns_Code"
+                              value={ff.field}
+                              onChange={e => setEditor(prev => {
+                                const arr = [...prev.onixFixedFields];
+                                arr[idx] = { ...arr[idx], field: e.target.value };
+                                return { ...prev, onixFixedFields: arr };
+                              })}
+                              data-testid={`input-fixed-field-name-${idx}`}
+                            />
+                            <span className="text-muted-foreground text-xs">=</span>
+                            <Input
+                              className="h-8 text-xs font-mono w-36"
+                              placeholder="H"
+                              value={ff.value}
+                              onChange={e => setEditor(prev => {
+                                const arr = [...prev.onixFixedFields];
+                                arr[idx] = { ...arr[idx], value: e.target.value };
+                                return { ...prev, onixFixedFields: arr };
+                              })}
+                              data-testid={`input-fixed-field-value-${idx}`}
+                            />
+                            <Select
+                              value={ff.condition}
+                              onValueChange={val => setEditor(prev => {
+                                const arr = [...prev.onixFixedFields];
+                                arr[idx] = { ...arr[idx], condition: val as "always" | "if_empty" };
+                                return { ...prev, onixFixedFields: arr };
+                              })}
+                            >
+                              <SelectTrigger className="h-8 text-xs w-48" data-testid={`select-fixed-field-condition-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="if_empty">
+                                  {language === "sk" ? "Ak nie je nastavené" : "If not set by mapping"}
+                                </SelectItem>
+                                <SelectItem value="always">
+                                  {language === "sk" ? "Vždy prepísať" : "Always override"}
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => setEditor(prev => ({
+                                ...prev,
+                                onixFixedFields: prev.onixFixedFields.filter((_, i) => i !== idx),
+                              }))}
+                              data-testid={`button-delete-fixed-field-${idx}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs mt-1"
+                          onClick={() => setEditor(prev => ({
+                            ...prev,
+                            onixFixedFields: [...prev.onixFixedFields, { field: "", value: "", condition: "if_empty" }],
+                          }))}
+                          data-testid="button-add-fixed-field"
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          {language === "sk" ? "Pridať pole" : "Add field"}
+                        </Button>
+                        {editor.onixFixedFields.length === 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {[
+                              { field: "Ns_Code", value: "H" },
+                              { field: "Ist_Dmj", value: "0" },
+                              { field: "Ist_Code", value: "" },
+                              { field: "VatRate", value: "23" },
+                            ].map(hint => (
+                              <button
+                                key={hint.field}
+                                className="text-[10px] border rounded px-1.5 py-0.5 font-mono text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+                                onClick={() => setEditor(prev => ({
+                                  ...prev,
+                                  onixFixedFields: [...prev.onixFixedFields, { field: hint.field, value: hint.value, condition: "if_empty" }],
+                                }))}
+                                data-testid={`button-hint-fixed-${hint.field}`}
+                              >
+                                + {hint.field}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <Separator />
                     <div data-testid="section-hkod">
                       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">

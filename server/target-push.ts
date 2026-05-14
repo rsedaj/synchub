@@ -125,6 +125,7 @@ export interface MatchOptions {
   mappings?: Array<{ sourceField: string; targetField: string }>;
   targetStock?: string;
   hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number; field: string } | null;
+  onixFixedFields?: Array<{ field: string; value: string; condition: "always" | "if_empty" }> | null;
 }
 
 export async function pushToTarget(
@@ -1083,6 +1084,15 @@ async function pushToOnix(
           body.RecordExternalIdentificator = autoId;
         }
       }
+      // Apply "if_empty" fixed fields before autofill — user-defined defaults
+      if (matchOptions?.onixFixedFields?.length) {
+        for (const ff of matchOptions.onixFixedFields) {
+          if (ff.condition === "if_empty" && ff.field && !hasVal(body[ff.field])) {
+            body[ff.field] = ff.value;
+          }
+        }
+      }
+
       if (!hasVal(body.Ns_Number) && !isUpdate) {
         body.Ns_Number = hasVal(body.RecordExternalIdentificator) ? body.RecordExternalIdentificator : autoId;
       }
@@ -1143,6 +1153,23 @@ async function pushToOnix(
 
       if (customCols.length > 0) {
         body.CustomColumns = customCols;
+      }
+
+      // Convert any remaining array values (e.g. CombinedSizes) to comma-separated strings
+      for (const [k, v] of Object.entries(body)) {
+        if (k === "CustomColumns") continue;
+        if (Array.isArray(v)) {
+          body[k] = v.map((x: any) => (x != null ? String(x) : "")).filter(Boolean).join(", ");
+        }
+      }
+
+      // Apply "always" fixed fields last — absolute overrides regardless of mapping
+      if (matchOptions?.onixFixedFields?.length) {
+        for (const ff of matchOptions.onixFixedFields) {
+          if (ff.condition === "always" && ff.field) {
+            body[ff.field] = ff.value;
+          }
+        }
       }
 
       if (body.Default_Price !== undefined && body.Default_Price !== null) {
