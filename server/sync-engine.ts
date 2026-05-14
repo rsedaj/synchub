@@ -138,6 +138,13 @@ function applyFieldMappings(
             value = String(value ?? "").substring(0, l);
             break;
           }
+          case "country": {
+            const { lookupCountry } = await import("../shared/countries.js");
+            const fmt = (transformParam || "name_sk") as import("../shared/countries.js").CountryFormat;
+            const resolved = lookupCountry(String(value ?? ""), fmt);
+            if (resolved !== undefined) value = resolved;
+            break;
+          }
         }
       } catch (_e) { }
     }

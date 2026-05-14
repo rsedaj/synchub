@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { COUNTRY_FIELD_KEYWORDS } from "@shared/countries";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
@@ -1001,6 +1002,8 @@ export default function SyncConfigPage() {
       updateMapping(mappingIdx, "transform", "pad_right:8: ");
     } else if (newType === "truncate") {
       updateMapping(mappingIdx, "transform", "truncate:8");
+    } else if (newType === "country") {
+      updateMapping(mappingIdx, "transform", "country:name_sk");
     } else {
       updateMapping(mappingIdx, "transform", newType);
     }
@@ -1034,6 +1037,17 @@ export default function SyncConfigPage() {
   function handleTruncateLengthChange(mappingIdx: number, len: string) {
     const l = len.replace(/[^\d]/g, "") || "8";
     updateMapping(mappingIdx, "transform", `truncate:${l}`);
+  }
+
+  function getCountryFormat(transform?: string) {
+    if (!transform) return "name_sk";
+    const idx = transform.indexOf(":");
+    return idx >= 0 ? transform.substring(idx + 1) : "name_sk";
+  }
+
+  function isCountrySourceField(fieldName: string): boolean {
+    const lower = fieldName.toLowerCase().replace(/[_\-\.]/g, "");
+    return COUNTRY_FIELD_KEYWORDS.some(kw => lower.includes(kw.toLowerCase().replace(/[_\-\.]/g, "")));
   }
 
   const ONIX_FIELD_HINTS: Record<string, { sk: string; en: string }> = {
@@ -1696,6 +1710,7 @@ export default function SyncConfigPage() {
                                 <SelectItem value="pad_left" className="text-xs">{language === "sk" ? "Doplniť zľava (pad left)" : "Pad left"}</SelectItem>
                                 <SelectItem value="pad_right" className="text-xs">{language === "sk" ? "Doplniť zprava (pad right)" : "Pad right"}</SelectItem>
                                 <SelectItem value="truncate" className="text-xs">{language === "sk" ? "Skrátiť na N znakov" : "Truncate to N chars"}</SelectItem>
+                                <SelectItem value="country" className="text-xs">{language === "sk" ? "Krajina — preklad / kód" : "Country — translate / code"}</SelectItem>
                               </SelectContent>
                             </Select>
                             {transformType === "price_excl_vat" && (
@@ -1791,7 +1806,51 @@ export default function SyncConfigPage() {
                                 </span>
                               </div>
                             )}
+                            {transformType === "country" && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-muted-foreground shrink-0">{language === "sk" ? "Výstupný formát:" : "Output format:"}</span>
+                                <Select
+                                  value={getCountryFormat(mapping.transform)}
+                                  onValueChange={val => updateMapping(idx, "transform", `country:${val}`)}
+                                >
+                                  <SelectTrigger className="h-6 text-[11px] w-52" data-testid={`select-country-format-${idx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="original" className="text-xs">{language === "sk" ? "Pôvodný názov zo zdroja" : "Original from source"}</SelectItem>
+                                    <SelectItem value="name_sk" className="text-xs">{language === "sk" ? "Názov SK (napr. Čína)" : "Name SK (e.g. Čína)"}</SelectItem>
+                                    <SelectItem value="name_en" className="text-xs">{language === "sk" ? "Názov EN (napr. China)" : "Name EN (e.g. China)"}</SelectItem>
+                                    <SelectItem value="iso3" className="text-xs">{language === "sk" ? "Medzinárodný kód štátu (napr. CHN)" : "International code (e.g. CHN)"}</SelectItem>
+                                    <SelectItem value="vat_code" className="text-xs">{language === "sk" ? "Kód IČ pre DPH (napr. CN)" : "VAT ID code (e.g. CN)"}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  {(() => {
+                                    const fmt = getCountryFormat(mapping.transform);
+                                    const examples: Record<string, string> = {
+                                      original: language === "sk" ? "(bez zmeny)" : "(unchanged)",
+                                      name_sk: "China → Čína",
+                                      name_en: "Čína → China",
+                                      iso3: "China → CHN",
+                                      vat_code: "China → CN",
+                                    };
+                                    return examples[fmt] || "";
+                                  })()}
+                                </span>
+                              </div>
+                            )}
                           </div>
+                          {/* Country auto-hint when source field looks like a country field */}
+                          {mapping.sourceField && isCountrySourceField(mapping.sourceField) && transformType !== "country" && (
+                            <div className="px-3 pb-1.5 flex items-start gap-1.5" data-testid={`country-hint-${idx}`}>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">⚑</span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 leading-tight">
+                                {language === "sk"
+                                  ? `Pole "${mapping.sourceField}" vyzerá ako krajina. Použite transformáciu "Krajina — preklad / kód" pre prevod na Názov SK, EN, ISO kód alebo kód IČ DPH.`
+                                  : `Field "${mapping.sourceField}" looks like a country field. Use "Country — translate / code" transform to convert to SK name, EN name, ISO code or VAT code.`}
+                              </span>
+                            </div>
+                          )}
                           {/* Field hint for known ONIX fields */}
                           {mapping.targetField && ONIX_FIELD_HINTS[mapping.targetField] && (
                             <div className="px-3 pb-2 flex items-start gap-1.5" data-testid={`field-hint-${idx}`}>
