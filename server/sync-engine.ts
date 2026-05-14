@@ -119,6 +119,25 @@ function applyFieldMappings(
             value = Math.round(num * factor * 100) / 100;
             break;
           }
+          case "pad_left": {
+            const parts = (transformParam ?? "8:0").split(":");
+            const l = parseInt(parts[0], 10) || 8;
+            const c = parts.length > 1 ? parts[1] : "0";
+            value = String(value ?? "").padStart(l, c || " ");
+            break;
+          }
+          case "pad_right": {
+            const parts = (transformParam ?? "8: ").split(":");
+            const l = parseInt(parts[0], 10) || 8;
+            const c = parts.length > 1 ? parts[1] : " ";
+            value = String(value ?? "").padEnd(l, c || " ");
+            break;
+          }
+          case "truncate": {
+            const l = parseInt(transformParam ?? "8", 10) || 8;
+            value = String(value ?? "").substring(0, l);
+            break;
+          }
         }
       } catch (_e) { }
     }

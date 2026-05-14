@@ -967,6 +967,24 @@ export default function SyncConfigPage() {
     return idx >= 0 ? transform.substring(idx + 1) : "1";
   }
 
+  function getPadLength(transform?: string) {
+    if (!transform) return "8";
+    const parts = transform.split(":");
+    return parts[1] || "8";
+  }
+
+  function getPadChar(transform?: string, defaultChar = "0") {
+    if (!transform) return defaultChar;
+    const parts = transform.split(":");
+    return parts[2] !== undefined ? parts[2] : defaultChar;
+  }
+
+  function getTruncateLength(transform?: string) {
+    if (!transform) return "8";
+    const parts = transform.split(":");
+    return parts[1] || "8";
+  }
+
   function handleTransformTypeChange(mappingIdx: number, newType: string) {
     if (newType === "none" || newType === "") {
       updateMapping(mappingIdx, "transform", "");
@@ -977,6 +995,12 @@ export default function SyncConfigPage() {
       const currentCoeff = getMultiplyCoeff(editor.fieldMappings[mappingIdx].transform);
       const coeff = currentCoeff === "1" ? "1" : currentCoeff;
       updateMapping(mappingIdx, "transform", `multiply:${coeff}`);
+    } else if (newType === "pad_left") {
+      updateMapping(mappingIdx, "transform", "pad_left:8:0");
+    } else if (newType === "pad_right") {
+      updateMapping(mappingIdx, "transform", "pad_right:8: ");
+    } else if (newType === "truncate") {
+      updateMapping(mappingIdx, "transform", "truncate:8");
     } else {
       updateMapping(mappingIdx, "transform", newType);
     }
@@ -991,6 +1015,49 @@ export default function SyncConfigPage() {
     const num = coeff.replace(/[^\d.]/g, "");
     updateMapping(mappingIdx, "transform", `multiply:${num || "1"}`);
   }
+
+  function handlePadLengthChange(mappingIdx: number, len: string, isRight: boolean) {
+    const type = isRight ? "pad_right" : "pad_left";
+    const currentTransform = editor.fieldMappings[mappingIdx].transform || "";
+    const currentChar = getPadChar(currentTransform, isRight ? " " : "0");
+    const l = len.replace(/[^\d]/g, "") || "8";
+    updateMapping(mappingIdx, "transform", `${type}:${l}:${currentChar}`);
+  }
+
+  function handlePadCharChange(mappingIdx: number, char: string, isRight: boolean) {
+    const type = isRight ? "pad_right" : "pad_left";
+    const currentTransform = editor.fieldMappings[mappingIdx].transform || "";
+    const currentLen = getPadLength(currentTransform) || "8";
+    updateMapping(mappingIdx, "transform", `${type}:${currentLen}:${char}`);
+  }
+
+  function handleTruncateLengthChange(mappingIdx: number, len: string) {
+    const l = len.replace(/[^\d]/g, "") || "8";
+    updateMapping(mappingIdx, "transform", `truncate:${l}`);
+  }
+
+  const ONIX_FIELD_HINTS: Record<string, { sk: string; en: string }> = {
+    "Ist_Code": {
+      sk: "Musí mať presne 8 znakov. Ak je hodnota kratšia, použite transformáciu 'Doplniť zľava' (dĺžka 8, znak 0).",
+      en: "Must be exactly 8 characters. If shorter, use \"Pad left\" transform (length 8, char 0).",
+    },
+    "Ist_Dmj": {
+      sk: "Kód mernej jednotky — zvyčajne číslo (napr. 0 = ks). Môžete použiť pevnú hodnotu v sekcii Pevné hodnoty polí.",
+      en: "Unit of measure code — usually numeric (e.g. 0 = piece). Use fixed fields section for a constant.",
+    },
+    "Ns_Code": {
+      sk: "Kód dodávateľa v ONIX (napr. H = Hauerland). Zvyčajne pevná hodnota, nie z mapovania.",
+      en: "Supplier code in ONIX (e.g. H = Hauerland). Usually a fixed value, not from mapping.",
+    },
+    "VatRate": {
+      sk: "Sadzba DPH ako celé číslo bez znaku % (napr. 20). Môžete použiť pevnú hodnotu.",
+      en: "VAT rate as integer without % sign (e.g. 20). Can be set as a fixed value.",
+    },
+    "Default_Price": {
+      sk: "Predajná cena. Ak zdroj obsahuje cenu s DPH, použite transformáciu 'Cena bez DPH'.",
+      en: "Selling price. If source includes VAT, use the \"Price excl. VAT\" transform.",
+    },
+  };
 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
@@ -1626,6 +1693,9 @@ export default function SyncConfigPage() {
                                 <SelectItem value="lowercase" className="text-xs">lowercase</SelectItem>
                                 <SelectItem value="trim" className="text-xs">Trim</SelectItem>
                                 <SelectItem value="boolean" className="text-xs">Boolean</SelectItem>
+                                <SelectItem value="pad_left" className="text-xs">{language === "sk" ? "Doplniť zľava (pad left)" : "Pad left"}</SelectItem>
+                                <SelectItem value="pad_right" className="text-xs">{language === "sk" ? "Doplniť zprava (pad right)" : "Pad right"}</SelectItem>
+                                <SelectItem value="truncate" className="text-xs">{language === "sk" ? "Skrátiť na N znakov" : "Truncate to N chars"}</SelectItem>
                               </SelectContent>
                             </Select>
                             {transformType === "price_excl_vat" && (
@@ -1671,7 +1741,68 @@ export default function SyncConfigPage() {
                                 </span>
                               </div>
                             )}
+                            {(transformType === "pad_left" || transformType === "pad_right") && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-muted-foreground">{language === "sk" ? "Dĺžka:" : "Length:"}</span>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max="50"
+                                  value={getPadLength(mapping.transform)}
+                                  onChange={e => handlePadLengthChange(idx, e.target.value, transformType === "pad_right")}
+                                  className="h-6 w-12 text-xs text-center px-1"
+                                  data-testid={`input-pad-length-${idx}`}
+                                />
+                                <span className="text-[10px] text-muted-foreground">{language === "sk" ? "Znak:" : "Char:"}</span>
+                                <Input
+                                  type="text"
+                                  maxLength={1}
+                                  value={getPadChar(mapping.transform, transformType === "pad_right" ? " " : "0")}
+                                  onChange={e => handlePadCharChange(idx, e.target.value, transformType === "pad_right")}
+                                  className="h-6 w-10 text-xs text-center px-1 font-mono"
+                                  placeholder={transformType === "pad_right" ? "SP" : "0"}
+                                  data-testid={`input-pad-char-${idx}`}
+                                />
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  {(() => {
+                                    const l = parseInt(getPadLength(mapping.transform) || "8", 10);
+                                    const c = getPadChar(mapping.transform, transformType === "pad_right" ? " " : "0") || (transformType === "pad_right" ? " " : "0");
+                                    const ex = transformType === "pad_left" ? `"1234".padStart(${l}, "${c}")` : `"1234".padEnd(${l}, "${c}")`;
+                                    const res = transformType === "pad_left" ? "1234".padStart(l, c) : "1234".padEnd(l, c);
+                                    return `→ "${res}"`;
+                                  })()}
+                                </span>
+                              </div>
+                            )}
+                            {transformType === "truncate" && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-muted-foreground">{language === "sk" ? "Max. znakov:" : "Max chars:"}</span>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max="500"
+                                  value={getTruncateLength(mapping.transform)}
+                                  onChange={e => handleTruncateLengthChange(idx, e.target.value)}
+                                  className="h-6 w-12 text-xs text-center px-1"
+                                  data-testid={`input-truncate-length-${idx}`}
+                                />
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  {`(napr. "ABCDEFGHIJ" → "${"ABCDEFGHIJ".substring(0, parseInt(getTruncateLength(mapping.transform) || "8", 10))}")`}
+                                </span>
+                              </div>
+                            )}
                           </div>
+                          {/* Field hint for known ONIX fields */}
+                          {mapping.targetField && ONIX_FIELD_HINTS[mapping.targetField] && (
+                            <div className="px-3 pb-2 flex items-start gap-1.5" data-testid={`field-hint-${idx}`}>
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5">ℹ</span>
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400 leading-tight">
+                                {language === "sk"
+                                  ? ONIX_FIELD_HINTS[mapping.targetField].sk
+                                  : ONIX_FIELD_HINTS[mapping.targetField].en}
+                              </span>
+                            </div>
+                          )}
                         </div>
                         );
                       })}
