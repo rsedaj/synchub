@@ -29,6 +29,7 @@ import {
   Store,
   HelpCircle,
   Lock,
+  Globe,
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -61,6 +62,7 @@ const navItems: NavItem[] = [
   { key: "sidebar.syncDashboard", url: "/sync-dashboard", icon: BarChart3, testId: "sync-dashboard" },
   { key: "sidebar.shopView", url: "/shop-view", icon: Store, testId: "shop-view" },
   { key: "sidebar.backups", url: "/backups", icon: HardDrive, testId: "backups" },
+  { key: "sidebar.countries", url: "/countries", icon: Globe, testId: "countries" },
   { key: "sidebar.vault", url: "/vault", icon: KeyRound, testId: "trezor", adminOnly: true },
   { key: "sidebar.help", url: "/help", icon: HelpCircle, testId: "help" },
 ];

@@ -20,6 +20,7 @@ import SyncConfigPage from "@/pages/sync-config";
 import SyncDashboardPage from "@/pages/sync-dashboard";
 import ShopViewPage from "@/pages/shop-view";
 import HelpPage from "@/pages/help";
+import CountriesPage from "@/pages/countries";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -62,6 +63,7 @@ function AppLayout() {
               <Route path="/shop-view" component={ShopViewPage} />
               <Route path="/backups">{() => <SyncDashboardPage initialTab="backups" />}</Route>
               <Route path="/help" component={HelpPage} />
+              <Route path="/countries" component={CountriesPage} />
               <Route path="/vault" component={VaultPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/audit-log" component={AuditLogPage} />

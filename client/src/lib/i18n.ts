@@ -133,6 +133,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "users.lastLogin": "Posledné prihlásenie",
     "users.never": "Nikdy",
 
+    "sidebar.countries": "Číselník krajín",
     "sidebar.help": "Help",
     "sidebar.vaultAdminOnly": "Prístup iba pre administrátorov",
 
@@ -612,6 +613,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "users.lastLogin": "Last login",
     "users.never": "Never",
 
+    "sidebar.countries": "Country Reference",
     "sidebar.help": "Help",
     "sidebar.vaultAdminOnly": "Access restricted to administrators only",
 
