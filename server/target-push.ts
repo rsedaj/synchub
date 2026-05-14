@@ -1117,8 +1117,15 @@ async function pushToOnix(
       for (const [k, v] of Object.entries(body)) {
         if (k.startsWith("CustomColumns.")) {
           let colName = k.substring("CustomColumns.".length);
-          // Normalize legacy/incorrect URL column names to the correct ONIX custom column name
-          if (colName === "URL" || colName === "STOCK_ITEMS_Z_HAUE_SK001_URL_TXT") {
+          // ONIX REST API returns custom column names with a table prefix
+          // (e.g. "STOCK_ITEMS_Z_STOI_00001_SIZE") but expects bare "Z_..." names
+          // when writing. Strip any known table prefix automatically.
+          const ONIX_TABLE_PREFIXES = ["STOCK_ITEMS_", "PARTNERS_", "ORDER_ITEMS_", "ORDERS_", "PRICE_LISTS_"];
+          for (const pfx of ONIX_TABLE_PREFIXES) {
+            if (colName.startsWith(pfx)) { colName = colName.substring(pfx.length); break; }
+          }
+          // Legacy short-name alias (old mappings that used "URL" directly)
+          if (colName === "URL") {
             colName = "Z_HAUE_SK001_URL_TXT";
           }
           customCols.push({ Name: colName, Value: v != null ? String(v) : "" });
