@@ -107,6 +107,11 @@ const updateSyncConfigSchema = z.object({
     prefix: z.string(),
     nextNumber: z.number().int().min(0),
   }).nullable().optional(),
+  onixFixedFields: z.array(z.object({
+    field: z.string(),
+    value: z.string(),
+    condition: z.enum(["always", "if_empty"]),
+  })).nullable().optional(),
 });
 
 const updateUserSchema = z.object({
