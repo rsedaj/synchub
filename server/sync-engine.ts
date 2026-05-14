@@ -5,6 +5,8 @@ import { pushToTarget } from "./target-push";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult, VATTransformEntry } from "./target-push";
+import { lookupCountry } from "../shared/countries";
+import type { CountryFormat } from "../shared/countries";
 
 const activeRuns = new Map<string, { cancelled: boolean }>();
 
@@ -139,8 +141,7 @@ function applyFieldMappings(
             break;
           }
           case "country": {
-            const { lookupCountry } = await import("../shared/countries.js");
-            const fmt = (transformParam || "name_sk") as import("../shared/countries.js").CountryFormat;
+            const fmt = (transformParam || "name_sk") as CountryFormat;
             const resolved = lookupCountry(String(value ?? ""), fmt);
             if (resolved !== undefined) value = resolved;
             break;
