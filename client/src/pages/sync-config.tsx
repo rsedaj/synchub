@@ -1817,22 +1817,18 @@ export default function SyncConfigPage() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="original" className="text-xs">{language === "sk" ? "Pôvodný názov zo zdroja" : "Original from source"}</SelectItem>
                                     <SelectItem value="name_sk" className="text-xs">{language === "sk" ? "Názov SK (napr. Čína)" : "Name SK (e.g. Čína)"}</SelectItem>
                                     <SelectItem value="name_en" className="text-xs">{language === "sk" ? "Názov EN (napr. China)" : "Name EN (e.g. China)"}</SelectItem>
                                     <SelectItem value="iso3" className="text-xs">{language === "sk" ? "Medzinárodný kód štátu (napr. CHN)" : "International code (e.g. CHN)"}</SelectItem>
-                                    <SelectItem value="vat_code" className="text-xs">{language === "sk" ? "Kód IČ pre DPH (napr. CN)" : "VAT ID code (e.g. CN)"}</SelectItem>
                                   </SelectContent>
                                 </Select>
                                 <span className="text-[10px] text-muted-foreground ml-1">
                                   {(() => {
                                     const fmt = getCountryFormat(mapping.transform);
                                     const examples: Record<string, string> = {
-                                      original: language === "sk" ? "(bez zmeny)" : "(unchanged)",
                                       name_sk: "China → Čína",
                                       name_en: "Čína → China",
                                       iso3: "China → CHN",
-                                      vat_code: "China → CN",
                                     };
                                     return examples[fmt] || "";
                                   })()}
