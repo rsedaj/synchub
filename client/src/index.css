@@ -287,6 +287,12 @@
   }
 }
 
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); width: 40%; }
+  50% { transform: translateX(150%); width: 60%; }
+  100% { transform: translateX(300%); width: 40%; }
+}
+
 @media print {
   body { background: white !important; color: black !important; }
   header, nav, aside, footer, [data-testid="button-sidebar-toggle"] { display: none !important; }

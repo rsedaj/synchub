@@ -13,6 +13,57 @@ import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
 
+// Auto-retry schedule: configId → { fireAt, failedRunId }
+const retrySchedule = new Map<string, { fireAt: number; failedRunId: string }>();
+
+async function checkAutoRetries() {
+  const now = Date.now();
+
+  // Fire due retries
+  for (const [configId, entry] of retrySchedule.entries()) {
+    if (now < entry.fireAt) continue;
+    retrySchedule.delete(configId);
+    try {
+      const runs = await storage.getSyncRuns(configId, 1);
+      const latest = runs[0];
+      if (latest && (latest.status === "running" || latest.status === "pending")) continue;
+      const failedRun = await storage.getSyncRun(entry.failedRunId);
+      const checkpoint = (failedRun as any)?.checkpointData;
+      if (checkpoint?.globalOffset > 0) {
+        console.log(`[auto-retry] Resuming run ${entry.failedRunId.slice(0, 8)} from checkpoint offset ${checkpoint.globalOffset}`);
+        resumeSyncRun(entry.failedRunId).catch((err: any) => console.error("[auto-retry] Resume failed:", err.message));
+      } else {
+        console.log(`[auto-retry] Starting fresh run for config ${configId.slice(0, 8)}`);
+        executeSyncRun(configId, null).catch((err: any) => console.error("[auto-retry] Execute failed:", err.message));
+      }
+    } catch (err: any) {
+      console.error("[auto-retry] Error firing retry:", err.message);
+    }
+  }
+
+  // Discover new failed runs that need scheduling
+  try {
+    const allConfigs = await storage.getAllSyncConfigs();
+    for (const config of allConfigs) {
+      if (!(config as any).autoRetry) continue;
+      if (retrySchedule.has(config.id)) continue;
+      const runs = await storage.getSyncRuns(config.id, 1);
+      const latest = runs[0];
+      if (!latest || latest.status !== "error") continue;
+      const msg = latest.errorMessage || "";
+      if (msg.includes("cancel") || msg.includes("Cancel")) continue;
+      const failedAt = latest.completedAt ? new Date(latest.completedAt).getTime() : now;
+      const delayMs = ((config as any).retryDelayMin || 3) * 60 * 1000;
+      const fireAt = failedAt + delayMs;
+      if (now - failedAt > 60 * 60 * 1000) continue; // Ignore failures older than 1h
+      retrySchedule.set(config.id, { fireAt, failedRunId: latest.id });
+      console.log(`[auto-retry] Scheduled retry for config "${config.name}" at ${new Date(fireAt).toISOString()}`);
+    }
+  } catch (err: any) {
+    console.error("[auto-retry] Discovery error:", err.message);
+  }
+}
+
 const SENSITIVE_PATTERNS = ["password", "apikey", "api_key", "secret", "token", "accesskey", "clientsecret", "authorization", "bearer", "credential"];
 
 function isSensitiveKey(key: string): boolean {
@@ -112,6 +163,8 @@ const updateSyncConfigSchema = z.object({
     value: z.string(),
     condition: z.enum(["always", "if_empty"]),
   })).nullable().optional(),
+  autoRetry: z.boolean().optional(),
+  retryDelayMin: z.number().int().min(1).max(120).optional(),
 });
 
 const updateUserSchema = z.object({
@@ -161,6 +214,10 @@ export async function registerRoutes(
   } catch (err: any) {
     console.error("[startup] Failed to clean zombie runs:", err.message);
   }
+
+  // Auto-retry: initial check + recurring interval
+  setTimeout(() => checkAutoRetries(), 10000);
+  setInterval(() => checkAutoRetries(), 30000);
 
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
@@ -1000,6 +1057,15 @@ export async function registerRoutes(
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load progress" });
     }
+  });
+
+  app.get("/api/retry-schedule", requireAuth, (_req, res) => {
+    const result: Array<{ configId: string; fireAt: string; failedRunId: string; remainingMs: number }> = [];
+    const now = Date.now();
+    for (const [configId, entry] of retrySchedule.entries()) {
+      result.push({ configId, fireAt: new Date(entry.fireAt).toISOString(), failedRunId: entry.failedRunId, remainingMs: Math.max(0, entry.fireAt - now) });
+    }
+    return res.json(result);
   });
 
   app.post("/api/sync-runs/reset-history", requireRole("admin"), async (req, res) => {

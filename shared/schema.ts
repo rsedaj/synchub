@@ -83,6 +83,8 @@ export const syncConfigs = pgTable("sync_configs", {
   onixFixedFields: jsonb("onix_fixed_fields").$type<Array<{ field: string; value: string; condition: "always" | "if_empty" }> | null>(),
   schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string; backupBeforeSync?: boolean }>().default({ enabled: false, frequency: "daily", backupBeforeSync: true }),
   isEnabled: boolean("is_enabled").notNull().default(true),
+  autoRetry: boolean("auto_retry").notNull().default(false),
+  retryDelayMin: integer("retry_delay_min").notNull().default(3),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -205,6 +207,8 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs).pick({
   hKodConfig: true,
   schedule: true,
   isEnabled: true,
+  autoRetry: true,
+  retryDelayMin: true,
   createdBy: true,
 });
 

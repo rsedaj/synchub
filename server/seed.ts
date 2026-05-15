@@ -323,6 +323,15 @@ export async function runMigrations() {
     log("Schema m003: h_kod_config migration skipped", "seed");
   }
 
+  // Schema migration m004: add auto_retry and retry_delay_min columns
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS auto_retry boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS retry_delay_min integer NOT NULL DEFAULT 3`);
+    log("Schema m004: auto_retry/retry_delay_min columns verified", "seed");
+  } catch (_e) {
+    log("Schema m004: auto_retry/retry_delay_min migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

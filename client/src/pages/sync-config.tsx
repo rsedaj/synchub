@@ -55,6 +55,7 @@ import {
   XCircle,
   ClipboardCheck,
   Percent,
+  RefreshCw,
 } from "lucide-react";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -237,6 +238,8 @@ interface EditorState {
   schedule: Schedule;
   isEnabled: boolean;
   backupBeforeSync: boolean;
+  autoRetry: boolean;
+  retryDelayMin: number;
 }
 
 const emptyEditor: EditorState = {
@@ -257,6 +260,8 @@ const emptyEditor: EditorState = {
   schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00" },
   isEnabled: true,
   backupBeforeSync: true,
+  autoRetry: false,
+  retryDelayMin: 3,
 };
 
 const SEMANTIC_ALIASES: Record<string, string[]> = {
@@ -866,6 +871,8 @@ export default function SyncConfigPage() {
       schedule,
       isEnabled: config.isEnabled,
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
+      autoRetry: (config as any).autoRetry || false,
+      retryDelayMin: (config as any).retryDelayMin || 3,
     });
     setEditorOpen(true);
   }
@@ -920,6 +927,8 @@ export default function SyncConfigPage() {
       onixFixedFields: editor.onixFixedFields.filter(f => f.field.trim()),
       schedule: { ...editor.schedule, backupBeforeSync: editor.backupBeforeSync },
       isEnabled: editor.isEnabled,
+      autoRetry: editor.autoRetry,
+      retryDelayMin: editor.retryDelayMin,
     };
 
     if (editor.id) {
@@ -2473,6 +2482,53 @@ export default function SyncConfigPage() {
                     </div>
                   </div>
                 </div>
+
+                <Separator />
+
+                <div data-testid="section-auto-retry">
+                  <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4" />
+                    {language === "sk" ? "Automatická obnova po zlyhaní" : "Auto-retry on failure"}
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={editor.autoRetry}
+                        onCheckedChange={val => setEditor(prev => ({ ...prev, autoRetry: val }))}
+                        data-testid="switch-auto-retry"
+                      />
+                      <Label className="text-sm">
+                        {language === "sk" ? "Automaticky obnoviť synchronizáciu po zlyhaní" : "Automatically retry sync after failure"}
+                      </Label>
+                    </div>
+                    {editor.autoRetry && (
+                      <div className="pl-10 space-y-2">
+                        <Label className="text-xs text-muted-foreground">
+                          {language === "sk" ? "Pauza pred obnovením (minúty)" : "Pause before retry (minutes)"}
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={120}
+                            value={editor.retryDelayMin}
+                            onChange={e => setEditor(prev => ({ ...prev, retryDelayMin: Math.max(1, Math.min(120, parseInt(e.target.value) || 3)) }))}
+                            className="w-24 h-8 text-sm"
+                            data-testid="input-retry-delay-min"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {language === "sk" ? "min" : "min"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {language === "sk"
+                            ? "Po zlyhaní synchronizácie sa automaticky pokúsi o obnovu. Ak existuje uložený pokrok (checkpoint), pokračuje od miesta prerušenia."
+                            : "After a sync failure, the system will automatically attempt to retry. If a saved checkpoint exists, it will resume from where it stopped."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </>
             )}
 
@@ -2560,6 +2616,12 @@ export default function SyncConfigPage() {
                             <Badge variant="outline" className="text-[10px] gap-1">
                               <Shield className="h-2.5 w-2.5" />
                               {language === "sk" ? "Záloha" : "Backup"}
+                            </Badge>
+                          )}
+                          {(config as any).autoRetry && (
+                            <Badge variant="outline" className="text-[10px] gap-1 text-blue-700 dark:text-blue-300 border-blue-400/40" data-testid={`badge-auto-retry-${config.id}`}>
+                              <RefreshCw className="h-2.5 w-2.5" />
+                              {language === "sk" ? "Auto-obnova" : "Auto-retry"}
                             </Badge>
                           )}
                           {(config.fieldMappings as FieldMapping[] || []).some(m => m.transform?.startsWith("price_excl_vat")) && (

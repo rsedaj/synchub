@@ -697,6 +697,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     queryKey: ["/api/sync-logs"],
   });
 
+  const { data: retryScheduleData = [] } = useQuery<Array<{ configId: string; fireAt: string; failedRunId: string; remainingMs: number }>>({
+    queryKey: ["/api/retry-schedule"],
+    refetchInterval: 5000,
+  });
+
   const filteredLogs = syncLogs.filter((log) => {
     if (filterModule !== "all" && log.moduleId !== filterModule) return false;
     if (filterStatus !== "all" && log.status !== filterStatus) return false;
@@ -1230,6 +1235,18 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       </div>
                     )}
 
+                    {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "fetch" && (
+                      <div className="space-y-2" data-testid="panel-fetch-progress">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>{language === "sk" ? "Načítavanie dát zo zdroja..." : "Fetching data from source..."}</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                          <div className="h-full bg-foreground/60 rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" style={{ width: "40%", animation: "indeterminate 1.5s ease-in-out infinite" }} />
+                        </div>
+                      </div>
+                    )}
+
                     {(trackedRun.status === "running" || trackedRun.status === "pending") && (trackedRun.details as any)?.phase === "sync" && (
                       <>
                         {/* Live counters row */}
@@ -1422,6 +1439,29 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         <p className="text-xs">{trackedRun.errorMessage}</p>
                       </div>
                     )}
+
+                    {trackedRun.status === "error" && (() => {
+                      const retryEntry = retryScheduleData.find(e => e.configId === trackedRun.syncConfigId);
+                      if (!retryEntry) return null;
+                      const remMs = Math.max(0, retryEntry.remainingMs);
+                      const remMin = Math.floor(remMs / 60000);
+                      const remSec = Math.floor((remMs % 60000) / 1000);
+                      return (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-300/50 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs" data-testid="badge-auto-retry-countdown">
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ animationDuration: "3s" }} />
+                          <span className="font-medium">
+                            {language === "sk" ? "Automatická obnova za" : "Auto-retry in"}
+                          </span>
+                          <span className="font-mono font-semibold">
+                            {remMs === 0
+                              ? (language === "sk" ? "spúšťa sa..." : "launching...")
+                              : remMin > 0
+                                ? `${remMin}m ${remSec}s`
+                                : `${remSec}s`}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {(trackedRun.status === "success" || trackedRun.status === "partial" || trackedRun.status === "error") && (trackedRun.details as any)?.completionSummary && (() => {
                       const cs = (trackedRun.details as any).completionSummary;
