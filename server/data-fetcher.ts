@@ -425,95 +425,101 @@ async function fetchXmlFeedData(source: string, feedUrl: string | undefined, lim
     };
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+  const FEED_TIMEOUT_MS = 300000; // 5 minutes — large XML feeds can be 100MB+
+  const MAX_FETCH_ATTEMPTS = 3;
+  let lastError = "";
 
-    const res = await fetch(feedUrl, {
-      signal: controller.signal,
-      headers: { "User-Agent": "SyncHub/1.0" },
-    });
-    clearTimeout(timeout);
+  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FEED_TIMEOUT_MS);
 
-    if (!res.ok) {
-      return {
-        success: false,
-        source,
-        recordCount: 0,
-        fields: [],
-        preview: [],
-        error: `HTTP ${res.status}: ${res.statusText}`,
-        fetchedAt: new Date().toISOString(),
-      };
-    }
+      const res = await fetch(feedUrl, {
+        signal: controller.signal,
+        headers: { "User-Agent": "SyncHub/1.0" },
+      });
+      clearTimeout(timeout);
 
-    const xml = await res.text();
-    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true, tagNameProcessors: [stripPrefix] });
+      if (!res.ok) {
+        return {
+          success: false, source, recordCount: 0, fields: [], preview: [],
+          error: `HTTP ${res.status}: ${res.statusText}`,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
 
-    let products: any[] = [];
+      const xml = await res.text();
+      const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true, tagNameProcessors: [stripPrefix] });
 
-    if (parsed?.rss?.channel?.item) {
-      const items = parsed.rss.channel.item;
-      products = Array.isArray(items) ? items : [items];
-    } else if (parsed?.products?.product) {
-      products = Array.isArray(parsed.products.product)
-        ? parsed.products.product
-        : [parsed.products.product];
-    } else if (parsed?.offer?.products?.product) {
-      products = Array.isArray(parsed.offer.products.product)
-        ? parsed.offer.products.product
-        : [parsed.offer.products.product];
-    } else {
-      const rootKey = Object.keys(parsed)[0];
-      if (rootKey && parsed[rootKey]) {
-        const innerKeys = Object.keys(parsed[rootKey]);
-        for (const key of innerKeys) {
-          const val = parsed[rootKey][key];
-          if (Array.isArray(val) && val.length > 0) {
-            products = val;
-            break;
-          }
-          if (val && typeof val === "object") {
-            const subKeys = Object.keys(val);
-            for (const sk of subKeys) {
-              if (Array.isArray(val[sk]) && val[sk].length > 0) {
-                products = val[sk];
-                break;
-              }
+      let products: any[] = [];
+
+      if (parsed?.rss?.channel?.item) {
+        const items = parsed.rss.channel.item;
+        products = Array.isArray(items) ? items : [items];
+      } else if (parsed?.products?.product) {
+        products = Array.isArray(parsed.products.product)
+          ? parsed.products.product
+          : [parsed.products.product];
+      } else if (parsed?.offer?.products?.product) {
+        products = Array.isArray(parsed.offer.products.product)
+          ? parsed.offer.products.product
+          : [parsed.offer.products.product];
+      } else {
+        const rootKey = Object.keys(parsed)[0];
+        if (rootKey && parsed[rootKey]) {
+          const innerKeys = Object.keys(parsed[rootKey]);
+          for (const key of innerKeys) {
+            const val = parsed[rootKey][key];
+            if (Array.isArray(val) && val.length > 0) {
+              products = val;
+              break;
             }
-            if (products.length > 0) break;
+            if (val && typeof val === "object") {
+              const subKeys = Object.keys(val);
+              for (const sk of subKeys) {
+                if (Array.isArray(val[sk]) && val[sk].length > 0) {
+                  products = val[sk];
+                  break;
+                }
+              }
+              if (products.length > 0) break;
+            }
           }
         }
       }
+
+      const totalCount = products.length;
+      const fieldSampleSize = Math.max(limit > 0 ? limit : 0, 500);
+      const fieldSample = products.slice(0, fieldSampleSize).map((p: any) => flattenObject(p));
+      const fields = collectAllFields(fieldSample);
+      const preview = applyLimit(products, limit).map((p: any) => flattenObject(p));
+
+      return {
+        success: true, source, recordCount: totalCount, fields, preview,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      const isTimeout = err.name === "AbortError";
+      lastError = isTimeout
+        ? `Request timed out (attempt ${attempt}/${MAX_FETCH_ATTEMPTS}, limit ${FEED_TIMEOUT_MS / 1000}s)`
+        : `Failed to fetch data: ${err.message}`;
+      if (!isTimeout || attempt === MAX_FETCH_ATTEMPTS) {
+        return {
+          success: false, source, recordCount: 0, fields: [], preview: [],
+          error: lastError,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+      console.warn(`[fetch-xml] ${source}: ${lastError} — retrying (${attempt}/${MAX_FETCH_ATTEMPTS})...`);
+      await new Promise(r => setTimeout(r, 5000 * attempt));
     }
-
-    const totalCount = products.length;
-    const fieldSampleSize = Math.max(limit > 0 ? limit : 0, 500);
-    const fieldSample = products.slice(0, fieldSampleSize).map((p: any) => flattenObject(p));
-    const fields = collectAllFields(fieldSample);
-    const preview = applyLimit(products, limit).map((p: any) => flattenObject(p));
-
-    return {
-      success: true,
-      source,
-      recordCount: totalCount,
-      fields,
-      preview,
-      fetchedAt: new Date().toISOString(),
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      source,
-      recordCount: 0,
-      fields: [],
-      preview: [],
-      error: err.name === "AbortError"
-        ? "Request timed out (30s)"
-        : `Failed to fetch data: ${err.message}`,
-      fetchedAt: new Date().toISOString(),
-    };
   }
+
+  return {
+    success: false, source, recordCount: 0, fields: [], preview: [],
+    error: lastError || "All fetch attempts failed",
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
 async function fetchPromotronApiData(config: Record<string, any>, baseUrl: string, limit: number): Promise<FetchResult> {
@@ -1432,7 +1438,7 @@ async function fetchCsvFeedData(source: string, feedUrl: string | undefined, lim
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 minutes for CSV feeds
     const res = await fetch(feedUrl, { signal: controller.signal, headers: { "User-Agent": "SyncHub/1.0" } });
     clearTimeout(timeout);
 
@@ -1602,32 +1608,57 @@ async function fetchStrickerData(config: Record<string, any> | undefined, source
       };
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const STRICKER_TIMEOUT_MS = 300000; // 5 minutes — full catalog can be 10k+ products
+    const MAX_STRICKER_ATTEMPTS = 3;
+    let strickerLastError = "";
+    let rawData: any = null;
 
-    const res = await fetch(fetchUrl, {
-      signal: controller.signal,
-      headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
-    });
-    clearTimeout(timeout);
+    for (let attempt = 1; attempt <= MAX_STRICKER_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), STRICKER_TIMEOUT_MS);
+      try {
+        const res = await fetch(fetchUrl, {
+          signal: controller.signal,
+          headers: { "Accept": "application/json", "User-Agent": "SyncHub/1.0" },
+        });
+        clearTimeout(timeout);
 
-    if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
-        strickerSessionToken = null;
-        strickerSessionExpiry = 0;
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            strickerSessionToken = null;
+            strickerSessionExpiry = 0;
+          }
+          return {
+            success: false, source: `Stricker ${src.label}`, recordCount: 0, fields: [], preview: [],
+            error: `Stricker API error: HTTP ${res.status}`,
+            fetchedAt: new Date().toISOString(),
+          };
+        }
+        rawData = await res.json();
+        break;
+      } catch (fetchErr: any) {
+        clearTimeout(timeout);
+        const isTimeout = fetchErr.name === "AbortError";
+        strickerLastError = isTimeout
+          ? `Request timed out (attempt ${attempt}/${MAX_STRICKER_ATTEMPTS}, limit ${STRICKER_TIMEOUT_MS / 1000}s)`
+          : `Network error: ${fetchErr.message}`;
+        if (!isTimeout || attempt === MAX_STRICKER_ATTEMPTS) {
+          return {
+            success: false, source: `Stricker ${src.label}`, recordCount: 0, fields: [], preview: [],
+            error: strickerLastError, fetchedAt: new Date().toISOString(),
+          };
+        }
+        console.warn(`[fetch-stricker] ${strickerLastError} — retrying (${attempt}/${MAX_STRICKER_ATTEMPTS})...`);
+        await new Promise(r => setTimeout(r, 5000 * attempt));
       }
-      return {
-        success: false,
-        source: `Stricker ${src.label}`,
-        recordCount: 0,
-        fields: [],
-        preview: [],
-        error: `Stricker API error: HTTP ${res.status}`,
-        fetchedAt: new Date().toISOString(),
-      };
     }
 
-    const rawData = await res.json();
+    if (!rawData) {
+      return {
+        success: false, source: `Stricker ${src.label}`, recordCount: 0, fields: [], preview: [],
+        error: strickerLastError || "All fetch attempts failed", fetchedAt: new Date().toISOString(),
+      };
+    }
     let items: any[] = [];
 
     if (Array.isArray(rawData)) {
