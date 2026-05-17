@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgres://synchub:synchub@db:5432/synchub
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-secret-in-production}
+      PORT: "5000"
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_DRIVE_TARGET_FOLDER_ID: ${GOOGLE_DRIVE_TARGET_FOLDER_ID:-}
+      STICKER_ACCESS_KEY: ${STICKER_ACCESS_KEY:-}
+      STICKER_CLIENT_ID: ${STICKER_CLIENT_ID:-}
+      PFCONCEPT_USERNAME: ${PFCONCEPT_USERNAME:-}
+      PFCONCEPT_PASSWORD: ${PFCONCEPT_PASSWORD:-}
+      PROMOLOG_USERNAME: ${PROMOLOG_USERNAME:-}
+      PROMOLOG_PASSWORD: ${PROMOLOG_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: synchub
+      POSTGRES_PASSWORD: synchub
+      POSTGRES_DB: synchub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synchub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

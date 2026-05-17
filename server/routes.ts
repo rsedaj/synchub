@@ -221,6 +221,10 @@ export async function registerRoutes(
 
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.get("/api/my-ip", async (_req, res) => {
     try {
       const resp = await fetch("https://api.ipify.org?format=json");

@@ -1,23 +1,42 @@
-let _connectors: any = null;
-function getConnectors() {
-  if (!_connectors) {
-    if (!process.env.REPLIT_CONNECTORS_HOSTNAME && !process.env.REPL_ID) {
-      throw new Error("Google Drive zálohy sú dostupné iba v Replit prostredí. Na Render.com použite manuálne zálohovanie.");
-    }
-    const { ReplitConnectors } = require("@replit/connectors-sdk");
-    _connectors = new ReplitConnectors();
-  }
-  return _connectors;
-}
-const connectors = { proxy: (...args: any[]) => getConnectors().proxy(...args) };
+import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
+import { Readable } from "stream";
 
-const TARGET_FOLDER_ID = "0AJCiYKbj09exUk9PVA";
+let _driveClient: drive_v3.Drive | null = null;
+
+function getDriveClient(): drive_v3.Drive {
+  if (_driveClient) return _driveClient;
+
+  const credJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!credJson) {
+    throw new Error(
+      "Google Drive zálohy vyžadujú premennú GOOGLE_SERVICE_ACCOUNT_JSON (Service Account JSON)."
+    );
+  }
+
+  const credentials = JSON.parse(credJson);
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  });
+
+  _driveClient = google.drive({ version: "v3", auth });
+  return _driveClient;
+}
+
+const TARGET_FOLDER_ID =
+  process.env.GOOGLE_DRIVE_TARGET_FOLDER_ID || "0AJCiYKbj09exUk9PVA";
 const SYNCHUB_SUBFOLDER = "SyncHub_Backups";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 
+const SD_PARAMS = {
+  supportsAllDrives: true,
+  includeItemsFromAllDrives: true,
+} as const;
+
 async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
@@ -25,7 +44,10 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
     try {
       return await fn();
     } catch (err: any) {
-      console.error(`[google-drive] ${label} attempt ${attempt}/${MAX_RETRIES} failed:`, err.message);
+      console.error(
+        `[google-drive] ${label} attempt ${attempt}/${MAX_RETRIES} failed:`,
+        err.message
+      );
       if (attempt < MAX_RETRIES) {
         await sleep(RETRY_DELAY_MS);
       } else {
@@ -36,66 +58,113 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   throw new Error(`${label} failed after ${MAX_RETRIES} attempts`);
 }
 
-const SD = "supportsAllDrives=true&includeItemsFromAllDrives=true";
-
-async function findOrCreateFolder(folderName: string, parentId: string): Promise<string> {
+async function findOrCreateFolder(
+  folderName: string,
+  parentId: string
+): Promise<string> {
+  const drive = getDriveClient();
   const q = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${parentId}' in parents`;
-  const searchRes = await connectors.proxy(
-    "google-drive",
-    `/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&${SD}`,
-    { method: "GET" }
-  );
-  const searchData = await searchRes.json();
-  console.log(`[google-drive] Search folder '${folderName}' in ${parentId}:`, JSON.stringify(searchData));
 
-  if (searchData.files && searchData.files.length > 0) {
-    return searchData.files[0].id;
+  const searchRes = await drive.files.list({
+    q,
+    fields: "files(id,name)",
+    ...SD_PARAMS,
+  });
+
+  const files = searchRes.data.files || [];
+  console.log(
+    `[google-drive] Search folder '${folderName}' in ${parentId}:`,
+    JSON.stringify(files)
+  );
+
+  if (files.length > 0) {
+    return files[0].id!;
   }
 
-  const metadata = {
-    name: folderName,
-    mimeType: "application/vnd.google-apps.folder",
-    parents: [parentId],
-  };
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentId],
+    },
+    fields: "id,name",
+    ...SD_PARAMS,
+  });
 
-  const createRes = await connectors.proxy(
-    "google-drive",
-    `/drive/v3/files?fields=id,name&${SD}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(metadata),
-    }
+  const created = createRes.data;
+  console.log(
+    `[google-drive] Created folder '${folderName}':`,
+    JSON.stringify(created)
   );
-  const createData = await createRes.json();
-  console.log(`[google-drive] Created folder '${folderName}':`, JSON.stringify(createData));
 
-  if (!createData.id) {
-    throw new Error(`Failed to create folder '${folderName}': ${JSON.stringify(createData)}`);
+  if (!created.id) {
+    throw new Error(
+      `Failed to create folder '${folderName}': ${JSON.stringify(created)}`
+    );
   }
-  return createData.id;
+  return created.id;
 }
 
 async function ensureBackupFolder(configId: string): Promise<string> {
-  const rootFolderId = await findOrCreateFolder(SYNCHUB_SUBFOLDER, TARGET_FOLDER_ID);
-  const configFolderId = await findOrCreateFolder(configId, rootFolderId);
-  return configFolderId;
+  const rootFolderId = await findOrCreateFolder(
+    SYNCHUB_SUBFOLDER,
+    TARGET_FOLDER_ID
+  );
+  return findOrCreateFolder(configId, rootFolderId);
 }
 
 async function ensureDataBackupFolder(moduleName: string): Promise<string> {
-  const rootFolderId = await findOrCreateFolder(SYNCHUB_SUBFOLDER, TARGET_FOLDER_ID);
+  const rootFolderId = await findOrCreateFolder(
+    SYNCHUB_SUBFOLDER,
+    TARGET_FOLDER_ID
+  );
   const dataFolderId = await findOrCreateFolder("Data", rootFolderId);
   const dateStr = new Date().toISOString().slice(0, 10);
   const dateFolderId = await findOrCreateFolder(dateStr, dataFolderId);
   const safeName = moduleName.replace(/[^a-zA-Z0-9_\-. ]/g, "_");
-  const moduleFolderId = await findOrCreateFolder(safeName, dateFolderId);
-  return moduleFolderId;
+  return findOrCreateFolder(safeName, dateFolderId);
 }
 
 async function ensureConfigBackupFolder(): Promise<string> {
-  const rootFolderId = await findOrCreateFolder(SYNCHUB_SUBFOLDER, TARGET_FOLDER_ID);
-  const configFolderId = await findOrCreateFolder("Config", rootFolderId);
-  return configFolderId;
+  const rootFolderId = await findOrCreateFolder(
+    SYNCHUB_SUBFOLDER,
+    TARGET_FOLDER_ID
+  );
+  return findOrCreateFolder("Config", rootFolderId);
+}
+
+async function uploadJsonFile(
+  folderId: string,
+  fileName: string,
+  jsonContent: string
+): Promise<{ id: string; name: string; size: string; webViewLink: string }> {
+  const drive = getDriveClient();
+
+  const uploadRes = await drive.files.create({
+    requestBody: {
+      name: fileName,
+      parents: [folderId],
+      mimeType: "application/json",
+    },
+    media: {
+      mimeType: "application/json",
+      body: Readable.from(jsonContent),
+    },
+    fields: "id,name,size,webViewLink",
+    ...SD_PARAMS,
+  });
+
+  const data = uploadRes.data;
+  if (!data.id) {
+    throw new Error(`Upload failed for '${fileName}': no file ID returned`);
+  }
+
+  return {
+    id: data.id,
+    name: data.name || fileName,
+    size: String(data.size || Buffer.byteLength(jsonContent, "utf-8")),
+    webViewLink: data.webViewLink || "",
+  };
 }
 
 export interface BackupPartResult {
@@ -137,8 +206,10 @@ export async function uploadBackup(
       mappedTargetFields.add(m.targetField);
     }
   }
-  const ID_FIELDS = new Set(["Id", "id", "Code", "code", "Name", "name", "SKU", "sku",
-    "RecordExternalIdentificator", "ExternalId"]);
+  const ID_FIELDS = new Set([
+    "Id", "id", "Code", "code", "Name", "name", "SKU", "sku",
+    "RecordExternalIdentificator", "ExternalId",
+  ]);
 
   function stripRecord(rec: any): any {
     if (!rec || typeof rec !== "object") return rec;
@@ -146,9 +217,7 @@ export async function uploadBackup(
     if (mappedTargetFields.size > 0) {
       const keep: Record<string, any> = {};
       for (const k of keys) {
-        if (ID_FIELDS.has(k) || mappedTargetFields.has(k)) {
-          keep[k] = rec[k];
-        }
+        if (ID_FIELDS.has(k) || mappedTargetFields.has(k)) keep[k] = rec[k];
       }
       return keep;
     }
@@ -164,9 +233,8 @@ export async function uploadBackup(
     return keep;
   }
 
-  const MAX_BODY_BYTES = 900_000;
+  const MAX_BODY_BYTES = 4_000_000;
   const INITIAL_CHUNK = 500;
-
   const allStripped = data.map(stripRecord);
 
   function findSafeChunkSize(records: any[], startFrom: number): number {
@@ -174,14 +242,8 @@ export async function uploadBackup(
     while (size > 1) {
       const slice = records.slice(0, size);
       const json = JSON.stringify({ data: slice });
-      const bytes = Buffer.byteLength(json, "utf-8");
-      if (bytes <= MAX_BODY_BYTES - 500) return size;
+      if (Buffer.byteLength(json, "utf-8") <= MAX_BODY_BYTES - 500) return size;
       size = Math.max(1, Math.floor(size / 2));
-    }
-    const singleJson = JSON.stringify({ data: records.slice(0, 1) });
-    const singleBytes = Buffer.byteLength(singleJson, "utf-8");
-    if (singleBytes > MAX_BODY_BYTES) {
-      console.warn(`[google-drive] Single record exceeds ${MAX_BODY_BYTES}B (${singleBytes}B) — uploading anyway`);
     }
     return 1;
   }
@@ -189,33 +251,25 @@ export async function uploadBackup(
   if (allStripped.length === 0) {
     const fileName = `backup_${baseName}_${timestamp}_empty.json`;
     const jsonContent = JSON.stringify({
-      configId, configName, runId, totalRecords: 0, partNumber: 1, totalParts: 1,
-      recordsInPart: 0, exportedAt: new Date().toISOString(), data: [],
+      configId, configName, runId, totalRecords: 0,
+      partNumber: 1, totalParts: 1, recordsInPart: 0,
+      exportedAt: new Date().toISOString(), data: [],
     });
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
-    console.log(`[google-drive] Empty backup: 0 records, uploading placeholder file`);
 
-    const result = await withRetry(async () => {
-      const boundary = "synchub_boundary_" + Date.now();
-      const metadata = JSON.stringify({ name: fileName, parents: [folderId], mimeType: "application/json" });
-      const multipartBody = [
-        `--${boundary}`, "Content-Type: application/json; charset=UTF-8", "", metadata,
-        `--${boundary}`, "Content-Type: application/json", "", jsonContent, `--${boundary}--`,
-      ].join("\r\n");
-      const uploadRes = await connectors.proxy(
-        "google-drive",
-        `/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink&${SD}`,
-        { method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body: multipartBody }
-      );
-      const uploadData = await uploadRes.json();
-      if (!uploadData.id) throw new Error(`Upload failed for empty backup: ${JSON.stringify(uploadData)}`);
-      return uploadData;
-    }, `uploadBackup(${configName} empty)`);
+    const result = await withRetry(
+      () => uploadJsonFile(folderId, fileName, jsonContent),
+      `uploadBackup(${configName} empty)`
+    );
 
     return {
-      parts: [{ fileId: result.id, fileName, fileSize, webViewLink: result.webViewLink || "", recordCount: 0, partNumber: 1 }],
+      parts: [{
+        fileId: result.id, fileName, fileSize,
+        webViewLink: result.webViewLink, recordCount: 0, partNumber: 1,
+      }],
       totalFiles: 1, totalRecords: 0, combinedFileSize: fileSize,
-      primaryFileId: result.id, primaryFileName: fileName, primaryWebViewLink: result.webViewLink || "",
+      primaryFileId: result.id, primaryFileName: fileName,
+      primaryWebViewLink: result.webViewLink,
     };
   }
 
@@ -229,7 +283,9 @@ export async function uploadBackup(
   }
   const totalParts = chunks.length;
 
-  console.log(`[google-drive] Multi-file backup: ${allStripped.length} records, ${totalParts} parts`);
+  console.log(
+    `[google-drive] Multi-file backup: ${allStripped.length} records, ${totalParts} parts`
+  );
 
   const parts: BackupPartResult[] = [];
 
@@ -240,79 +296,37 @@ export async function uploadBackup(
     const fileName = `backup_${baseName}_${timestamp}${partSuffix}.json`;
 
     const jsonContent = JSON.stringify({
-      configId,
-      configName,
-      runId,
+      configId, configName, runId,
       totalRecords: data.length,
-      partNumber: partNum,
-      totalParts,
+      partNumber: partNum, totalParts,
       recordsInPart: chunk.length,
       exportedAt: new Date().toISOString(),
       data: chunk,
     });
 
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
-    console.log(`[google-drive] Part ${partNum}: ${chunk.length} records, ${Math.round(fileSize / 1024)}KB`);
+    console.log(
+      `[google-drive] Part ${partNum}: ${chunk.length} records, ${Math.round(fileSize / 1024)}KB`
+    );
 
     const currentPartNum = partNum;
-    const result = await withRetry(async () => {
-      const boundary = "synchub_boundary_" + Date.now() + "_" + currentPartNum;
-      const metadata = JSON.stringify({
-        name: fileName,
-        parents: [folderId],
-        mimeType: "application/json",
-      });
+    const result = await withRetry(
+      () => uploadJsonFile(folderId, fileName, jsonContent),
+      `uploadBackup(${configName} part ${currentPartNum})`
+    );
 
-      const multipartBody = [
-        `--${boundary}`,
-        "Content-Type: application/json; charset=UTF-8",
-        "",
-        metadata,
-        `--${boundary}`,
-        "Content-Type: application/json",
-        "",
-        jsonContent,
-        `--${boundary}--`,
-      ].join("\r\n");
-
-      const uploadRes = await connectors.proxy(
-        "google-drive",
-        `/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink&${SD}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-          body: multipartBody,
-        }
-      );
-
-      const uploadData = await uploadRes.json();
-      console.log(`[google-drive] Upload part ${currentPartNum} result:`, JSON.stringify({ id: uploadData.id, name: uploadData.name, size: uploadData.size }));
-
-      if (!uploadData.id) {
-        throw new Error(`Upload failed for part ${currentPartNum}, no file ID returned: ${JSON.stringify(uploadData)}`);
-      }
-
-      return {
-        fileId: uploadData.id,
-        fileName,
-        fileSize,
-        webViewLink: uploadData.webViewLink || "",
-        recordCount: chunk.length,
-        partNumber: currentPartNum,
-      };
-    }, `uploadBackup(${configName} part ${currentPartNum})`);
-
-    parts.push(result);
+    parts.push({
+      fileId: result.id, fileName, fileSize,
+      webViewLink: result.webViewLink,
+      recordCount: chunk.length, partNumber: currentPartNum,
+    });
   }
 
   const combinedFileSize = parts.reduce((sum, p) => sum + p.fileSize, 0);
   const totalRecords = parts.reduce((sum, p) => sum + p.recordCount, 0);
 
   return {
-    parts,
-    totalFiles: parts.length,
-    totalRecords,
-    combinedFileSize,
+    parts, totalFiles: parts.length, totalRecords, combinedFileSize,
     primaryFileId: parts[0].fileId,
     primaryFileName: parts[0].fileName,
     primaryWebViewLink: parts[0].webViewLink,
@@ -334,62 +348,35 @@ export async function uploadConfigBackup(
     }, null, 2);
     const fileSize = Buffer.byteLength(jsonContent, "utf-8");
 
-    const boundary = "synchub_cfg_boundary_" + Date.now();
-    const metadata = JSON.stringify({
-      name: fileName,
-      parents: [folderId],
-      mimeType: "application/json",
-    });
-
-    const multipartBody = [
-      `--${boundary}`,
-      "Content-Type: application/json; charset=UTF-8",
-      "",
-      metadata,
-      `--${boundary}`,
-      "Content-Type: application/json",
-      "",
-      jsonContent,
-      `--${boundary}--`,
-    ].join("\r\n");
-
-    const uploadRes = await connectors.proxy(
-      "google-drive",
-      `/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink&${SD}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-        body: multipartBody,
-      }
+    const result = await uploadJsonFile(folderId, fileName, jsonContent);
+    console.log(
+      `[google-drive] Config backup upload:`,
+      JSON.stringify({ id: result.id, name: result.name })
     );
 
-    const uploadData = await uploadRes.json();
-    console.log(`[google-drive] Config backup upload:`, JSON.stringify({ id: uploadData.id, name: uploadData.name }));
-
-    if (!uploadData.id) {
-      throw new Error(`Config backup upload failed: ${JSON.stringify(uploadData)}`);
-    }
-
-    return {
-      fileId: uploadData.id,
-      fileName,
-      fileSize,
-      webViewLink: uploadData.webViewLink || "",
-    };
+    return { fileId: result.id, fileName, fileSize, webViewLink: result.webViewLink };
   }, "uploadConfigBackup");
 }
 
-export async function listConfigBackups(): Promise<Array<{ id: string; name: string; size: string; createdTime: string }>> {
+export async function listConfigBackups(): Promise<
+  Array<{ id: string; name: string; size: string; createdTime: string }>
+> {
   try {
+    const drive = getDriveClient();
     const folderId = await ensureConfigBackupFolder();
     const q = `'${folderId}' in parents and trashed=false`;
-    const res = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,createdTime)&orderBy=createdTime desc&${SD}`,
-      { method: "GET" }
-    );
-    const data = await res.json();
-    return data.files || [];
+    const res = await drive.files.list({
+      q,
+      fields: "files(id,name,size,createdTime)",
+      orderBy: "createdTime desc",
+      ...SD_PARAMS,
+    });
+    return (res.data.files || []).map((f) => ({
+      id: f.id || "",
+      name: f.name || "",
+      size: String(f.size || "0"),
+      createdTime: f.createdTime || "",
+    }));
   } catch (err: any) {
     console.error(`[google-drive] listConfigBackups failed:`, err.message);
     return [];
@@ -398,42 +385,51 @@ export async function listConfigBackups(): Promise<Array<{ id: string; name: str
 
 export async function downloadBackup(fileId: string): Promise<any> {
   return withRetry(async () => {
-    const res = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files/${fileId}?alt=media&${SD}`,
-      { method: "GET" }
+    const drive = getDriveClient();
+    const res = await drive.files.get(
+      { fileId, alt: "media", ...SD_PARAMS },
+      { responseType: "arraybuffer" }
     );
-    return res.json();
+    const content = Buffer.from(res.data as ArrayBuffer).toString("utf-8");
+    return JSON.parse(content);
   }, `downloadBackup(${fileId})`);
 }
 
 export async function deleteBackupFile(fileId: string): Promise<void> {
-  await connectors.proxy(
-    "google-drive",
-    `/drive/v3/files/${fileId}?${SD}`,
-    { method: "DELETE" }
-  );
+  const drive = getDriveClient();
+  await drive.files.delete({ fileId, ...SD_PARAMS });
   console.log(`[google-drive] Deleted file ${fileId}`);
 }
 
-export async function listDriveBackups(configId: string): Promise<Array<{ id: string; name: string; size: string; createdTime: string }>> {
+export async function listDriveBackups(
+  configId: string
+): Promise<Array<{ id: string; name: string; size: string; createdTime: string }>> {
   try {
+    const drive = getDriveClient();
     const folderId = await ensureBackupFolder(configId);
     const q = `'${folderId}' in parents and trashed=false`;
-    const res = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,size,createdTime)&orderBy=createdTime desc&${SD}`,
-      { method: "GET" }
-    );
-    const data = await res.json();
-    return data.files || [];
+    const res = await drive.files.list({
+      q,
+      fields: "files(id,name,size,createdTime)",
+      orderBy: "createdTime desc",
+      ...SD_PARAMS,
+    });
+    return (res.data.files || []).map((f) => ({
+      id: f.id || "",
+      name: f.name || "",
+      size: String(f.size || "0"),
+      createdTime: f.createdTime || "",
+    }));
   } catch (err: any) {
     console.error(`[google-drive] listDriveBackups failed:`, err.message);
     return [];
   }
 }
 
-export async function rotateBackups(configId: string, maxBackups: number = 10): Promise<string[]> {
+export async function rotateBackups(
+  configId: string,
+  maxBackups: number = 10
+): Promise<string[]> {
   const files = await listDriveBackups(configId);
   const deleted: string[] = [];
   if (files.length > maxBackups) {
@@ -443,57 +439,63 @@ export async function rotateBackups(configId: string, maxBackups: number = 10): 
         await deleteBackupFile(file.id);
         deleted.push(file.id);
       } catch (e: any) {
-        console.error(`[google-drive] Failed to delete old backup ${file.id}:`, e.message);
+        console.error(
+          `[google-drive] Failed to delete old backup ${file.id}:`,
+          e.message
+        );
       }
     }
   }
   return deleted;
 }
 
-export async function cleanupOldFolders(): Promise<{ deleted: string[]; errors: string[] }> {
+export async function cleanupOldFolders(): Promise<{
+  deleted: string[];
+  errors: string[];
+}> {
   const deleted: string[] = [];
   const errors: string[] = [];
   try {
+    const drive = getDriveClient();
     const rootQ = `name='${SYNCHUB_SUBFOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${TARGET_FOLDER_ID}' in parents`;
-    const rootRes = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(rootQ)}&fields=files(id)&${SD}`,
-      { method: "GET" }
-    );
-    const rootData = await rootRes.json();
-    if (!rootData.files || rootData.files.length === 0) return { deleted, errors };
 
-    const rootId = rootData.files[0].id;
-    const foldersQ = `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const foldersRes = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(foldersQ)}&fields=files(id,name)&${SD}`,
-      { method: "GET" }
-    );
-    const foldersData = await foldersRes.json();
+    const rootRes = await drive.files.list({
+      q: rootQ,
+      fields: "files(id)",
+      ...SD_PARAMS,
+    });
+    const rootFiles = rootRes.data.files || [];
+    if (rootFiles.length === 0) return { deleted, errors };
+    const rootId = rootFiles[0].id!;
+
+    const foldersRes = await drive.files.list({
+      q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      ...SD_PARAMS,
+    });
 
     const keepFolders = ["Data", "Config"];
-    for (const folder of (foldersData.files || [])) {
-      if (keepFolders.includes(folder.name)) continue;
+    for (const folder of foldersRes.data.files || []) {
+      if (keepFolders.includes(folder.name || "")) continue;
 
-      const filesQ = `'${folder.id}' in parents and trashed=false`;
-      const filesRes = await connectors.proxy(
-        "google-drive",
-        `/drive/v3/files?q=${encodeURIComponent(filesQ)}&fields=files(id,name)&${SD}`,
-        { method: "GET" }
-      );
-      const filesData = await filesRes.json();
-      for (const file of (filesData.files || [])) {
+      const filesRes = await drive.files.list({
+        q: `'${folder.id}' in parents and trashed=false`,
+        fields: "files(id,name)",
+        ...SD_PARAMS,
+      });
+
+      for (const file of filesRes.data.files || []) {
         try {
-          await connectors.proxy("google-drive", `/drive/v3/files/${file.id}?${SD}`, { method: "DELETE" });
+          await drive.files.delete({ fileId: file.id!, ...SD_PARAMS });
           deleted.push(`${folder.name}/${file.name}`);
         } catch (e: any) {
           errors.push(`${folder.name}/${file.name}: ${e.message}`);
         }
       }
+
       try {
-        await connectors.proxy("google-drive", `/drive/v3/files/${folder.id}?${SD}`, { method: "DELETE" });
-        deleted.push(folder.name);
+        await drive.files.delete({ fileId: folder.id!, ...SD_PARAMS });
+        deleted.push(folder.name || folder.id!);
       } catch (e: any) {
         errors.push(`folder ${folder.name}: ${e.message}`);
       }
@@ -504,43 +506,48 @@ export async function cleanupOldFolders(): Promise<{ deleted: string[]; errors: 
   return { deleted, errors };
 }
 
-export async function getStorageStats(): Promise<{ totalFiles: number; totalSize: number; perConfig: Record<string, { count: number; size: number }> }> {
+export async function getStorageStats(): Promise<{
+  totalFiles: number;
+  totalSize: number;
+  perConfig: Record<string, { count: number; size: number }>;
+}> {
   try {
+    const drive = getDriveClient();
     const rootQ = `name='${SYNCHUB_SUBFOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${TARGET_FOLDER_ID}' in parents`;
-    const rootRes = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(rootQ)}&fields=files(id)&${SD}`,
-      { method: "GET" }
-    );
-    const rootData = await rootRes.json();
-    if (!rootData.files || rootData.files.length === 0) {
+
+    const rootRes = await drive.files.list({
+      q: rootQ,
+      fields: "files(id)",
+      ...SD_PARAMS,
+    });
+    const rootFiles = rootRes.data.files || [];
+    if (rootFiles.length === 0) {
       return { totalFiles: 0, totalSize: 0, perConfig: {} };
     }
+    const rootId = rootFiles[0].id!;
 
-    const rootId = rootData.files[0].id;
-    const foldersQ = `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const foldersRes = await connectors.proxy(
-      "google-drive",
-      `/drive/v3/files?q=${encodeURIComponent(foldersQ)}&fields=files(id,name)&${SD}`,
-      { method: "GET" }
-    );
-    const foldersData = await foldersRes.json();
+    const foldersRes = await drive.files.list({
+      q: `'${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      ...SD_PARAMS,
+    });
 
     let totalFiles = 0;
     let totalSize = 0;
     const perConfig: Record<string, { count: number; size: number }> = {};
 
-    for (const folder of (foldersData.files || [])) {
-      const filesQ = `'${folder.id}' in parents and trashed=false`;
-      const filesRes = await connectors.proxy(
-        "google-drive",
-        `/drive/v3/files?q=${encodeURIComponent(filesQ)}&fields=files(id,size)&${SD}`,
-        { method: "GET" }
+    for (const folder of foldersRes.data.files || []) {
+      const filesRes = await drive.files.list({
+        q: `'${folder.id}' in parents and trashed=false`,
+        fields: "files(id,size)",
+        ...SD_PARAMS,
+      });
+      const files = filesRes.data.files || [];
+      const configSize = files.reduce(
+        (sum, f) => sum + parseInt(String(f.size || "0")),
+        0
       );
-      const filesData = await filesRes.json();
-      const files = filesData.files || [];
-      const configSize = files.reduce((sum: number, f: any) => sum + (parseInt(f.size || "0")), 0);
-      perConfig[folder.name] = { count: files.length, size: configSize };
+      perConfig[folder.name || folder.id!] = { count: files.length, size: configSize };
       totalFiles += files.length;
       totalSize += configSize;
     }
