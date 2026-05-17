@@ -222,7 +222,12 @@ export async function registerRoutes(
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json({
+      status: "ok",
+      version: process.env.npm_package_version || "1.52.0",
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+    });
   });
 
   app.get("/api/my-ip", async (_req, res) => {

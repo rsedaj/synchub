@@ -14,8 +14,6 @@ dist
 attached_assets
 exports
 migrations
-scripts
-script
 .env
 .env.*
 !.env.example

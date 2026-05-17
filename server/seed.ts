@@ -332,6 +332,30 @@ export async function runMigrations() {
     log("Schema m004: auto_retry/retry_delay_min migration skipped", "seed");
   }
 
+  // Schema migration m005: add onix_fixed_fields to sync_configs
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS onix_fixed_fields jsonb`);
+    log("Schema m005: onix_fixed_fields column verified", "seed");
+  } catch (_e) {
+    log("Schema m005: onix_fixed_fields migration skipped", "seed");
+  }
+
+  // Schema migration m006: add extended sync_runs columns
+  try {
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS batch_size integer DEFAULT 100`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS current_batch integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS total_batches integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS speed_per_sec integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS estimated_end_at timestamp`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS backup_id varchar`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS cancelled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_skipped integer DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS checkpoint_data jsonb`);
+    log("Schema m006: extended sync_runs columns verified", "seed");
+  } catch (_e) {
+    log("Schema m006: sync_runs migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 
