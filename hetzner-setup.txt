@@ -1,0 +1,114 @@
+============================================================
+  SyncHub — Nastavenie na Hetzner / Coolify
+  SEDAJ s.r.o. / Hauerland
+  Verzia: v1.52.0
+============================================================
+
+------------------------------------------------------------
+1. ENV PREMENNÉ V COOLIFY
+------------------------------------------------------------
+Tieto premenné nastavte v Coolify → vaša aplikácia → Environment Variables:
+
+  DATABASE_URL         = postgres://user:heslo@localhost:5432/synchub
+  SESSION_SECRET       = nahodny-retazec-minimalne-32-znakov
+
+  STICKER_ACCESS_KEY   = <Stricker Europe access key>
+  STICKER_CLIENT_ID    = <Stricker Europe client ID>
+
+  PFCONCEPT_USERNAME   = <PF Concept prihlasovacie meno>
+  PFCONCEPT_PASSWORD   = <PF Concept heslo>
+
+  PROMOLOG_USERNAME    = <Promolog prihlasovacie meno>
+  PROMOLOG_PASSWORD    = <Promolog heslo>
+
+  # Google Drive zálohy (volitelne)
+  GOOGLE_SERVICE_ACCOUNT_JSON    = <cely obsah JSON suboru na 1 riadku>
+  GOOGLE_DRIVE_TARGET_FOLDER_ID  = <ID priecinka v Google Drive>
+
+  # Port (default 5000, zvycajne nemenat)
+  PORT = 5000
+
+
+------------------------------------------------------------
+2. KONFIGURÁCIA MODULOV V UI
+------------------------------------------------------------
+Prejdite do SyncHub → Moduly → vyberte modul → záložka "Konfigurácia"
+a zadajte nasledovné údaje:
+
+  PROMOTRON
+    - API Key          : <API key z Promotron admin panelu>
+    - Shop ID          : <identifikátor obchodu / tenanta>
+    - Base URL         : https://api-ts-westeu.promotron.com  (default)
+
+  ONIX ERP
+    - Bearer Token     : <token z ONIX API administrácie>
+    - Database Path    : <cesta k PostgreSQL databáze ONIX>
+    - Base URL         : https://onix-api.hauerland.sk/onix_api  (default)
+    - Environment      : production / test
+
+  PIPEDRIVE
+    - API Token        : <token z Pipedrive Settings → API>
+    - Base URL         : https://api.pipedrive.com  (default)
+
+  RAYNET CRM
+    - Username         : <prihlasovacie meno>
+    - API Key          : <API kľúč z Raynet nastavení>
+    - Instance Name    : <názov inštancie (napr. hauerland)>
+
+  MIDOCEAN
+    - Gateway API Key  : <x-Gateway-APIKey z Midocean portálu>
+
+  GIVING EUROPE
+    - Base URL         : <URL Debtor API>
+    - API Token        : <autentifikačný token>
+
+  ANDA PRESENT
+    - Feed ID          : <ID XML exportu z Anda portálu>
+    - Language         : sk / en / de
+
+  XD CONNECTS
+    - Feed URL(s)      : <URL XML/CSV/JSON feedov>
+
+  EASY GIFTS / MACMA
+    - Stock Feed URL   : <URL stockového feedu>
+    - Product Feed URL : <URL produktového feedu>
+
+  STRICKER EUROPE   → riešené cez env vars STICKER_ACCESS_KEY / STICKER_CLIENT_ID
+  PF CONCEPT        → riešené cez env vars PFCONCEPT_USERNAME / PFCONCEPT_PASSWORD
+  PROMOLOG          → riešené cez env vars PROMOLOG_USERNAME / PROMOLOG_PASSWORD
+
+
+------------------------------------------------------------
+3. POZNÁMKY
+------------------------------------------------------------
+- Hetzner má novú (prázdnu) databázu — poverenia uložené
+  v pôvodnej Replit DB sa nepreniesli, treba ich zadať znova.
+
+- Moduly, ktoré používajú env vars (STICKER, PFCONCEPT, PROMOLOG),
+  stačí nakonfigurovať raz v Coolify env a netreba ich meniť v UI.
+
+- Moduly s DB-uloženými povereniami (PROMOTRON, ONIX, PIPEDRIVE,
+  RAYNET, MIDOCEAN, GIVING) treba zadať manuálne v UI po prvom
+  nasadení.
+
+- Health check endpoint: GET /api/health
+  → vráti { status: "ok", version: "v1.52.0", ... }
+
+- Google Drive zálohy: SERVICE ACCOUNT JSON musí byť na 1 riadku
+  (žiadne zlomy riadkov), a service account email musí mať
+  prístup (Editor) k cieľovému Google Drive priečinku.
+
+
+------------------------------------------------------------
+4. OVERENIE PO NASADENÍ
+------------------------------------------------------------
+1. Otvorte https://sync-hub.hauerland.sk
+2. Prihláste sa (admin / heslo z prvotného seedu alebo vášho nastavenia)
+3. Prejdite na každý modul → kliknite "Test spojenia"
+4. Skontrolujte, že všetky moduly hlásia "Connection successful"
+5. Spustite testovaciu synchronizáciu na PROMOTRON → ONIX
+
+
+------------------------------------------------------------
+  Copyright SEDAJ s.r.o.  |  SyncHub v1.52.0
+============================================================

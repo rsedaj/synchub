@@ -18,3 +18,9 @@ id = "sjKRNi5wXQSduZETl9gjk"
 uri = "file://SyncHub_Popis_Systemu.txt"
 type = "text"
 title = "SyncHub — Popis systému pre fakturáciu (aktualizovaný)"
+
+[[outputs]]
+id = "jJ9WhDgqaUY3nZsDW9d_O"
+uri = "file://hetzner-setup.txt"
+type = "text"
+title = "SyncHub — Nastavenie na Hetzner / Coolify"
