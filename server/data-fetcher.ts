@@ -103,8 +103,12 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
         headers["Accept"] = "application/json";
       } else if (config?.xmlFeedUrl) {
         testUrl = config.xmlFeedUrl;
-      } else if (mod.baseUrl) {
-        testUrl = mod.baseUrl;
+      } else {
+        return {
+          success: false,
+          responseTime: Date.now() - start,
+          message: "API Key nie je nakonfigurovaný. Prejdite na záložku Konfigurácia a zadajte Promotron API Key.",
+        };
       }
     } else if (mod.code === "ANDA") {
       const feedId = config?.xmlFeedId;
@@ -335,6 +339,12 @@ export async function testModuleConnection(mod: ApiModule): Promise<ConnectionTe
       const contentLength = res.headers.get("content-length");
       const sizeKb = contentLength ? Math.round(parseInt(contentLength) / 1024) : 0;
       message = `Connection successful — PF Concept Data Feed v3 accessible${sizeKb ? ` (${sizeKb} KB)` : ""}`;
+    }
+
+    if (mod.code === "PROMOTRON" && !res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        message = `Autentifikácia zlyhala — neplatný Promotron API Key (HTTP ${res.status}). Skontrolujte API Key v záložke Konfigurácia.`;
+      }
     }
 
     if (mod.code === "PROMOLOG") {
