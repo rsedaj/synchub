@@ -1,0 +1,167 @@
+============================================================
+  SyncHub — GitHub Actions + Coolify Deploy Setup
+  Pre programátora — zostatok manuálnych krokov
+  SEDAJ s.r.o. / Hauerland  |  v1.52.0
+============================================================
+
+Repozitár: https://github.com/rsedaj/synchub
+Všetok kód je na GitHub (main branch) — zostávajú len tieto
+2 kroky, ktoré vyžadujú manuálny zásah.
+
+------------------------------------------------------------
+KROK 1 — Pridať GitHub Actions workflow súbor
+------------------------------------------------------------
+Dôvod: GitHub blokuje zápis workflow súborov cez API bez
+špeciálneho "workflow" oprávnenia. Treba ho pridať ručne.
+
+1. Otvorte v prehliadači:
+   https://github.com/rsedaj/synchub/new/main
+
+2. Do poľa "Name your file..." zadajte PRESNE túto cestu:
+   .github/workflows/deploy.yml
+
+3. Do textového poľa (obsah súboru) vložte nasledovný YAML:
+
+─────────────────────────────────────────────────────────
+name: Build & Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Coolify
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Coolify deploy webhook
+        if: ${{ secrets.COOLIFY_WEBHOOK_URL != '' }}
+        run: |
+          curl --silent --fail --show-error \
+            -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Content-Type: application/json"
+          echo "Coolify deploy triggered"
+─────────────────────────────────────────────────────────
+
+4. Dole kliknite "Commit changes" → "Commit directly to the
+   main branch" → "Commit changes"
+
+5. Overte: https://github.com/rsedaj/synchub/actions
+   — malo by sa spustiť prvé build
+
+
+------------------------------------------------------------
+KROK 2 — Nastaviť GitHub Secrets
+------------------------------------------------------------
+Tieto hodnoty dostanete z Coolify administrácie.
+
+URL: https://github.com/rsedaj/synchub/settings/secrets/actions
+     (Settings → Secrets and variables → Actions → New repository secret)
+
+Pridajte 2 secrets:
+
+  Názov:  COOLIFY_WEBHOOK_URL
+  Hodnota: URL z Coolify → vaša aplikácia → Deploy → Webhook URL
+           Príklad: https://coolify.hauerland.sk/api/v1/deploy?uuid=xxx&force=false
+
+  Názov:  COOLIFY_TOKEN
+  Hodnota: API token z Coolify → User Settings → API tokens → Create
+           (napr. 1|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+
+
+------------------------------------------------------------
+KROK 3 — Nastaviť Coolify aplikáciu (ak ešte nie je)
+------------------------------------------------------------
+V Coolify (https://coolify.hauerland.sk):
+
+  Source:           GitHub → rsedaj/synchub
+  Branch:           main
+  Build Pack:       Dockerfile
+  Port:             5000
+  Health Check URL: /api/health
+
+  Environment Variables (povinné):
+    DATABASE_URL    = postgres://...
+    SESSION_SECRET  = <min. 32 znakov>
+    PORT            = 5000
+
+  Environment Variables (voliteľné — podľa modulov):
+    STICKER_ACCESS_KEY  = phsmRiUflpW2U7Z9
+    STICKER_CLIENT_ID   = 0022058
+    PFCONCEPT_USERNAME  = Prichadzatma3
+    PFCONCEPT_PASSWORD  = production@hauerland.sk
+    PROMOLOG_USERNAME   = production@hauerland.sk
+    PROMOLOG_PASSWORD   = vietorvoVlasoch
+
+
+------------------------------------------------------------
+VÝSLEDOK PO DOKONČENÍ
+------------------------------------------------------------
+Po každom "git push" na main:
+  1. GitHub Actions spustí build (trvá ~3-5 min)
+  2. Docker image sa pushne na ghcr.io/rsedaj/synchub:latest
+  3. Coolify webhook sa zavolá
+  4. Coolify stiahne nový image a reštartuje aplikáciu
+  5. Health check overí: GET /api/health → { status: "ok" }
+
+Sledovanie buildu: https://github.com/rsedaj/synchub/actions
+Sledovanie deployu: Coolify → vaša aplikácia → Deployments
+
+
+------------------------------------------------------------
+  Copyright SEDAJ s.r.o.  |  SyncHub v1.52.0
+============================================================

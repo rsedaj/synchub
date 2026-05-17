@@ -24,3 +24,9 @@ id = "jJ9WhDgqaUY3nZsDW9d_O"
 uri = "file://hetzner-setup.txt"
 type = "text"
 title = "SyncHub — Hetzner nastavenie s reálnymi údajmi"
+
+[[outputs]]
+id = "gyjNbl9k2TgOCQufWIxg6"
+uri = "file://github-deploy-setup.txt"
+type = "text"
+title = "GitHub Actions + Coolify Deploy — inštrukcie pre programátora"
