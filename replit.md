@@ -14,6 +14,21 @@ The project aims to streamline data exchange processes, reduce manual effort, an
 - Slovak interface (default), with an option to switch to English.
 - Copyright: SEDAJ s.r.o.
 
+## Non-Negotiable Deployment Rules
+
+These rules must be respected with every change, without exception:
+
+### Dockerfile integrity
+- Build stage MUST use `npm ci --include=dev` (esbuild and other devDependencies are required to compile TypeScript).
+- Runtime stage MUST use `npm ci --omit=dev` (production image must not contain devDependencies).
+- HEALTHCHECK must target `127.0.0.1:5000/api/health` — NOT `localhost` (Alpine Linux resolves localhost as IPv6 ::1, which fails).
+- Do NOT modify `Dockerfile` structure without explicit user approval.
+
+### Database schema changes
+- Any change to the database schema (new column, new table, rename, type change) MUST be accompanied by an idempotent migration in `server/seed.ts` → `runMigrations()`, using `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` or equivalent.
+- Changing only the Drizzle schema in `shared/schema.ts` without a corresponding migration is NOT sufficient — the running database will not reflect the change.
+- Migrations must be idempotent (safe to run multiple times on a database that already has the change applied).
+
 ## System Architecture
 
 SyncHub is built with a modern web stack, featuring a React 18 frontend with TypeScript and Vite, utilizing Shadcn/ui and Tailwind CSS for UI components. The backend is an Express.js application also written in TypeScript, connected to a PostgreSQL database managed with Drizzle ORM. Session-based authentication is handled by Passport.js and bcrypt.
