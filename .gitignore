@@ -25,3 +25,5 @@ exports/
 SyncHub_Popis_Systemu.txt
 sync_errors_*.csv
 hetzner-setup.txt
+synchub-export.sql
+synchub-export.sql.gz

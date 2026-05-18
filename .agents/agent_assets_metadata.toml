@@ -30,3 +30,9 @@ id = "gyjNbl9k2TgOCQufWIxg6"
 uri = "file://github-deploy-setup.txt"
 type = "text"
 title = "GitHub Actions + Coolify Deploy — inštrukcie pre programátora"
+
+[[outputs]]
+id = "r6mHY9V3Gifx69-zo3wi0"
+uri = "file://synchub-export.sql.gz"
+type = "unspecified"
+title = "synchub-export.sql.gz — Kompletný export prod DB (Replit → Hetzner)"
