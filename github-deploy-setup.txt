@@ -149,6 +149,24 @@ V Coolify (https://coolify.hauerland.sk):
 
 
 ------------------------------------------------------------
+MANUÁLNE SPUSTENIE DEPLOYU (bez GitHub Actions)
+------------------------------------------------------------
+Ak chcete deploy spustiť priamo (napr. z Replit alebo lokálneho shellu):
+
+  bash scripts/coolify-deploy.sh
+
+Predpoklady — nastavte tieto 2 tajomstvá (Replit Secrets alebo export):
+  COOLIFY_WEBHOOK_URL  = URL z Coolify → vaša app → Deploy → Webhook URL
+  COOLIFY_TOKEN        = token z Coolify → User Settings → API tokens
+
+Alebo one-liner:
+  curl --silent --fail --show-error \
+    -X POST "$COOLIFY_WEBHOOK_URL" \
+    -H "Authorization: Bearer $COOLIFY_TOKEN" \
+    -H "Content-Type: application/json"
+
+
+------------------------------------------------------------
 VÝSLEDOK PO DOKONČENÍ
 ------------------------------------------------------------
 Po každom "git push" na main:
