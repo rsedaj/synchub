@@ -62,6 +62,8 @@ import {
 } from "lucide-react";
 import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
+import SyncAnalyticsTab from "./sync-analytics";
+import OnixBackupSection from "./onix-backup-section";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -644,10 +646,10 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
   );
 }
 
-export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" }) {
+export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" | "analytics" }) {
   const { t, language } = useLanguage();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs">(initialTab || "overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs" | "analytics">(initialTab || "overview");
   const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
   const [showResetDialog, setShowResetDialog] = useState(false);
@@ -1098,6 +1100,15 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             >
               <FileText className="h-4 w-4 mr-1.5" />
               {t("syncDash.logs")}
+            </Button>
+            <Button
+              variant={activeTab === "analytics" ? "default" : "ghost"} size="sm"
+              onClick={() => setActiveTab("analytics")}
+              data-testid="button-tab-analytics"
+              className="rounded-none border-x"
+            >
+              <TrendingUp className="h-4 w-4 mr-1.5" />
+              {t("syncDash.analytics")}
             </Button>
             <Button
               variant={activeTab === "backups" ? "default" : "ghost"} size="sm"
@@ -2588,6 +2599,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             </CardContent>
           </Card>
         </>
+      ) : activeTab === "analytics" ? (
+        <SyncAnalyticsTab language={language} />
       ) : (
         <>
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2723,6 +2736,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
               )}
             </CardContent>
           </Card>
+
+          <Separator />
+
+          <OnixBackupSection t={t} language={language} />
 
           <Separator />
 
@@ -2876,6 +2893,32 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                     <ExternalLink className="h-3 w-3" />
                                     SEDAJ Cloud
                                   </a>
+                                </>
+                              )}
+                              {(backup as any).localFilePath && (
+                                <>
+                                  <span>·</span>
+                                  <button
+                                    className="flex items-center gap-1 hover:text-foreground transition-colors"
+                                    title={(backup as any).localFilePath}
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(`/api/sync-backups/${backup.id}/download`, { credentials: "include" });
+                                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement("a");
+                                        a.href = url;
+                                        a.download = ((backup as any).localFilePath as string).split("/").pop() || "backup.json";
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                      } catch (_err) {}
+                                    }}
+                                    data-testid={`button-download-local-${backup.id}`}
+                                  >
+                                    <HardDrive className="h-3 w-3" />
+                                    {t("syncDash.localFile")}
+                                  </button>
                                 </>
                               )}
                             </div>

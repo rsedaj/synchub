@@ -1,7 +1,7 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines, onixBackups,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
@@ -9,6 +9,7 @@ import {
   type SyncConfig, type InsertSyncConfig,
   type SyncRun, type InsertSyncRun,
   type SyncBackup, type InsertSyncBackup,
+  type OnixBackup, type InsertOnixBackup,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -96,6 +97,24 @@ export interface IStorage {
   }>>;
 
   resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }>;
+
+  createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup>;
+  updateOnixBackup(id: string, data: Partial<OnixBackup>): Promise<void>;
+  getOnixBackups(limit?: number): Promise<OnixBackup[]>;
+  getOnixBackup(id: string): Promise<OnixBackup | undefined>;
+
+  getAnalyticsOverview(days: number): Promise<{
+    perDay: Array<{
+      day: string; runs: number; processed: number; failed: number;
+      skipped: number; success: number; errors: number; partial: number;
+      avgDurationSec: number | null;
+    }>;
+    allTime: {
+      totalRuns: number; totalProcessed: number; totalFailed: number;
+      successCount: number; avgDurationSec: number | null;
+    };
+    topConfigs: Array<{ configId: string; configName: string; totalRuns: number; totalProcessed: number }>;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -455,6 +474,105 @@ export class DatabaseStorage implements IStorage {
       deletedRuns: Number(runsCount?.count ?? 0),
       deletedLogs: Number(logsCount?.count ?? 0),
       deletedBaselines: Number(baselinesCount?.count ?? 0),
+    };
+  }
+
+  async createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup> {
+    const [created] = await db.insert(onixBackups).values({
+      status: data.status ?? "pending",
+      endpoints: data.endpoints ?? [],
+      triggeredBy: data.triggeredBy ?? null,
+      details: data.details ?? {},
+    } as any).returning();
+    return created;
+  }
+
+  async updateOnixBackup(id: string, data: Partial<OnixBackup>): Promise<void> {
+    await db.update(onixBackups).set(data as any).where(eq(onixBackups.id, id));
+  }
+
+  async getOnixBackups(limit = 50): Promise<OnixBackup[]> {
+    return db.select().from(onixBackups).orderBy(desc(onixBackups.createdAt)).limit(limit);
+  }
+
+  async getOnixBackup(id: string): Promise<OnixBackup | undefined> {
+    const [row] = await db.select().from(onixBackups).where(eq(onixBackups.id, id));
+    return row;
+  }
+
+  async getAnalyticsOverview(days: number) {
+    const perDayResult = await db.execute(sql.raw(`
+      SELECT
+        DATE_TRUNC('day', started_at)::date AS day,
+        COUNT(*) AS total_runs,
+        COALESCE(SUM(records_processed), 0) AS total_processed,
+        COALESCE(SUM(records_failed), 0) AS total_failed,
+        COALESCE(SUM(records_skipped), 0) AS total_skipped,
+        COUNT(CASE WHEN status = 'success' THEN 1 END) AS success_count,
+        COUNT(CASE WHEN status = 'error' THEN 1 END) AS error_count,
+        COUNT(CASE WHEN status = 'partial' THEN 1 END) AS partial_count,
+        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))::integer AS avg_duration_sec
+      FROM sync_runs
+      WHERE started_at >= NOW() - INTERVAL '${days} days'
+        AND status NOT IN ('running', 'pending')
+      GROUP BY DATE_TRUNC('day', started_at)::date
+      ORDER BY day ASC
+    `));
+
+    const allTimeResult = await db.execute(sql`
+      SELECT
+        COUNT(*) AS total_runs,
+        COALESCE(SUM(records_processed), 0) AS total_processed,
+        COALESCE(SUM(records_failed), 0) AS total_failed,
+        COUNT(CASE WHEN status = 'success' THEN 1 END) AS success_count,
+        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))::integer AS avg_duration_sec
+      FROM sync_runs
+      WHERE status NOT IN ('running', 'pending')
+    `);
+
+    const topConfigsResult = await db.execute(sql`
+      SELECT
+        sr.sync_config_id AS config_id,
+        COALESCE(sc.name, sr.sync_config_id) AS config_name,
+        COUNT(*) AS total_runs,
+        COALESCE(SUM(sr.records_processed), 0) AS total_processed
+      FROM sync_runs sr
+      LEFT JOIN sync_configs sc ON sc.id = sr.sync_config_id
+      WHERE sr.status NOT IN ('running', 'pending')
+      GROUP BY sr.sync_config_id, sc.name
+      ORDER BY total_runs DESC
+      LIMIT 8
+    `);
+
+    const perDayRows = ((perDayResult as any).rows ?? []) as any[];
+    const allTimeRow = (((allTimeResult as any).rows ?? []) as any[])[0] ?? {};
+    const topConfigsRows = ((topConfigsResult as any).rows ?? []) as any[];
+
+    return {
+      perDay: perDayRows.map((r: any) => ({
+        day: String(r.day ?? "").slice(0, 10),
+        runs: Number(r.total_runs ?? 0),
+        processed: Number(r.total_processed ?? 0),
+        failed: Number(r.total_failed ?? 0),
+        skipped: Number(r.total_skipped ?? 0),
+        success: Number(r.success_count ?? 0),
+        errors: Number(r.error_count ?? 0),
+        partial: Number(r.partial_count ?? 0),
+        avgDurationSec: r.avg_duration_sec != null ? Number(r.avg_duration_sec) : null,
+      })),
+      allTime: {
+        totalRuns: Number(allTimeRow.total_runs ?? 0),
+        totalProcessed: Number(allTimeRow.total_processed ?? 0),
+        totalFailed: Number(allTimeRow.total_failed ?? 0),
+        successCount: Number(allTimeRow.success_count ?? 0),
+        avgDurationSec: allTimeRow.avg_duration_sec != null ? Number(allTimeRow.avg_duration_sec) : null,
+      },
+      topConfigs: topConfigsRows.map((r: any) => ({
+        configId: String(r.config_id ?? ""),
+        configName: String(r.config_name ?? r.config_id ?? ""),
+        totalRuns: Number(r.total_runs ?? 0),
+        totalProcessed: Number(r.total_processed ?? 0),
+      })),
     };
   }
 }

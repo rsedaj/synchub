@@ -375,6 +375,33 @@ export async function runMigrations() {
     log("Schema m007: snapshot columns migration skipped", "seed");
   }
 
+  // Schema migration m008: backup_type + local_file_path in sync_backups; onix_backups table
+  try {
+    await db.execute(sql`ALTER TABLE sync_backups ADD COLUMN IF NOT EXISTS backup_type text DEFAULT 'gdrive'`);
+    await db.execute(sql`ALTER TABLE sync_backups ADD COLUMN IF NOT EXISTS local_file_path text`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS onix_backups (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        status text NOT NULL DEFAULT 'pending',
+        started_at timestamp NOT NULL DEFAULT NOW(),
+        completed_at timestamp,
+        endpoints text[],
+        local_file_path text,
+        google_drive_file_id text,
+        google_drive_url text,
+        total_records integer DEFAULT 0,
+        file_size integer DEFAULT 0,
+        error_message text,
+        triggered_by varchar,
+        details jsonb,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    log("Schema m008: sync_backups extended + onix_backups created", "seed");
+  } catch (_e) {
+    log("Schema m008: migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

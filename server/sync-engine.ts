@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
+import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
 import { pushToTarget } from "./target-push";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
@@ -340,7 +341,30 @@ async function executeAsync(
           log(`Warning: Could not fetch target data for backup: ${err.message}`);
         }
 
+        // LOCAL BACKUP FIRST (Hetzner server — primary storage)
+        let localFilePath: string | null = null;
+        try {
+          const ts = new Date().toISOString().replace(/[:.]/g, "-");
+          const safeName = config.name.replace(/[^a-zA-Z0-9]/g, "_");
+          const localFileName = `backup_${safeName}_${ts}.json`;
+          const localResult = await saveLocalBackup(config.id, localFileName, {
+            configId: config.id, configName: config.name, runId,
+            exportedAt: new Date().toISOString(),
+            totalRecords: backupData.length,
+            data: backupData,
+          });
+          localFilePath = localResult.filePath;
+          log(`Local backup saved: ${localFilePath} (${localResult.fileSize} bytes)`);
+        } catch (localErr: any) {
+          log(`Warning: Local backup failed (continuing with GDrive): ${localErr.message}`);
+        }
+
+        // GOOGLE DRIVE SECOND (cloud — secondary/offsite storage)
         const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name, mappings);
+
+        const backupType = localFilePath && driveResult.primaryFileId ? "both"
+          : driveResult.primaryFileId ? "gdrive"
+          : "local";
 
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,
@@ -350,6 +374,8 @@ async function executeAsync(
           googleDriveFileId: driveResult.primaryFileId,
           googleDriveUrl: driveResult.primaryWebViewLink,
           backupRecordCount: driveResult.totalRecords,
+          localFilePath: localFilePath ?? undefined,
+          backupType,
           configSnapshot: {
             name: config.name,
             sourceModuleId: config.sourceModuleId,
@@ -384,6 +410,9 @@ async function executeAsync(
               }
             } else if (old.googleDriveFileId) {
               try { await deleteBackupFile(old.googleDriveFileId); } catch {}
+            }
+            if (old.localFilePath) {
+              try { await deleteLocalBackup(old.localFilePath); } catch {}
             }
             await storage.deleteSyncBackup(old.id);
           }

@@ -124,6 +124,25 @@ export const syncBackups = pgTable("sync_backups", {
   googleDriveUrl: text("google_drive_url"),
   backupRecordCount: integer("backup_record_count").default(0),
   configSnapshot: jsonb("config_snapshot").$type<Record<string, any>>(),
+  backupType: text("backup_type").default("gdrive"),
+  localFilePath: text("local_file_path"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const onixBackups = pgTable("onix_backups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  status: text("status").notNull().default("pending"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  endpoints: text("endpoints").array(),
+  localFilePath: text("local_file_path"),
+  googleDriveFileId: text("google_drive_file_id"),
+  googleDriveUrl: text("google_drive_url"),
+  totalRecords: integer("total_records").default(0),
+  fileSize: integer("file_size").default(0),
+  errorMessage: text("error_message"),
+  triggeredBy: varchar("triggered_by"),
+  details: jsonb("details").$type<Record<string, any>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -243,7 +262,24 @@ export const insertSyncBackupSchema = createInsertSchema(syncBackups).pick({
   googleDriveUrl: true,
   backupRecordCount: true,
   configSnapshot: true,
+  backupType: true,
+  localFilePath: true,
 });
+
+export const insertOnixBackupSchema = createInsertSchema(onixBackups).pick({
+  status: true,
+  endpoints: true,
+  localFilePath: true,
+  googleDriveFileId: true,
+  googleDriveUrl: true,
+  totalRecords: true,
+  fileSize: true,
+  errorMessage: true,
+  triggeredBy: true,
+  details: true,
+});
+export type InsertOnixBackup = z.infer<typeof insertOnixBackupSchema>;
+export type OnixBackup = typeof onixBackups.$inferSelect;
 
 export type InsertSyncConfig = z.infer<typeof insertSyncConfigSchema>;
 export type SyncConfig = typeof syncConfigs.$inferSelect;

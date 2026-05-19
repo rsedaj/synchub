@@ -8,6 +8,8 @@ import { seedData, runMigrations } from "./seed";
 import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields, ONIX_KNOWN_TARGET_FIELDS } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resumeSyncRun } from "./sync-engine";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
+import { runOnixBackup } from "./onix-backup";
+import { readLocalBackup, localBackupExists } from "./local-backup";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
@@ -1646,6 +1648,83 @@ export async function registerRoutes(
       return res.json({ message: `Deleted ${backups.length} backups` });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to delete backups" });
+    }
+  });
+
+  // === ANALYTICS ===
+  app.get("/api/analytics/overview", requireAuth, async (req, res) => {
+    try {
+      const days = Math.min(90, Math.max(7, parseInt(String(req.query.days ?? "30")) || 30));
+      const data = await storage.getAnalyticsOverview(days);
+      return res.json(data);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ONIX BACKUP ===
+  app.post("/api/onix-backup/run", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id ?? "system";
+      const id = await runOnixBackup(userId);
+      return res.json({ id, message: "ONIX záloha spustená" });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/onix-backups", requireAuth, async (_req, res) => {
+    try {
+      const backups = await storage.getOnixBackups(50);
+      return res.json(backups);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/onix-backups/:id", requireAuth, async (req, res) => {
+    try {
+      const backup = await storage.getOnixBackup(req.params.id);
+      if (!backup) return res.status(404).json({ message: "Not found" });
+      return res.json(backup);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/onix-backups/:id/download", requireAuth, async (req, res) => {
+    try {
+      const backup = await storage.getOnixBackup(req.params.id);
+      if (!backup) return res.status(404).json({ message: "Not found" });
+      if (!backup.localFilePath) return res.status(404).json({ message: "Lokálny súbor nie je dostupný" });
+      const exists = await localBackupExists(backup.localFilePath);
+      if (!exists) return res.status(404).json({ message: "Súbor neexistuje na serveri" });
+      const buf = await readLocalBackup(backup.localFilePath);
+      const fileName = backup.localFilePath.split("/").pop() || "onix_backup.json";
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      return res.send(buf);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === LOCAL BACKUP DOWNLOAD ===
+  app.get("/api/sync-backups/:id/download", requireAuth, async (req, res) => {
+    try {
+      const backup = await storage.getSyncBackup(req.params.id);
+      if (!backup) return res.status(404).json({ message: "Not found" });
+      const fp = backup.localFilePath;
+      if (!fp) return res.status(404).json({ message: "Lokálny súbor nie je dostupný pre túto zálohu" });
+      const exists = await localBackupExists(fp);
+      if (!exists) return res.status(404).json({ message: "Súbor neexistuje na serveri" });
+      const buf = await readLocalBackup(fp);
+      const fileName = fp.split("/").pop() || "backup.json";
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      return res.send(buf);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
     }
   });
 
