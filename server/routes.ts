@@ -117,7 +117,7 @@ const createSyncConfigSchema = z.object({
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
   matchOperator: z.enum(["and", "or"]).optional(),
-  onMissing: z.enum(["create", "skip"]).optional(),
+  onMissing: z.enum(["create", "skip", "force"]).optional(),
   targetStock: z.string().nullable().optional(),
   sourceFilters: z.array(z.object({
     field: z.string(),
@@ -148,7 +148,7 @@ const updateSyncConfigSchema = z.object({
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
   matchOperator: z.enum(["and", "or"]).optional(),
-  onMissing: z.enum(["create", "skip"]).optional(),
+  onMissing: z.enum(["create", "skip", "force"]).optional(),
   targetStock: z.string().nullable().optional(),
   sourceFilters: z.array(z.object({
     field: z.string(),
