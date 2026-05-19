@@ -508,7 +508,15 @@ async function buildOnixIndex(
   // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
   // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
   // Stock filtering is done in-memory after fetch.
-  const fetchUrl = `${baseUrl}${endpoint}`;
+  //
+  // IMPORTANT: ONIX does NOT include CustomColumns in the response by default.
+  // When any target match field is a CustomColumns.* field, we must append
+  // ?tables=CustomColumns so ONIX returns the CustomColumns array per record.
+  // Without this, item.CustomColumns is always undefined → no match ever found → all records skipped.
+  const needsCustomColumns = targetFields.some(f => f.startsWith("CustomColumns."));
+  const fetchUrl = needsCustomColumns
+    ? `${baseUrl}${endpoint}?tables=CustomColumns`
+    : `${baseUrl}${endpoint}`;
   const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
 
   const existing = _onixIndexCache.get(cacheKey);
@@ -824,6 +832,12 @@ async function pushToOnix(
     const f = buildOnixFilterParam(targetField, value);
     const params = new URLSearchParams();
     params.append(f.key, f.val);
+    // ONIX omits CustomColumns from the response unless explicitly requested.
+    // Add ?tables=CustomColumns so the returned records include the CustomColumns array
+    // and the post-filter on cc.Name / cc.Value works correctly.
+    if (targetField.startsWith("CustomColumns.")) {
+      params.append("tables", "CustomColumns");
+    }
     try {
       const lookupUrl = `${baseUrl}${writeDef.endpoint}?${params.toString()}`;
       const ctrl = new AbortController();
@@ -942,6 +956,12 @@ async function pushToOnix(
       const f = buildOnixFilterParam(fv.targetField, fv.value);
       params.append(f.key, f.val);
       expectedValues.push(fv);
+    }
+    // ONIX omits CustomColumns from the response unless explicitly requested.
+    // If any AND-match field is a CustomColumns.* field, append tables=CustomColumns
+    // so returned records include the CustomColumns array for post-filter verification.
+    if (fieldValues.some(fv => fv.targetField.startsWith("CustomColumns."))) {
+      params.append("tables", "CustomColumns");
     }
     try {
       const lookupUrl = `${baseUrl}${writeDef.endpoint}?${params.toString()}`;
