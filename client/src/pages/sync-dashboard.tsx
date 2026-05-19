@@ -1928,6 +1928,8 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                     const updated = details?.totalUpdated || 0;
                     const failed = details?.totalFailed || (run.recordsFailed || 0);
                     const skipped = details?.totalSkippedByMatch || details?.completionSummary?.totalSkippedByMatch || (run as any).recordsSkipped || 0;
+                    const deltaSkipped = details?.totalSkipped || 0;
+                    const isDeltaNoChanges = !!(details?.deltaMode && deltaSkipped > 0 && created === 0 && updated === 0 && skipped === 0 && failed === 0);
                     const hasSyncedRecords = details?.syncedRecords?.length > 0;
 
                     const groupedErrors: { message: string; count: number }[] = [];
@@ -1967,6 +1969,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 {updated > 0 && <span className="text-blue-600 dark:text-blue-400">↻{updated.toLocaleString()} {t("syncDash.updated")}</span>}
                                 {skipped > 0 && <span className="text-amber-600 dark:text-amber-400">⊘{skipped.toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}</span>}
                                 {failed > 0 && <span className="text-destructive">✗{failed.toLocaleString()} {t("syncDash.errors")}</span>}
+                              </span>
+                            ) : isDeltaNoChanges ? (
+                              <span className="flex items-center gap-1.5" title={language === "sk" ? "Delta sync — všetky záznamy sú aktuálne, nič sa nezmenilo od posledného behu" : "Delta sync — all records up to date, nothing changed since last run"}>
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold">DELTA</span>
+                                <span className="text-green-600 dark:text-green-400">{deltaSkipped.toLocaleString()} {language === "sk" ? "bez zmeny" : "unchanged"}</span>
                               </span>
                             ) : (
                               <span title="odoslaných do ONIX / na spracovanie">
@@ -2012,6 +2019,42 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                         {isExpanded && (
                           <div className="px-3 pb-3 border-t space-y-2">
+                            {/* Delta/Full mode header — shown for all completed runs */}
+                            {(details?.deltaMode !== undefined || (details?.totalFetched ?? 0) > 0) && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${details?.deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
+                                  {details?.deltaMode ? "DELTA" : "FULL"}
+                                </span>
+                                {(details?.totalFetched ?? 0) > 0 && (
+                                  <span className="text-muted-foreground">
+                                    {(details.totalFetched).toLocaleString()} {language === "sk" ? "zo zdroja" : "from source"}
+                                    {" → "}
+                                    <span className="text-foreground font-medium">{(details?.totalChanged ?? 0).toLocaleString()} {language === "sk" ? "na spracovanie" : "to process"}</span>
+                                    {deltaSkipped > 0 && (
+                                      <span className="text-green-600 dark:text-green-400 ml-1.5">· {deltaSkipped.toLocaleString()} {language === "sk" ? "bez zmeny (delta)" : "unchanged (delta)"}</span>
+                                    )}
+                                    {skipped > 0 && (
+                                      <span className="text-amber-600 dark:text-amber-400 ml-1.5">· {skipped.toLocaleString()} {language === "sk" ? "nenájdených v ONIX" : "not found in ONIX"}</span>
+                                    )}
+                                  </span>
+                                )}
+                                {isDeltaNoChanges && (
+                                  <span className="text-green-600 dark:text-green-400 font-medium">
+                                    — {language === "sk" ? "všetky záznamy sú aktuálne" : "all records up to date"}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {isDeltaNoChanges && (
+                              <div className="p-2 rounded bg-blue-500/5 border border-blue-500/20 text-xs text-blue-700 dark:text-blue-300 flex items-start gap-1.5" data-testid="panel-delta-nochanges">
+                                <span className="mt-0.5 font-bold">DELTA</span>
+                                <span>
+                                  {language === "sk"
+                                    ? `Delta sync porovnal MD5 hashe ${deltaSkipped.toLocaleString()} záznamov a nezistil žiadnu zmenu od posledného behu — synchronizácia nebola potrebná. Ak chcete vynútiť sync bez ohľadu na delta, spustite "Plný sync".`
+                                    : `Delta sync compared MD5 hashes of ${deltaSkipped.toLocaleString()} records and found no changes since the last run — synchronization was not needed. To force sync regardless of delta, run "Full sync".`}
+                                </span>
+                              </div>
+                            )}
                             {(created > 0 || updated > 0 || skipped > 0 || failed > 0) && (
                               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-700 dark:text-green-400">
@@ -2101,22 +2144,6 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                             {details?.completionSummary && (
                               <div className="mt-2 space-y-2" data-testid="panel-history-summary">
-                                {details?.deltaMode !== undefined && (
-                                  <div className="flex items-center gap-2 text-xs pb-1">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${details.deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
-                                      {details.deltaMode ? "DELTA" : "FULL"}
-                                    </span>
-                                    {details.totalFetched > 0 && (
-                                      <span className="text-muted-foreground">
-                                        {(details.totalFetched).toLocaleString()} zo zdroja →{" "}
-                                        <span className="text-foreground font-medium">{(details.totalChanged ?? 0).toLocaleString()} na ONIX</span>
-                                        {(details.totalSkipped || 0) > 0 && (
-                                          <span className="text-green-600 dark:text-green-400"> · {(details.totalSkipped).toLocaleString()} bez zmeny</span>
-                                        )}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                   <div>
                                     <span className="text-muted-foreground">{t("syncDash.sourceRecords")}:</span>

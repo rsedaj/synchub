@@ -589,7 +589,13 @@ async function executeAsync(
       }
 
       allRecords = changedRecords;
-      log(`Delta result: ${allRecords.length} changed, ${totalSkipped} unchanged (skipped)`);
+      if (allRecords.length === 0 && totalSkipped > 0) {
+        log(`Delta result: 0 zmenených, ${totalSkipped} bez zmeny — nič sa neodošle do ONIX`);
+      } else {
+        const sampleKeys = allRecords.slice(0, 5).map(r => getRecordKey(r, cfgMatchFields)).filter(Boolean);
+        const sampleStr = sampleKeys.length ? ` (ukážka: ${sampleKeys.join(", ")}${allRecords.length > 5 ? ", …" : ""})` : "";
+        log(`Delta result: ${allRecords.length} zmenených${sampleStr}, ${totalSkipped} bez zmeny (preskočených)`);
+      }
     } else {
       log("=== FULL SYNC MODE ===");
       for (let i = 0; i < allFetchedRecords.length; i++) {
@@ -1148,7 +1154,7 @@ async function executeAsync(
       },
     }, "completion");
 
-    log(`=== COMPLETE === created=${totalCreated} updated=${totalUpdated} fail=${totalFailed} duration=${duration}ms`);
+    log(`=== COMPLETE === vytvorené=${totalCreated} aktualizované=${totalUpdated} preskočené(nenájdené)=${totalSkippedByMatch} chyby=${totalFailed} delta_bez_zmeny=${totalSkipped} trvanie=${duration}ms`);
 
     if (baselineUpdates.length > 0) {
       try {
