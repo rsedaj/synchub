@@ -324,9 +324,9 @@ async function executeAsync(
     if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
 
     const schedule = config.schedule as any;
-    const doBackup = schedule?.backupBeforeSync !== false;
+    const doDriveBackup = schedule?.backupBeforeSync !== false;
 
-    if (doBackup && !isResume) {
+    if (!isResume) {
       log("=== PHASE 2/4: BACKUP ===");
       await updatePhase(runId, "backup");
 
@@ -341,7 +341,7 @@ async function executeAsync(
           log(`Warning: Could not fetch target data for backup: ${err.message}`);
         }
 
-        // LOCAL BACKUP FIRST (Hetzner server — primary storage)
+        // LOCAL BACKUP — SEDAJ Cloud (vždy, primárne úložisko)
         let localFilePath: string | null = null;
         try {
           const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -354,26 +354,54 @@ async function executeAsync(
             data: backupData,
           });
           localFilePath = localResult.filePath;
-          log(`Local backup saved: ${localFilePath} (${localResult.fileSize} bytes)`);
+          log(`SEDAJ Cloud backup saved: ${localFilePath} (${localResult.fileSize} bytes)`);
         } catch (localErr: any) {
-          log(`Warning: Local backup failed (continuing with GDrive): ${localErr.message}`);
+          log(`Warning: SEDAJ Cloud backup failed: ${localErr.message}`);
         }
 
-        // GOOGLE DRIVE SECOND (cloud — secondary/offsite storage)
-        const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name, mappings);
+        // GOOGLE DRIVE — sekundárne, len ak je povolené v nastaveniach sync
+        let driveFileId: string | null = null;
+        let driveFileName = "";
+        let driveFileSize = 0;
+        let driveUrl = "";
+        let driveTotalFiles = 0;
+        let driveParts: any[] = [];
+        let driveRecordCount = 0;
 
-        const backupType = localFilePath && driveResult.primaryFileId ? "both"
-          : driveResult.primaryFileId ? "gdrive"
+        if (doDriveBackup) {
+          try {
+            const driveResult = await uploadBackup(config.id, config.name, backupData, runId, targetModule.name, mappings);
+            driveFileId = driveResult.primaryFileId;
+            driveFileName = driveResult.primaryFileName;
+            driveFileSize = driveResult.combinedFileSize;
+            driveUrl = driveResult.primaryWebViewLink;
+            driveTotalFiles = driveResult.totalFiles;
+            driveParts = driveResult.parts;
+            driveRecordCount = driveResult.totalRecords;
+            log(`Google Drive backup: ${driveResult.totalFiles} file(s), ${driveResult.totalRecords} records`);
+          } catch (driveErr: any) {
+            log(`Warning: Google Drive backup failed (SEDAJ Cloud backup je zachovaná): ${driveErr.message}`);
+          }
+        } else {
+          log("Google Drive backup skipped (disabled in sync config)");
+        }
+
+        const backupType = localFilePath && driveFileId ? "both"
+          : driveFileId ? "gdrive"
           : "local";
+
+        const effectiveFileName = driveFileName || (localFilePath ? localFilePath.split("/").pop()! : `backup_${config.name}`);
+        const effectiveFileSize = driveFileSize;
+        const effectiveRecordCount = driveRecordCount || backupData.length;
 
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,
           syncRunId: runId,
-          fileName: driveResult.primaryFileName,
-          fileSize: driveResult.combinedFileSize,
-          googleDriveFileId: driveResult.primaryFileId,
-          googleDriveUrl: driveResult.primaryWebViewLink,
-          backupRecordCount: driveResult.totalRecords,
+          fileName: effectiveFileName,
+          fileSize: effectiveFileSize,
+          googleDriveFileId: driveFileId ?? undefined,
+          googleDriveUrl: driveUrl || undefined,
+          backupRecordCount: effectiveRecordCount,
           localFilePath: localFilePath ?? undefined,
           backupType,
           configSnapshot: {
@@ -383,8 +411,8 @@ async function executeAsync(
             fieldMappings: config.fieldMappings,
             totalTargetRecords: backupData.length,
             truncated: false,
-            totalFiles: driveResult.totalFiles,
-            parts: driveResult.parts.map(p => ({
+            totalFiles: driveTotalFiles || (localFilePath ? 1 : 0),
+            parts: driveParts.map(p => ({
               fileId: p.fileId,
               fileName: p.fileName,
               fileSize: p.fileSize,
@@ -419,16 +447,16 @@ async function executeAsync(
         }
 
         backupStats = {
-          uploadedRecordCount: driveResult.totalRecords,
+          uploadedRecordCount: effectiveRecordCount,
           totalTargetRecords: backupData.length,
-          fileSize: driveResult.combinedFileSize,
-          fileName: driveResult.primaryFileName,
+          fileSize: effectiveFileSize,
+          fileName: effectiveFileName,
           truncated: false,
-          totalFiles: driveResult.totalFiles,
+          totalFiles: driveTotalFiles || (localFilePath ? 1 : 0),
         };
-        log(`Backup created: ${driveResult.totalFiles} file(s), ${driveResult.totalRecords}/${backupData.length} records, ${driveResult.combinedFileSize} bytes`);
+        log(`Backup complete: type=${backupType}, records=${backupData.length}`);
       } catch (err: any) {
-        log(`BACKUP FAILED: ${err.message}`);
+        log(`BACKUP PHASE ERROR: ${err.message}`);
         await storage.updateSyncRun(runId, {
           status: "error",
           errorMessage: `Backup failed: ${err.message}`,
@@ -451,7 +479,7 @@ async function executeAsync(
         return;
       }
     } else {
-      log("Backup skipped (disabled by user)");
+      log("Backup skipped (resume mode)");
     }
 
     if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);

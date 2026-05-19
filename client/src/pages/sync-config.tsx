@@ -2472,12 +2472,12 @@ export default function SyncConfigPage() {
                     />
                     <div>
                       <Label htmlFor="backup-before-sync" className="text-sm cursor-pointer">
-                        {language === "sk" ? "Zálohovať cieľové dáta pred synchronizáciou" : "Backup target data before synchronization"}
+                        {language === "sk" ? "Zálohovať cieľové dáta aj na Google Drive" : "Also back up target data to Google Drive"}
                       </Label>
                       <p className="text-xs text-muted-foreground mt-1">
                         {language === "sk"
-                          ? "Pred každým spustením synchronizácie sa vytvorí záloha existujúcich dát v cieľovom module. Zálohy umožňujú obnoviť pôvodné dáta v prípade problémov."
-                          : "A backup of existing data in the target module will be created before each sync run. Backups allow restoring original data if issues arise."}
+                          ? "Záloha na SEDAJ Cloud prebieha vždy automaticky. Ak je táto možnosť zapnutá, záloha sa odošle aj na Google Drive ako druhá kópia."
+                          : "Backup to SEDAJ Cloud runs automatically every time. If enabled, a second copy is also sent to Google Drive."}
                       </p>
                     </div>
                   </div>
@@ -2615,7 +2615,7 @@ export default function SyncConfigPage() {
                           {schedule?.backupBeforeSync !== false && (
                             <Badge variant="outline" className="text-[10px] gap-1">
                               <Shield className="h-2.5 w-2.5" />
-                              {language === "sk" ? "Záloha" : "Backup"}
+                              {language === "sk" ? "GDrive záloha" : "GDrive backup"}
                             </Badge>
                           )}
                           {(config as any).autoRetry && (
@@ -2816,7 +2816,7 @@ export default function SyncConfigPage() {
                       {schedule?.backupBeforeSync !== false && (
                         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                           <Shield className="h-3 w-3" />
-                          {language === "sk" ? "Zálohovanie pred synchronizáciou: aktívne" : "Backup before sync: active"}
+                          {language === "sk" ? "Google Drive záloha: aktívna" : "Google Drive backup: active"}
                         </div>
                       )}
                     </div>
