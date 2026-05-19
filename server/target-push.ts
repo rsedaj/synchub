@@ -125,7 +125,7 @@ function sanitizePipedriveBody(body: Record<string, any>, entityType: string): R
 export interface MatchOptions {
   matchFields?: string[];
   matchOperator?: "and" | "or";
-  onMissing?: "create" | "skip";
+  onMissing?: "create" | "skip" | "force";
   mappings?: Array<{ sourceField: string; targetField: string }>;
   targetStock?: string;
   hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number; field: string } | null;
@@ -769,7 +769,7 @@ async function pushToOnix(
 
   const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
   const matchOperator: "and" | "or" = (matchOptions?.matchOperator as "and" | "or") || "and";
-  const onMissing = matchOptions?.onMissing || "create";
+  const onMissing = (matchOptions?.onMissing as "create" | "skip" | "force") || "create";
 
   const hKodCfg = matchOptions?.hKodConfig?.enabled && matchOptions.hKodConfig.prefix ? matchOptions.hKodConfig : null;
   let hKodCounter = hKodCfg ? hKodCfg.nextNumber : 0;
@@ -1049,7 +1049,7 @@ async function pushToOnix(
       let onixId: any = record._onix_id || record[writeDef.idField] || record.Id || record.id;
       let isUpdate = onixId && !isNaN(Number(onixId)) && Number(onixId) > 0;
 
-      if (!isUpdate && matchFields.length > 0) {
+      if (!isUpdate && matchFields.length > 0 && onMissing !== "force") {
         const lookup = await findOnixIdByMatch(record, sourceRecords?.[i]);
         if (lookup.ambiguous) {
           // Duplicate Ns_Number in ONIX itself — ONIX REST API has no way to update a

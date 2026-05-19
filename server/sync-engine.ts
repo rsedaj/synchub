@@ -766,7 +766,7 @@ async function executeAsync(
             {
               matchFields: ((config as any).matchFields || []).filter((f: string) => f && f.trim()),
               matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
-              onMissing: ((config as any).onMissing as "create" | "skip") || "create",
+              onMissing: ((config as any).onMissing as "create" | "skip" | "force") || "create",
               mappings,
               targetStock: (config as any).targetStock || undefined,
               hKodConfig: (config as any).hKodConfig?.enabled

@@ -230,7 +230,7 @@ interface EditorState {
   fieldMappings: FieldMapping[];
   matchFields: string[];
   matchOperator: "and" | "or";
-  onMissing: "create" | "skip";
+  onMissing: "create" | "skip" | "force";
   targetStock: string;
   sourceFilters: SourceFilter[];
   hKodConfig: HKodConfig;
@@ -2128,6 +2128,27 @@ export default function SyncConfigPage() {
                           <div>{language === "sk" ? "Preskočiť" : "Skip"}</div>
                           <div className="text-xs text-muted-foreground">
                             {language === "sk" ? "Ak sa nenájde zhoda, záznam sa preskočí (len aktualizácie existujúcich)." : "If no match is found, the record is skipped (updates only)."}
+                          </div>
+                        </div>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="on-missing"
+                          value="force"
+                          checked={editor.onMissing === "force"}
+                          onChange={() => setEditor(prev => ({ ...prev, onMissing: "force" }))}
+                          className="mt-1"
+                          data-testid="radio-on-missing-force"
+                        />
+                        <div className="text-sm">
+                          <div className="flex items-center gap-1.5">
+                            {language === "sk" ? "Vždy prepísať (bez kontroly existencie)" : "Always overwrite (no existence check)"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {language === "sk"
+                              ? "Preskočí vyhľadávanie v cieľovom systéme — každý záznam sa odošle priamo. ONIX urobí upsert podľa Ns_Number automaticky."
+                              : "Skips the lookup in the target system — every record is sent directly. ONIX will upsert by Ns_Number automatically."}
                           </div>
                         </div>
                       </label>
