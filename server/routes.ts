@@ -1447,7 +1447,15 @@ export async function registerRoutes(
         },
       });
     } catch (err: any) {
-      return res.status(500).json({ message: `Config backup to Drive failed: ${err.message}` });
+      const msg = err.message || "";
+      if (msg.includes("GOOGLE_SERVICE_ACCOUNT_JSON")) {
+        return res.status(503).json({
+          message: "Google Drive nie je nakonfigurovaný na tomto serveri.",
+          detail: "Na Hetzner/Coolify je potrebné pridať environment premennú GOOGLE_SERVICE_ACCOUNT_JSON (obsah JSON kľúča Google Service Account). Postup: Google Cloud Console → IAM → Service Accounts → vytvor účet → vytvor kľúč (JSON) → skopíruj celý obsah súboru do Coolify env premennej GOOGLE_SERVICE_ACCOUNT_JSON.",
+          missingEnv: "GOOGLE_SERVICE_ACCOUNT_JSON",
+        });
+      }
+      return res.status(500).json({ message: `Config backup to Drive failed: ${msg}` });
     }
   });
 

@@ -886,8 +886,20 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
       refetchConfigDriveBackups();
     },
     onError: (err: any) => {
-      setBackupError({ type: "configToDrive", message: err.message || "Config backup failed" });
-      toast({ title: t("syncDash.configBackupFailed"), description: err.message, variant: "destructive" });
+      let displayMessage = err.message || "Config backup failed";
+      try {
+        const jsonStart = displayMessage.indexOf("{");
+        if (jsonStart !== -1) {
+          const parsed = JSON.parse(displayMessage.slice(jsonStart));
+          if (parsed.missingEnv === "GOOGLE_SERVICE_ACCOUNT_JSON") {
+            displayMessage = parsed.detail || parsed.message;
+          } else if (parsed.message) {
+            displayMessage = parsed.message;
+          }
+        }
+      } catch {}
+      setBackupError({ type: "configToDrive", message: displayMessage });
+      toast({ title: t("syncDash.configBackupFailed"), description: displayMessage, variant: "destructive" });
     },
   });
 
