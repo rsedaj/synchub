@@ -133,6 +133,16 @@ export const syncBaselines = pgTable("sync_baselines", {
   recordKey: text("record_key").notNull(),
   fieldHash: text("field_hash").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  sourceData: jsonb("source_data").$type<Record<string, any>>(),
+  targetData: jsonb("target_data").$type<Record<string, any>>(),
+  hCode: text("h_code"),
+  onixNsNumber: text("onix_ns_number"),
+  onixRecordId: text("onix_record_id"),
+  syncStatus: text("sync_status").default("synced"),
+  errorMessage: text("error_message"),
+  syncRunId: varchar("sync_run_id"),
+  firstSyncedAt: timestamp("first_synced_at"),
+  lastSyncedAt: timestamp("last_synced_at"),
 }, (table) => [
   uniqueIndex("sync_baselines_config_key_unique").on(table.syncConfigId, table.recordKey),
 ]);

@@ -33,6 +33,10 @@ export interface PushRecordResult {
   errorMsg?: string;
   nsNumber?: string;
   vatTransforms?: VATTransformEntry[];
+  recordKey?: string;
+  hCode?: string;
+  onixNsNumber?: string;
+  onixRecordId?: string;
 }
 
 export interface PushResult {
@@ -988,6 +992,20 @@ async function pushToOnix(
     const record = records[i];
     const globalIndex = batchIndex * 50 + i;
 
+    let _snapKey = '';
+    let _snapHCode: string | undefined;
+    let _snapNsNum: string | undefined;
+    let _snapRecId: string | undefined;
+    {
+      const src = sourceRecords?.[i];
+      if (src && matchFields.length > 0) {
+        for (const mf of matchFields) {
+          const v = src[mf];
+          if (v != null && String(v).trim() !== '') { _snapKey = String(v).trim(); break; }
+        }
+      }
+    }
+
     try {
       let onixId: any = record._onix_id || record[writeDef.idField] || record.Id || record.id;
       let isUpdate = onixId && !isNaN(Number(onixId)) && Number(onixId) > 0;
@@ -1002,7 +1020,7 @@ async function pushToOnix(
           const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
           return {
             created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord.", nsNumber: nsNum },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Preskočené: záznam existuje v ONIX-e viackrát s rovnakým Ns_Number (problém kvality dát v ONIX-e). API neumožňuje cieliť konkrétny IdRecord.", nsNumber: nsNum, recordKey: _snapKey },
             latency: 0,
           };
         }
@@ -1013,7 +1031,7 @@ async function pushToOnix(
           const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
           return {
             created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Nenájdené v cieľovom systéme — preskočené podľa konfigurácie", nsNumber: nsNum },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Nenájdené v cieľovom systéme — preskočené podľa konfigurácie", nsNumber: nsNum, recordKey: _snapKey },
             latency: 0,
           };
         }
@@ -1195,6 +1213,11 @@ async function pushToOnix(
         body.Default_Price_Vat = isNaN(dpv) ? 0 : dpv;
       }
 
+      _snapKey = extId || autoId;
+      _snapHCode = hKodCfg && body[hKodCfg.field || "Ns_Number"] != null ? String(body[hKodCfg.field || "Ns_Number"]) : undefined;
+      _snapNsNum = body.Ns_Number != null ? String(body.Ns_Number) : undefined;
+      _snapRecId = body.RecordExternalIdentificator != null ? String(body.RecordExternalIdentificator) : undefined;
+
       if (i < 5 && batchIndex < 2) {
         console.log(`[target-push] ONIX record [b${batchIndex},r${i}]: ${method} ${url}`);
         console.log(`[target-push] body keys: [${Object.keys(body).join(", ")}]`);
@@ -1303,17 +1326,17 @@ async function pushToOnix(
           return {
             created: 0, updated: 0, error: 1, latency: fetchLatency,
             errEntry: { index: globalIndex, message: `ONIX rejected: ${onixRejectMsg}` },
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: `ONIX rejected: ${onixRejectMsg}` },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: `ONIX rejected: ${onixRejectMsg}`, recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
           };
         } else if (isUpdate) {
           return {
             created: 0, updated: 1, error: 0, latency: fetchLatency,
-            recResult: { sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated" },
+            recResult: { sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated", recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
           };
         } else {
           return {
             created: 1, updated: 0, error: 0, latency: fetchLatency,
-            recResult: { sourceIndex: globalIndex, target_id: newId, status: "created" },
+            recResult: { sourceIndex: globalIndex, target_id: newId, status: "created", recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
           };
         }
       } else {
@@ -1333,7 +1356,7 @@ async function pushToOnix(
         return {
           created: 0, updated: 0, error: 1, latency: fetchLatency,
           errEntry: { index: globalIndex, message: errMsg },
-          recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg },
+          recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg, recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
         };
       }
     } catch (err: any) {
@@ -1341,7 +1364,7 @@ async function pushToOnix(
       return {
         created: 0, updated: 0, error: 1, latency: 0,
         errEntry: { index: batchIndex * 50 + i, message: errMsg },
-        recResult: { sourceIndex: batchIndex * 50 + i, target_id: null, status: "error", errorMsg: errMsg },
+        recResult: { sourceIndex: batchIndex * 50 + i, target_id: null, status: "error", errorMsg: errMsg, recordKey: _snapKey },
       };
     }
   }

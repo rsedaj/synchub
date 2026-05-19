@@ -356,6 +356,25 @@ export async function runMigrations() {
     log("Schema m006: sync_runs migration skipped", "seed");
   }
 
+  // Schema migration m007: add record snapshot columns to sync_baselines
+  try {
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS source_data jsonb`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS target_data jsonb`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS h_code text`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS onix_ns_number text`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS onix_record_id text`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS sync_status text DEFAULT 'synced'`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS error_message text`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS sync_run_id varchar`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS first_synced_at timestamp`);
+    await db.execute(sql`ALTER TABLE sync_baselines ADD COLUMN IF NOT EXISTS last_synced_at timestamp`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sync_baselines_h_code ON sync_baselines(h_code) WHERE h_code IS NOT NULL`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sync_baselines_last_synced ON sync_baselines(sync_config_id, last_synced_at DESC NULLS LAST)`);
+    log("Schema m007: snapshot columns in sync_baselines verified", "seed");
+  } catch (_e) {
+    log("Schema m007: snapshot columns migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

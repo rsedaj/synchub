@@ -65,6 +65,36 @@ export interface IStorage {
   upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void>;
   deleteBaselines(configId: string): Promise<void>;
 
+  upsertRecordSnapshots(configId: string, runId: string, entries: Array<{
+    recordKey: string;
+    fieldHash?: string;
+    sourceData?: Record<string, any>;
+    targetData?: Record<string, any>;
+    hCode?: string;
+    onixNsNumber?: string;
+    onixRecordId?: string;
+    syncStatus: string;
+    errorMessage?: string;
+  }>): Promise<void>;
+  getRecordSnapshots(opts: {
+    configId: string;
+    limit?: number;
+    offset?: number;
+    status?: string;
+    search?: string;
+  }): Promise<{ rows: any[]; total: number }>;
+  getRecordSnapshotStats(): Promise<Array<{
+    syncConfigId: string;
+    configName: string;
+    total: number;
+    created: number;
+    updated: number;
+    errors: number;
+    skipped: number;
+    withHCode: number;
+    lastSyncedAt: string | null;
+  }>>;
+
   resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }>;
 }
 
@@ -307,6 +337,111 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBaselines(configId: string): Promise<void> {
     await db.delete(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
+  }
+
+  async upsertRecordSnapshots(configId: string, runId: string, entries: Array<{
+    recordKey: string;
+    fieldHash?: string;
+    sourceData?: Record<string, any>;
+    targetData?: Record<string, any>;
+    hCode?: string;
+    onixNsNumber?: string;
+    onixRecordId?: string;
+    syncStatus: string;
+    errorMessage?: string;
+  }>): Promise<void> {
+    const CHUNK = 50;
+    const esc = (v: string | null | undefined) => v != null ? `'${String(v).replace(/'/g, "''")}'` : 'NULL';
+    const escJson = (v: any) => v != null ? `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb` : 'NULL';
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const values = chunk.map(e => {
+        const rk = e.recordKey.replace(/'/g, "''");
+        const fh = (e.fieldHash || '').replace(/'/g, "''");
+        return `(${esc(configId)}, '${rk}', '${fh}', NOW(), ${escJson(e.sourceData)}, ${escJson(e.targetData)}, ${esc(e.hCode)}, ${esc(e.onixNsNumber)}, ${esc(e.onixRecordId)}, ${esc(e.syncStatus)}, ${esc(e.errorMessage)}, ${esc(runId)})`;
+      }).join(",");
+      await db.execute(sql.raw(`
+        INSERT INTO sync_baselines (sync_config_id, record_key, field_hash, updated_at, source_data, target_data, h_code, onix_ns_number, onix_record_id, sync_status, error_message, sync_run_id, first_synced_at, last_synced_at)
+        VALUES ${values}
+        ON CONFLICT (sync_config_id, record_key) DO UPDATE SET
+          field_hash = CASE WHEN EXCLUDED.field_hash != '' THEN EXCLUDED.field_hash ELSE sync_baselines.field_hash END,
+          updated_at = NOW(),
+          source_data = EXCLUDED.source_data,
+          target_data = EXCLUDED.target_data,
+          h_code = COALESCE(EXCLUDED.h_code, sync_baselines.h_code),
+          onix_ns_number = COALESCE(EXCLUDED.onix_ns_number, sync_baselines.onix_ns_number),
+          onix_record_id = COALESCE(EXCLUDED.onix_record_id, sync_baselines.onix_record_id),
+          sync_status = EXCLUDED.sync_status,
+          error_message = EXCLUDED.error_message,
+          sync_run_id = EXCLUDED.sync_run_id,
+          first_synced_at = COALESCE(sync_baselines.first_synced_at, NOW()),
+          last_synced_at = NOW()
+      `));
+    }
+  }
+
+  async getRecordSnapshots(opts: {
+    configId: string;
+    limit?: number;
+    offset?: number;
+    status?: string;
+    search?: string;
+  }): Promise<{ rows: any[]; total: number }> {
+    const limit = Math.min(opts.limit ?? 50, 200);
+    const offset = opts.offset ?? 0;
+    const esc = (v: string) => v.replace(/'/g, "''");
+    let where = `sb.sync_config_id = '${esc(opts.configId)}'`;
+    if (opts.status && opts.status !== 'all') {
+      where += ` AND sb.sync_status = '${esc(opts.status)}'`;
+    }
+    if (opts.search && opts.search.trim()) {
+      const s = esc(opts.search.trim().toLowerCase());
+      where += ` AND (LOWER(sb.record_key) LIKE '%${s}%' OR LOWER(COALESCE(sb.h_code,'')) LIKE '%${s}%' OR LOWER(COALESCE(sb.onix_ns_number,'')) LIKE '%${s}%')`;
+    }
+    const countResult = await db.execute(sql.raw(`SELECT COUNT(*)::int AS total FROM sync_baselines sb WHERE ${where}`));
+    const total = Number((countResult as any).rows?.[0]?.total ?? 0);
+    const rowsResult = await db.execute(sql.raw(`
+      SELECT sb.id, sb.record_key, sb.h_code, sb.onix_ns_number, sb.onix_record_id,
+             sb.sync_status, sb.error_message, sb.sync_run_id,
+             sb.first_synced_at, sb.last_synced_at, sb.field_hash,
+             sb.source_data, sb.target_data
+      FROM sync_baselines sb
+      WHERE ${where}
+      ORDER BY sb.last_synced_at DESC NULLS LAST, sb.record_key ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `));
+    return { rows: (rowsResult as any).rows ?? [], total };
+  }
+
+  async getRecordSnapshotStats(): Promise<Array<{
+    syncConfigId: string;
+    configName: string;
+    total: number;
+    created: number;
+    updated: number;
+    errors: number;
+    skipped: number;
+    withHCode: number;
+    lastSyncedAt: string | null;
+  }>> {
+    const result = await db.execute(sql.raw(`
+      SELECT
+        sb.sync_config_id AS "syncConfigId",
+        COALESCE(sc.name, sb.sync_config_id) AS "configName",
+        COUNT(*)::int AS total,
+        COUNT(CASE WHEN sb.sync_status = 'created' THEN 1 END)::int AS created,
+        COUNT(CASE WHEN sb.sync_status = 'updated' THEN 1 END)::int AS updated,
+        COUNT(CASE WHEN sb.sync_status = 'error' THEN 1 END)::int AS errors,
+        COUNT(CASE WHEN sb.sync_status = 'skipped' THEN 1 END)::int AS skipped,
+        COUNT(CASE WHEN sb.h_code IS NOT NULL AND sb.h_code != '' THEN 1 END)::int AS "withHCode",
+        MAX(sb.last_synced_at)::text AS "lastSyncedAt"
+      FROM sync_baselines sb
+      LEFT JOIN sync_configs sc ON sc.id = sb.sync_config_id
+      WHERE sb.last_synced_at IS NOT NULL
+      GROUP BY sb.sync_config_id, sc.name
+      ORDER BY sc.name NULLS LAST
+    `));
+    return ((result as any).rows ?? []) as any[];
   }
 
   async resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }> {

@@ -743,6 +743,28 @@ async function executeAsync(
               allSkippedItems.push({ nsNumber: r.nsNumber, reason: r.errorMsg || "Preskočené" });
             }
           }
+          // Write record snapshots to sync_baselines
+          if (pushResult.records.length > 0) {
+            const snapEntries = pushResult.records
+              .filter(r => r.recordKey && r.recordKey.trim() !== '')
+              .map(r => {
+                const bIdx = r.sourceIndex - (currentBatch - 1) * BATCH_SIZE;
+                return {
+                  recordKey: r.recordKey!,
+                  fieldHash: (batchableBaselines[i + bIdx]?.fieldHash) || '',
+                  sourceData: (bIdx >= 0 && bIdx < batchRecords.length) ? batchRecords[bIdx] : undefined,
+                  targetData: (bIdx >= 0 && bIdx < mappedBatch.length) ? mappedBatch[bIdx] : undefined,
+                  hCode: r.hCode,
+                  onixNsNumber: r.onixNsNumber,
+                  onixRecordId: r.onixRecordId,
+                  syncStatus: r.status,
+                  errorMessage: r.errorMsg,
+                };
+              });
+            if (snapEntries.length > 0) {
+              storage.upsertRecordSnapshots(config.id, runId, snapEntries).catch((_e: any) => {});
+            }
+          }
         } catch (err: any) {
           totalFailed += mappedBatch.length;
           batchErrorCount = mappedBatch.length;

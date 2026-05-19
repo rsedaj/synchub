@@ -1793,5 +1793,41 @@ export async function registerRoutes(
     }
   });
 
+  // Sync Records (katalóg záznamov v sync_baselines)
+  app.get("/api/sync-records/stats", requireAuth, async (_req, res) => {
+    try {
+      const stats = await storage.getRecordSnapshotStats();
+      return res.json(stats);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sync-records", requireAuth, async (req, res) => {
+    try {
+      const configId = String(req.query.configId || "");
+      if (!configId) return res.status(400).json({ message: "configId required" });
+      const limit = Math.min(parseInt(String(req.query.limit || "50"), 10), 200);
+      const offset = parseInt(String(req.query.offset || "0"), 10);
+      const status = String(req.query.status || "");
+      const search = String(req.query.search || "");
+      const result = await storage.getRecordSnapshots({ configId, limit, offset, status, search });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sync-records/:id/detail", requireAuth, async (req, res) => {
+    try {
+      const result = await storage.getRecordSnapshots({ configId: String(req.query.configId || ""), limit: 1, offset: 0, search: req.params.id });
+      const row = result.rows[0] || null;
+      if (!row) return res.status(404).json({ message: "Not found" });
+      return res.json(row);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

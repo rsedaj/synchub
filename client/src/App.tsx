@@ -21,6 +21,7 @@ import SyncDashboardPage from "@/pages/sync-dashboard";
 import ShopViewPage from "@/pages/shop-view";
 import HelpPage from "@/pages/help";
 import CountriesPage from "@/pages/countries";
+import SyncRecordsPage from "@/pages/sync-records";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -67,6 +68,7 @@ function AppLayout() {
               <Route path="/vault" component={VaultPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/audit-log" component={AuditLogPage} />
+              <Route path="/sync-records" component={SyncRecordsPage} />
               <Route component={NotFound} />
             </Switch>
           </main>
