@@ -658,7 +658,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [expandedLogRunId, setExpandedLogRunId] = useState<string | null>(null);
   const [expandedBackupId, setExpandedBackupId] = useState<number | null>(null);
   const [recordsViewRunId, setRecordsViewRunId] = useState<string | null>(null);
-  const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "error">("all");
+  const [recordsFilter, setRecordsFilter] = useState<"all" | "created" | "updated" | "skipped" | "error">("all");
   const [recordsPage, setRecordsPage] = useState(0);
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -2228,21 +2228,28 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                                 {showRecords && (
                                   <div className="mt-2 border rounded-lg overflow-hidden" data-testid="synced-records-table">
-                                    <div className="flex items-center gap-1 p-2 bg-muted/30 border-b">
-                                      {(["all", "created", "updated", "error"] as const).map(f => (
-                                        <Button
-                                          key={f}
-                                          variant={recordsFilter === f ? "default" : "ghost"}
-                                          size="sm" className="h-6 text-[11px] px-2"
-                                          onClick={(e) => { e.stopPropagation(); setRecordsFilter(f); setRecordsPage(0); }}
-                                          data-testid={`button-filter-${f}`}
-                                        >
-                                          {f === "all" ? t("syncDash.showAll")
-                                            : f === "created" ? t("syncDash.showCreated")
-                                            : f === "updated" ? t("syncDash.updated")
-                                            : t("syncDash.showErrors")}
-                                        </Button>
-                                      ))}
+                                    <div className="flex items-center gap-1 p-2 bg-muted/30 border-b flex-wrap">
+                                      {(["all", "created", "updated", "skipped", "error"] as const).map(f => {
+                                        const count = f === "all"
+                                          ? (details.syncedRecords as any[]).length
+                                          : (details.syncedRecords as any[]).filter((r: any) => r.status === f).length;
+                                        if (f !== "all" && count === 0) return null;
+                                        return (
+                                          <Button
+                                            key={f}
+                                            variant={recordsFilter === f ? "default" : "ghost"}
+                                            size="sm" className="h-6 text-[11px] px-2"
+                                            onClick={(e) => { e.stopPropagation(); setRecordsFilter(f as any); setRecordsPage(0); }}
+                                            data-testid={`button-filter-${f}`}
+                                          >
+                                            {f === "all" ? `${t("syncDash.showAll")} (${count})`
+                                              : f === "created" ? `${t("syncDash.showCreated")} (${count})`
+                                              : f === "updated" ? `${t("syncDash.updated")} (${count})`
+                                              : f === "skipped" ? `${language === "sk" ? "Preskočené" : "Skipped"} (${count})`
+                                              : `${t("syncDash.showErrors")} (${count})`}
+                                          </Button>
+                                        );
+                                      })}
                                     </div>
                                     {(() => {
                                       const filtered = (details.syncedRecords as any[]).filter(r =>
@@ -2288,11 +2295,12 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                                   </td>
                                                   <td className="p-1.5">
                                                     <Badge
-                                                      variant={rec.status === "created" ? "default" : rec.status === "updated" ? "secondary" : "destructive"}
-                                                      className="text-[10px] px-1.5"
+                                                      variant={rec.status === "created" ? "default" : rec.status === "updated" ? "secondary" : rec.status === "skipped" ? "outline" : "destructive"}
+                                                      className={`text-[10px] px-1.5 ${rec.status === "skipped" ? "border-amber-400/60 text-amber-700 dark:text-amber-400" : ""}`}
                                                     >
                                                       {rec.status === "created" ? t("syncDash.statusCreated")
                                                         : rec.status === "updated" ? t("syncDash.statusUpdated")
+                                                        : rec.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped")
                                                         : t("syncDash.statusFailed")}
                                                     </Badge>
                                                   </td>

@@ -631,6 +631,25 @@ async function buildOnixIndex(
     for (const [field, vMap] of fieldMap.entries()) {
       const samples = Array.from(vMap.keys()).slice(0, 5);
       sampleLog.push(`${field}: [${samples.map(s => JSON.stringify(s)).join(", ")}] (${vMap.size} unique vals)`);
+      if (vMap.size === 0 && field.startsWith("CustomColumns.")) {
+        // Diagnose: show which CustomColumns names actually exist in ONIX records
+        const colName = field.substring("CustomColumns.".length);
+        const actualCCNames = new Set<string>();
+        for (const item of arr.slice(0, 20)) {
+          if (Array.isArray(item.CustomColumns)) {
+            for (const cc of item.CustomColumns) {
+              if (cc?.Name) actualCCNames.add(String(cc.Name));
+            }
+          }
+        }
+        if (actualCCNames.size > 0) {
+          console.warn(`[target-push] ⚠ ONIX index: "${colName}" not found in CustomColumns! Available names (from first 20 records): [${Array.from(actualCCNames).join(", ")}]`);
+        } else if (arr.length > 0 && !Array.isArray(arr[0].CustomColumns)) {
+          console.warn(`[target-push] ⚠ ONIX index: item.CustomColumns is NOT an array for "${colName}" — type=${typeof arr[0].CustomColumns}, value=${JSON.stringify(arr[0].CustomColumns)?.slice(0, 200)}. Check if ?tables=CustomColumns is supported by this ONIX endpoint.`);
+        } else {
+          console.warn(`[target-push] ⚠ ONIX index: "${colName}" has 0 entries — ONIX records may have empty CustomColumns arrays (no records with this column populated).`);
+        }
+      }
     }
     const stockMsg = targetStock ? ` | stock filter=${targetStock} skipped=${filteredByStock}` : "";
     console.log(`[target-push] ONIX index built: ${arr.length} total / ${indexedCount} indexed in ${Date.now() - fetchStart}ms${stockMsg} | ${sampleLog.join(" | ")}`);
@@ -1049,9 +1068,14 @@ async function pushToOnix(
           isUpdate = true;
         } else if (onMissing === "skip") {
           const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
+          const src = sourceRecords?.[i];
+          const lookupDesc = matchTargetByMappingsRaw.map(m => {
+            const val = src ? src[m.sourceField] : undefined;
+            return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
+          }).join(", ");
           return {
             created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: "Nenájdené v cieľovom systéme — preskočené podľa konfigurácie", nsNumber: nsNum, recordKey: _snapKey },
+            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Nenájdené v ONIX: ${lookupDesc} — preskočené podľa konfigurácie`, nsNumber: nsNum, recordKey: _snapKey },
             latency: 0,
           };
         }
