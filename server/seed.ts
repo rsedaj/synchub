@@ -402,6 +402,7 @@ export async function runMigrations() {
     log("Schema m008: migration skipped", "seed");
   }
 
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

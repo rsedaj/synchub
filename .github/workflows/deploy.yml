@@ -63,10 +63,16 @@ jobs:
 
     steps:
       - name: Trigger Coolify deploy webhook
-        if: ${{ secrets.COOLIFY_WEBHOOK_URL != '' }}
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
+          if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
+            echo "COOLIFY_WEBHOOK_URL not set — skipping deploy webhook"
+            exit 0
+          fi
           curl --silent --fail --show-error \
-            -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -X POST "$COOLIFY_WEBHOOK_URL" \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" \
             -H "Content-Type: application/json"
           echo "Coolify deploy triggered"
