@@ -921,6 +921,92 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sync-configs/:id/test-onix-match", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(req.params.id);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const modules = await storage.getAllModules();
+      const targetMod = modules.find(m => m.id === config.targetModuleId);
+      if (!targetMod || targetMod.code.toUpperCase() !== "ONIX") {
+        return res.status(400).json({ message: "Cieľový modul nie je ONIX" });
+      }
+      const { getOnixCreds } = await import("./onix-creds");
+      const creds = getOnixCreds(targetMod.config as Record<string, any>);
+      if (!creds.token) return res.status(400).json({ message: `ONIX token nie je nakonfigurovaný (environment: ${creds.environment})` });
+      const rawBase = ((targetMod as any).baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
+      const hdrs: Record<string, string> = {
+        "Authorization": `Bearer ${creds.token}`,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub/1.0",
+      };
+      if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
+
+      const matchFields: string[] = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
+      const mappings: Array<{ sourceField: string; targetField: string }> = (config as any).fieldMappings || [];
+      const targetMatchFields = matchFields
+        .map(sf => mappings.find(m => m.sourceField === sf)?.targetField)
+        .filter(Boolean) as string[];
+
+      const hasCustomColumns = targetMatchFields.some(f => f.startsWith("CustomColumns."));
+      const fetchUrl = hasCustomColumns
+        ? `${rawBase}/api/v1/stockitems?tables=CustomColumns`
+        : `${rawBase}/api/v1/stockitems`;
+
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 30000);
+      const resp = await fetch(fetchUrl, { headers: hdrs, signal: ctrl.signal });
+      clearTimeout(t);
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        return res.status(resp.status).json({ message: `ONIX odpovedal: HTTP ${resp.status}`, raw: text.slice(0, 500) });
+      }
+
+      const data = await resp.json();
+      const arr: any[] = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : (Array.isArray(data?.data) ? data.data : []));
+
+      // Collect all CustomColumn names across first 50 records
+      const ccNameCounts = new Map<string, number>();
+      for (const item of arr.slice(0, 50)) {
+        if (Array.isArray(item.CustomColumns)) {
+          for (const cc of item.CustomColumns) {
+            if (cc?.Name) ccNameCounts.set(String(cc.Name), (ccNameCounts.get(String(cc.Name)) || 0) + 1);
+          }
+        }
+      }
+      const availableCCNames = Array.from(ccNameCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({ name, count }));
+
+      // Check if target match fields exist and show sample values
+      const fieldDiag = targetMatchFields.map(tf => {
+        if (tf.startsWith("CustomColumns.")) {
+          const colName = tf.substring("CustomColumns.".length);
+          const sampleVals: string[] = [];
+          for (const item of arr.slice(0, 10)) {
+            const cc = Array.isArray(item.CustomColumns) ? item.CustomColumns.find((c: any) => c.Name === colName) : null;
+            if (cc?.Value != null && String(cc.Value).trim()) sampleVals.push(String(cc.Value).trim());
+          }
+          const found = availableCCNames.some(n => n.name === colName);
+          return { field: tf, found, sampleValues: sampleVals.slice(0, 5), colName };
+        }
+        const sampleVals = arr.slice(0, 10).map(item => item[tf]).filter(v => v != null && String(v).trim()).map(v => String(v).trim()).slice(0, 5);
+        return { field: tf, found: sampleVals.length > 0, sampleValues: sampleVals };
+      });
+
+      return res.json({
+        environment: creds.environment,
+        totalRecords: arr.length,
+        hasCustomColumnsInResponse: arr.length > 0 && Array.isArray(arr[0]?.CustomColumns),
+        availableCCNames: availableCCNames.slice(0, 20),
+        fieldDiagnostics: fieldDiag,
+        sampleRecord: arr[0] ? { keys: Object.keys(arr[0]).slice(0, 20), CustomColumns: arr[0].CustomColumns } : null,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/sync-configs/:id/run", requireRole("admin", "operator"), async (req, res) => {
     try {
       const config = await storage.getSyncConfig(req.params.id);
