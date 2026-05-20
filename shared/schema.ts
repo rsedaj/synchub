@@ -126,6 +126,8 @@ export const syncBackups = pgTable("sync_backups", {
   configSnapshot: jsonb("config_snapshot").$type<Record<string, any>>(),
   backupType: text("backup_type").default("gdrive"),
   localFilePath: text("local_file_path"),
+  description: text("description"),
+  dbEnvironment: text("db_environment").default("unknown"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -264,6 +266,8 @@ export const insertSyncBackupSchema = createInsertSchema(syncBackups).pick({
   configSnapshot: true,
   backupType: true,
   localFilePath: true,
+  description: true,
+  dbEnvironment: true,
 });
 
 export const insertOnixBackupSchema = createInsertSchema(onixBackups).pick({

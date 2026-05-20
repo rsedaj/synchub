@@ -1219,6 +1219,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/sync-backups/enriched", requireAuth, async (_req, res) => {
+    try {
+      const backups = await storage.getEnrichedSyncBackups();
+      return res.json(backups);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load enriched backups" });
+    }
+  });
+
   app.get("/api/sync-backups", requireAuth, async (_req, res) => {
     try {
       const backups = await storage.getAllSyncBackups();

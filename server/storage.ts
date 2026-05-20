@@ -58,6 +58,7 @@ export interface IStorage {
   getAllSyncBackups(): Promise<SyncBackup[]>;
   getSyncBackup(id: string): Promise<SyncBackup | undefined>;
   getSyncBackupsByConfig(configId: string): Promise<SyncBackup[]>;
+  getEnrichedSyncBackups(): Promise<any[]>;
   createSyncBackup(data: InsertSyncBackup): Promise<SyncBackup>;
   deleteSyncBackup(id: string): Promise<void>;
   deleteSyncBackupsByConfig(configId: string): Promise<void>;
@@ -313,6 +314,25 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(syncBackups)
       .where(eq(syncBackups.syncConfigId, configId))
       .orderBy(desc(syncBackups.createdAt));
+  }
+
+  async getEnrichedSyncBackups(): Promise<any[]> {
+    const rows = await db.execute(sql`
+      SELECT
+        sb.id, sb.sync_config_id, sb.sync_run_id, sb.file_name, sb.file_size,
+        sb.google_drive_file_id, sb.google_drive_url, sb.backup_record_count,
+        sb.config_snapshot, sb.backup_type, sb.local_file_path,
+        sb.description, sb.db_environment, sb.created_at,
+        sc.name AS config_name,
+        src.name AS source_module_name, src.code AS source_module_code,
+        tgt.name AS target_module_name, tgt.code AS target_module_code, tgt.base_url AS target_module_base_url
+      FROM sync_backups sb
+      LEFT JOIN sync_configs sc ON sb.sync_config_id = sc.id
+      LEFT JOIN api_modules src ON sc.source_module_id = src.id
+      LEFT JOIN api_modules tgt ON sc.target_module_id = tgt.id
+      ORDER BY sb.created_at DESC
+    `);
+    return (rows as any).rows ?? rows;
   }
 
   async createSyncBackup(data: InsertSyncBackup): Promise<SyncBackup> {

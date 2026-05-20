@@ -394,6 +394,19 @@ async function executeAsync(
         const effectiveFileSize = driveFileSize;
         const effectiveRecordCount = driveRecordCount || backupData.length;
 
+        // Detect DB environment from target module base URL
+        const detectDbEnv = (url: string | null | undefined): string => {
+          if (!url) return "unknown";
+          if (url.includes("hauerland_spol_s_ro")) return "production";
+          if (url.includes("testovacia_hauerland")) return "test";
+          return "unknown";
+        };
+        const dbEnvironment = detectDbEnv(targetModule.baseUrl);
+
+        // Auto-generate human-readable description
+        const envLabel = dbEnvironment === "production" ? " (ostrá DB)" : dbEnvironment === "test" ? " (testovacia DB)" : "";
+        const description = `Záloha pred synchronizáciou "${config.name}"${envLabel} — ${effectiveRecordCount.toLocaleString("sk")} záznamov z ${targetModule.name}`;
+
         const backup = await storage.createSyncBackup({
           syncConfigId: config.id,
           syncRunId: runId,
@@ -404,6 +417,8 @@ async function executeAsync(
           backupRecordCount: effectiveRecordCount,
           localFilePath: localFilePath ?? undefined,
           backupType,
+          description,
+          dbEnvironment,
           configSnapshot: {
             name: config.name,
             sourceModuleId: config.sourceModuleId,

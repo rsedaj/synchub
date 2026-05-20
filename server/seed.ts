@@ -402,6 +402,15 @@ export async function runMigrations() {
     log("Schema m008: migration skipped", "seed");
   }
 
+  // Schema migration m009: description + db_environment in sync_backups
+  try {
+    await db.execute(sql`ALTER TABLE sync_backups ADD COLUMN IF NOT EXISTS description text`);
+    await db.execute(sql`ALTER TABLE sync_backups ADD COLUMN IF NOT EXISTS db_environment text DEFAULT 'unknown'`);
+    log("Schema m009: description + db_environment added to sync_backups", "seed");
+  } catch (_e) {
+    log("Schema m009: migration skipped", "seed");
+  }
+
 
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
