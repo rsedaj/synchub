@@ -2002,5 +2002,65 @@ export async function registerRoutes(
     }
   });
 
+  // H kód katalóg export — všetky záznamy s H kódom pre daný config
+  app.get("/api/sync-records/hkod-export", requireAuth, async (req, res) => {
+    try {
+      const configId = String(req.query.configId || "");
+      const format = String(req.query.format || "csv").toLowerCase();
+      if (!configId) return res.status(400).json({ message: "configId je povinný" });
+
+      const config = await storage.getSyncConfig(configId);
+      const configName = config?.name || configId;
+
+      // Fetch all records with h_code for this config (no limit — export all)
+      const allRows: any[] = [];
+      let offset = 0;
+      const batchSize = 1000;
+      while (true) {
+        const batch = await storage.getRecordSnapshots({ configId, limit: batchSize, offset, status: "", search: "" });
+        allRows.push(...batch.rows);
+        if (batch.rows.length < batchSize) break;
+        offset += batchSize;
+      }
+
+      const withHKod = allRows.filter(r => r.h_code);
+
+      if (format === "json") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="hkod_${configName.replace(/[^a-z0-9]/gi, "_")}_${new Date().toISOString().slice(0, 10)}.json"`);
+        return res.json(withHKod.map(r => ({
+          record_key: r.record_key,
+          h_code: r.h_code,
+          onix_ns_number: r.onix_ns_number,
+          onix_record_id: r.onix_record_id,
+          sync_status: r.sync_status,
+          first_synced_at: r.first_synced_at,
+          last_synced_at: r.last_synced_at,
+        })));
+      }
+
+      // CSV (default)
+      const header = "WebSku;H_kod;Ns_Number;ONIX_ID;Status;Prvá_synchronizácia;Posledná_synchronizácia";
+      const lines = withHKod.map(r => [
+        r.record_key ?? "",
+        r.h_code ?? "",
+        r.onix_ns_number ?? "",
+        r.onix_record_id ?? "",
+        r.sync_status ?? "",
+        r.first_synced_at ? new Date(r.first_synced_at).toISOString() : "",
+        r.last_synced_at ? new Date(r.last_synced_at).toISOString() : "",
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(";"));
+
+      const csv = [header, ...lines].join("\r\n");
+      const fileName = `hkod_${configName.replace(/[^a-z0-9]/gi, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.setHeader("X-Total-Records", String(withHKod.length));
+      return res.send("\uFEFF" + csv); // BOM pre správne otvorenie v Exceli
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

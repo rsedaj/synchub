@@ -304,6 +304,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncRecords.statsTitle": "Prehľad integrácií",
     "syncRecords.noStats": "Žiadne integrácie so záznamami",
     "syncRecords.noStatsDesc": "Záznamy sa zobrazia po prvom spustení synchronizácie.",
+    "syncRecords.exportHKod": "Export H kód katalógu",
+    "syncRecords.exportHKodDesc": "CSV so všetkými WebSku↔H kód pármi pre túto integráciu",
+    "syncRecords.exportHKodEmpty": "Žiadne záznamy s H kódom",
+    "syncRecords.exportHKodCount": "záznamov s H kódom",
 
     "shopView.title": "Shop View",
     "shopView.feeds": "Feedy",
@@ -840,6 +844,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncRecords.statsTitle": "Integration overview",
     "syncRecords.noStats": "No integrations with records",
     "syncRecords.noStatsDesc": "Records will appear after the first synchronization run.",
+    "syncRecords.exportHKod": "Export H code catalog",
+    "syncRecords.exportHKodDesc": "CSV with all WebSku↔H code pairs for this integration",
+    "syncRecords.exportHKodEmpty": "No records with H code",
+    "syncRecords.exportHKodCount": "records with H code",
 
     "shopView.title": "Shop View",
     "shopView.feeds": "Feeds",

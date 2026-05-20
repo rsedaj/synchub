@@ -1106,6 +1106,14 @@ async function pushToOnix(
           if (batchIndex < 2) {
             console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"})`);
           }
+        } else {
+          // Existujúci H kód — vloží sa späť do body z DVOCH dôvodov:
+          // 1. ONIX POST musí obsahovať Ns_Number aby vedel ktorý záznam upsertovať
+          // 2. Snapshot (_snapHCode) číta z body → sync_baselines uloží WebSku↔H kód mapping
+          body[hkField] = existingFieldVal!;
+          if (batchIndex < 2) {
+            console.log(`[target-push] H kód zachovaný z ONIX: ${existingFieldVal} → ${hkField} (záznam ${globalIndex})`);
+          }
         }
       }
 

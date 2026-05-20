@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Database, X, ChevronLeft, ChevronRight, Tag, AlertTriangle, CheckCircle2, SkipForward, RefreshCcw } from "lucide-react";
+import { Search, Database, X, ChevronLeft, ChevronRight, Tag, AlertTriangle, CheckCircle2, SkipForward, RefreshCcw, Download } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
 interface SnapshotStat {
@@ -86,12 +87,48 @@ const PAGE_SIZE = 50;
 
 export default function SyncRecordsPage() {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const [selectedConfigId, setSelectedConfigId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(0);
   const [detailRow, setDetailRow] = useState<SnapshotRow | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExportHKod() {
+    if (!selectedConfigId) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/sync-records/hkod-export?configId=${encodeURIComponent(selectedConfigId)}&format=csv`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message || res.statusText);
+      }
+      const total = res.headers.get("X-Total-Records");
+      if (total === "0") {
+        toast({ title: t("syncRecords.exportHKodEmpty"), variant: "default" });
+        return;
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const match = cd.match(/filename="([^"]+)"/);
+      const fileName = match ? match[1] : "hkod_export.csv";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: `${t("syncRecords.exportHKod")} — ${total} ${t("syncRecords.exportHKodCount")}` });
+    } catch (e: any) {
+      toast({ title: e.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const debounce = useCallback((val: string) => {
     setSearch(val);
@@ -193,6 +230,21 @@ export default function SyncRecordsPage() {
               <span className="font-medium text-sm" data-testid="text-selected-config">{selectedStat?.configName || selectedConfigId}</span>
               {selectedStat && (
                 <span className="text-xs text-muted-foreground">— {selectedStat.total.toLocaleString()} {t("syncRecords.total").toLowerCase()}</span>
+              )}
+              {selectedStat && selectedStat.withHCode > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  disabled={exporting}
+                  onClick={handleExportHKod}
+                  data-testid="btn-export-hkod"
+                  title={t("syncRecords.exportHKodDesc")}
+                >
+                  <Download className="h-3 w-3" />
+                  {exporting ? "…" : t("syncRecords.exportHKod")}
+                  <span className="font-mono text-muted-foreground">({selectedStat.withHCode.toLocaleString()})</span>
+                </Button>
               )}
             </div>
             <div className="flex items-center gap-2 flex-1 max-w-xl">
