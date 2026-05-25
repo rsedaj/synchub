@@ -277,7 +277,7 @@ export default function AuditLogPage() {
 
       <div className="flex gap-3 flex-wrap" data-testid="audit-filters">
         <Select value={actionFilter} onValueChange={setActionFilter}>
-          <SelectTrigger className="w-[180px]" data-testid="select-action-filter">
+          <SelectTrigger className="flex-1 min-w-[8rem]" data-testid="select-action-filter">
             <SelectValue placeholder={t("auditLog.filterAction")} />
           </SelectTrigger>
           <SelectContent>
@@ -291,7 +291,7 @@ export default function AuditLogPage() {
         </Select>
 
         <Select value={entityFilter} onValueChange={setEntityFilter}>
-          <SelectTrigger className="w-[180px]" data-testid="select-entity-filter">
+          <SelectTrigger className="flex-1 min-w-[8rem]" data-testid="select-entity-filter">
             <SelectValue placeholder={t("auditLog.filterEntity")} />
           </SelectTrigger>
           <SelectContent>

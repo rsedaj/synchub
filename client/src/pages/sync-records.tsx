@@ -264,7 +264,7 @@ export default function SyncRecordsPage() {
                 )}
               </div>
               <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(0); }}>
-                <SelectTrigger className="h-8 w-32 text-xs" data-testid="select-status-filter">
+                <SelectTrigger className="h-8 min-w-[8rem] text-xs" data-testid="select-status-filter">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

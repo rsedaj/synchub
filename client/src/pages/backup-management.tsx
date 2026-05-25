@@ -309,7 +309,7 @@ export default function BackupManagementPage() {
           )}
         </div>
         <Select value={envFilter} onValueChange={setEnvFilter}>
-          <SelectTrigger className="h-8 w-44 text-xs" data-testid="select-env-filter">
+          <SelectTrigger className="h-8 flex-1 min-w-[8rem] text-xs" data-testid="select-env-filter">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -320,7 +320,7 @@ export default function BackupManagementPage() {
           </SelectContent>
         </Select>
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-8 w-36 text-xs" data-testid="select-sort">
+          <SelectTrigger className="h-8 flex-1 min-w-[8rem] text-xs" data-testid="select-sort">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

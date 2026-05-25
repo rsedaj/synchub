@@ -113,7 +113,7 @@ export default function SyncLogsPage() {
           <span className="text-sm text-muted-foreground">{t("syncLogs.filter")}</span>
         </div>
         <Select value={filterModule} onValueChange={setFilterModule}>
-          <SelectTrigger className="w-48" data-testid="select-filter-module">
+          <SelectTrigger className="flex-1 min-w-[8rem]" data-testid="select-filter-module">
             <SelectValue placeholder={t("syncLogs.allModules")} />
           </SelectTrigger>
           <SelectContent>
@@ -126,7 +126,7 @@ export default function SyncLogsPage() {
           </SelectContent>
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-40" data-testid="select-filter-status">
+          <SelectTrigger className="flex-1 min-w-[8rem]" data-testid="select-filter-status">
             <SelectValue placeholder={t("syncLogs.allStatuses")} />
           </SelectTrigger>
           <SelectContent>
