@@ -2357,17 +2357,33 @@ export default function SyncConfigPage() {
                                 <label className="text-xs text-muted-foreground">
                                   {language === "sk" ? "Ďalšie číslo" : "Next number"}
                                 </label>
-                                <Input
-                                  type="number"
-                                  className="h-8 text-xs font-mono w-36"
-                                  placeholder="45120"
-                                  value={editor.hKodConfig.nextNumber}
-                                  onChange={e => setEditor(prev => ({
-                                    ...prev,
-                                    hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
-                                  }))}
-                                  data-testid="input-hkod-next-number"
-                                />
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    type="number"
+                                    className="h-8 text-xs font-mono w-36"
+                                    placeholder="45120"
+                                    value={editor.hKodConfig.nextNumber}
+                                    onChange={e => setEditor(prev => ({
+                                      ...prev,
+                                      hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
+                                    }))}
+                                    data-testid="input-hkod-next-number"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs px-2 whitespace-nowrap"
+                                    onClick={() => setEditor(prev => ({
+                                      ...prev,
+                                      hKodConfig: { ...prev.hKodConfig, nextNumber: 0 },
+                                    }))}
+                                    data-testid="button-hkod-reset"
+                                    title={language === "sk" ? "Resetovať počítadlo na 0" : "Reset counter to 0"}
+                                  >
+                                    {language === "sk" ? "Reset na 0" : "Reset to 0"}
+                                  </Button>
+                                </div>
                                 {editor.id && (() => {
                                   const liveCfg = liveEditedConfig ?? configs?.find(c => c.id === editor.id);
                                   const savedNext = (liveCfg as any)?.hKodConfig?.nextNumber;
