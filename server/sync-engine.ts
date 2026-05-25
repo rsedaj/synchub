@@ -843,6 +843,10 @@ async function executeAsync(
               storage.upsertRecordSnapshots(config.id, runId, snapEntries).catch((_e: any) => {});
             }
           }
+          // Save H kód decisions for audit log
+          if (pushResult.hKodDecisions && pushResult.hKodDecisions.length > 0) {
+            storage.insertHkodDecisions(runId, config.id, pushResult.hKodDecisions).catch((_e: any) => {});
+          }
         } catch (err: any) {
           totalFailed += mappedBatch.length;
           batchErrorCount = mappedBatch.length;

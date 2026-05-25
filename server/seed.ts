@@ -411,6 +411,29 @@ export async function runMigrations() {
     log("Schema m009: migration skipped", "seed");
   }
 
+  // Schema migration m010: hkod_decisions table for per-record H kód audit log
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS hkod_decisions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        sync_run_id varchar NOT NULL,
+        sync_config_id varchar,
+        record_key text NOT NULL,
+        onix_id integer,
+        onix_ns_number text,
+        decision text NOT NULL,
+        h_code_value text,
+        reason text,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_hkod_decisions_run ON hkod_decisions(sync_run_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_hkod_decisions_config ON hkod_decisions(sync_config_id) WHERE sync_config_id IS NOT NULL`);
+    log("Schema m010: hkod_decisions table created", "seed");
+  } catch (_e) {
+    log("Schema m010: hkod_decisions migration skipped", "seed");
+  }
+
 
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");

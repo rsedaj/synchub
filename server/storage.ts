@@ -1,7 +1,7 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines, onixBackups,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines, onixBackups, hkodDecisions,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
@@ -98,6 +98,25 @@ export interface IStorage {
   }>>;
 
   resetSyncHistory(): Promise<{ deletedRuns: number; deletedLogs: number; deletedBaselines: number }>;
+
+  insertHkodDecisions(runId: string, configId: string | null, decisions: Array<{
+    recordKey: string;
+    onixId: number | null;
+    onixNsNumber: string | null;
+    decision: string;
+    hCodeValue: string;
+    reason: string;
+  }>): Promise<void>;
+  getHkodDecisions(runId: string): Promise<Array<{
+    id: string;
+    recordKey: string;
+    onixId: number | null;
+    onixNsNumber: string | null;
+    decision: string;
+    hCodeValue: string | null;
+    reason: string | null;
+    createdAt: Date;
+  }>>;
 
   createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup>;
   updateOnixBackup(id: string, data: Partial<OnixBackup>): Promise<void>;
@@ -495,6 +514,56 @@ export class DatabaseStorage implements IStorage {
       deletedLogs: Number(logsCount?.count ?? 0),
       deletedBaselines: Number(baselinesCount?.count ?? 0),
     };
+  }
+
+  async insertHkodDecisions(runId: string, configId: string | null, decisions: Array<{
+    recordKey: string;
+    onixId: number | null;
+    onixNsNumber: string | null;
+    decision: string;
+    hCodeValue: string;
+    reason: string;
+  }>): Promise<void> {
+    if (decisions.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < decisions.length; i += CHUNK) {
+      const chunk = decisions.slice(i, i + CHUNK);
+      await db.insert(hkodDecisions).values(chunk.map(d => ({
+        syncRunId: runId,
+        syncConfigId: configId ?? undefined,
+        recordKey: d.recordKey,
+        onixId: d.onixId ?? undefined,
+        onixNsNumber: d.onixNsNumber ?? undefined,
+        decision: d.decision,
+        hCodeValue: d.hCodeValue ?? undefined,
+        reason: d.reason ?? undefined,
+      } as any)));
+    }
+  }
+
+  async getHkodDecisions(runId: string): Promise<Array<{
+    id: string;
+    recordKey: string;
+    onixId: number | null;
+    onixNsNumber: string | null;
+    decision: string;
+    hCodeValue: string | null;
+    reason: string | null;
+    createdAt: Date;
+  }>> {
+    const rows = await db.select().from(hkodDecisions)
+      .where(eq(hkodDecisions.syncRunId, runId))
+      .orderBy(hkodDecisions.createdAt);
+    return rows.map(r => ({
+      id: r.id,
+      recordKey: r.recordKey,
+      onixId: r.onixId ?? null,
+      onixNsNumber: r.onixNsNumber ?? null,
+      decision: r.decision,
+      hCodeValue: r.hCodeValue ?? null,
+      reason: r.reason ?? null,
+      createdAt: r.createdAt,
+    }));
   }
 
   async createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup> {

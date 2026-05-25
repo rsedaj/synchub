@@ -472,6 +472,80 @@ function SparklineChart({ data, label }: { data: Array<{b: number; s: number}>; 
   );
 }
 
+function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) {
+  const [show, setShow] = useState(false);
+  const { data, isLoading } = useQuery<Array<{
+    id: string; recordKey: string; onixId: number | null; onixNsNumber: string | null;
+    decision: string; hCodeValue: string | null; reason: string | null; createdAt: string;
+  }>>({
+    queryKey: ['/api/hkod-decisions', runId],
+    queryFn: async () => {
+      const resp = await fetch(`/api/hkod-decisions?runId=${runId}`, { credentials: 'include' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    },
+    enabled: show,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (!show) {
+    return (
+      <button onClick={() => setShow(true)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2" data-testid={`button-hkod-load-${runId}`}>
+        {t('syncDash.hkodLoad')}
+      </button>
+    );
+  }
+
+  if (isLoading) {
+    return <span className="text-xs text-muted-foreground animate-pulse">{t('syncDash.hkodLoading')}</span>;
+  }
+
+  const decisions = data ?? [];
+  const assigned = decisions.filter(d => d.decision === 'assigned').length;
+  const preserved = decisions.filter(d => d.decision === 'preserved').length;
+
+  return (
+    <div data-testid={`hkod-panel-${runId}`}>
+      <p className="text-muted-foreground mb-1.5 flex items-center gap-3 flex-wrap">
+        <span># {t('syncDash.hkodDecisions')}: {t('syncDash.hkodTotal')} {decisions.length}</span>
+        {assigned > 0 && <span className="text-green-500">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
+        {preserved > 0 && <span className="text-blue-500">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
+        <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground ml-auto text-[10px]">▲</button>
+      </p>
+      {decisions.length === 0 ? (
+        <p className="text-muted-foreground text-[10px]">{t('syncDash.hkodNone')}</p>
+      ) : (
+        <div className="overflow-auto max-h-52 border border-muted/30 rounded">
+          <table className="w-full text-[10px]">
+            <thead className="sticky top-0 bg-muted/50">
+              <tr className="text-muted-foreground">
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColKey')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColOnixId')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColNsNum')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColDecision')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColCode')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {decisions.map((d) => (
+                <tr key={d.id} className="border-t border-muted/20 hover:bg-muted/20" data-testid={`hkod-row-${d.id}`}>
+                  <td className="px-2 py-0.5 font-mono max-w-[160px] truncate" title={d.recordKey}>{d.recordKey}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{d.onixId ?? '—'}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground font-mono">{d.onixNsNumber ?? '—'}</td>
+                  <td className={`px-2 py-0.5 font-semibold ${d.decision === 'assigned' ? 'text-green-500 dark:text-green-400' : 'text-blue-500 dark:text-blue-400'}`}>
+                    {d.decision === 'assigned' ? t('syncDash.hkodAssigned') : t('syncDash.hkodPreserved')}
+                  </td>
+                  <td className="px-2 py-0.5 text-foreground font-mono">{d.hCodeValue ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultBreakdownBar({ created, updated, skipped, failed }: { created: number; updated: number; skipped: number; failed: number }) {
   const total = created + updated + skipped + failed;
   if (total === 0) return null;
@@ -2600,6 +2674,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   </div>
                                 </div>
                               )}
+
+                              {/* H kód decisions log */}
+                              <div>
+                                <HkodPanel runId={run.id} t={t} />
+                              </div>
 
                               {/* CSV download */}
                               {(failed > 0 || skipped > 0) && (

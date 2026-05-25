@@ -39,6 +39,15 @@ export interface PushRecordResult {
   onixRecordId?: string;
 }
 
+export interface HKodDecision {
+  recordKey: string;
+  onixId: number | null;
+  onixNsNumber: string | null;
+  decision: 'preserved' | 'assigned';
+  hCodeValue: string;
+  reason: string;
+}
+
 export interface PushResult {
   success: boolean;
   createdCount: number;
@@ -51,6 +60,7 @@ export interface PushResult {
   minLatencyMs?: number;
   maxLatencyMs?: number;
   hKodNextNumber?: number;
+  hKodDecisions?: HKodDecision[];
 }
 
 async function sleep(ms: number) {
@@ -551,6 +561,50 @@ async function buildOnixIndex(
         (Array.isArray(data?.data) ? data.data :
           (Array.isArray(data?.items) ? data.items : [])));
 
+    // OData pagination: follow @odata.nextLink or use @odata.count to fetch remaining pages
+    {
+      const oDataCount = typeof data?.['@odata.count'] === 'number' ? (data['@odata.count'] as number) : null;
+      let nextLink: string | null = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : null;
+
+      if (nextLink) {
+        let safetyLimit = 200;
+        while (nextLink && safetyLimit-- > 0) {
+          const ctrl2 = new AbortController();
+          const t2 = setTimeout(() => ctrl2.abort(), 300000);
+          try {
+            const res2 = await fetch(nextLink, { headers: fetchHdrs, signal: ctrl2.signal });
+            clearTimeout(t2);
+            if (!res2.ok) { console.warn(`[target-push] ONIX index nextLink failed HTTP ${res2.status}`); break; }
+            const data2 = await res2.json();
+            const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
+            arr.push(...page);
+            nextLink = typeof data2?.['@odata.nextLink'] === 'string' ? data2['@odata.nextLink'] : null;
+          } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index nextLink error: ${e2.message}`); break; }
+        }
+        console.log(`[target-push] ONIX index paginated via @odata.nextLink: total=${arr.length} records`);
+      } else if (oDataCount && oDataCount > arr.length) {
+        const PAGE_SIZE = arr.length > 0 ? arr.length : 500;
+        let safetyLimit = 200;
+        while (arr.length < oDataCount && safetyLimit-- > 0) {
+          const skip = arr.length;
+          const sep = fetchUrl.includes('?') ? '&' : '?';
+          const pageUrl = `${fetchUrl}${sep}$skip=${skip}&$top=${PAGE_SIZE}`;
+          const ctrl2 = new AbortController();
+          const t2 = setTimeout(() => ctrl2.abort(), 300000);
+          try {
+            const res2 = await fetch(pageUrl, { headers: fetchHdrs, signal: ctrl2.signal });
+            clearTimeout(t2);
+            if (!res2.ok) { console.warn(`[target-push] ONIX index $skip failed HTTP ${res2.status}`); break; }
+            const data2 = await res2.json();
+            const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
+            if (page.length === 0) break;
+            arr.push(...page);
+          } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index $skip error: ${e2.message}`); break; }
+        }
+        console.log(`[target-push] ONIX index paginated via @odata.count: fetched=${arr.length}/${oDataCount}`);
+      }
+    }
+
     // Log first record structure to diagnose Default_Stock field availability
     if (arr.length > 0) {
       const sample = arr[0];
@@ -747,6 +801,7 @@ async function pushToOnix(
   let latencyCount = 0;
   let minLatencyMs = Infinity;
   let maxLatencyMs = 0;
+  const hKodDecisions: HKodDecision[] = [];
 
   const CONCURRENCY = Math.max(1, Math.min(8, parseInt(process.env.ONIX_CONCURRENCY || "1", 10)));
 
@@ -1101,19 +1156,19 @@ async function pushToOnix(
           }
         }
         const alreadyHasHKod = existingFieldVal ? existingFieldVal.startsWith(hKodCfg.prefix) : false;
+        const _hkOnixNsNum = onixIndex?.idToNsNumber?.get(Number(onixId)) ?? null;
+        const _hkRecKey = _snapKey || `idx-${globalIndex}`;
         if (!alreadyHasHKod) {
           body[hkField] = hKodCfg.prefix + hKodCounter++;
-          if (batchIndex < 2) {
-            console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"})`);
-          }
+          console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"}, key=${_hkRecKey})`);
+          hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
         } else {
           // Existujúci H kód — vloží sa späť do body z DVOCH dôvodov:
           // 1. ONIX POST musí obsahovať Ns_Number aby vedel ktorý záznam upsertovať
           // 2. Snapshot (_snapHCode) číta z body → sync_baselines uloží WebSku↔H kód mapping
           body[hkField] = existingFieldVal!;
-          if (batchIndex < 2) {
-            console.log(`[target-push] H kód zachovaný z ONIX: ${existingFieldVal} → ${hkField} (záznam ${globalIndex})`);
-          }
+          console.log(`[target-push] H kód zachovaný z ONIX: ${existingFieldVal} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
+          hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'preserved', hCodeValue: existingFieldVal!, reason: 'already-has-hkod' });
         }
       }
 
@@ -1475,5 +1530,6 @@ async function pushToOnix(
     minLatencyMs: minLatencyMs === Infinity ? 0 : minLatencyMs,
     maxLatencyMs,
     hKodNextNumber: hKodCfg ? hKodCounter : undefined,
+    hKodDecisions: hKodDecisions.length > 0 ? hKodDecisions : undefined,
   };
 }

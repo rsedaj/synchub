@@ -2071,5 +2071,17 @@ export async function registerRoutes(
     }
   });
 
+  // H kód decisions for a given sync run
+  app.get("/api/hkod-decisions", requireAuth, async (req, res) => {
+    const runId = req.query.runId as string;
+    if (!runId) return res.status(400).json({ message: "runId is required" });
+    try {
+      const rows = await storage.getHkodDecisions(runId);
+      return res.json(rows);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

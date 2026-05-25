@@ -148,6 +148,19 @@ export const onixBackups = pgTable("onix_backups", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const hkodDecisions = pgTable("hkod_decisions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncRunId: varchar("sync_run_id").notNull(),
+  syncConfigId: varchar("sync_config_id"),
+  recordKey: text("record_key").notNull(),
+  onixId: integer("onix_id"),
+  onixNsNumber: text("onix_ns_number"),
+  decision: text("decision").notNull(),
+  hCodeValue: text("h_code_value"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const syncBaselines = pgTable("sync_baselines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   syncConfigId: varchar("sync_config_id").notNull().references(() => syncConfigs.id),
