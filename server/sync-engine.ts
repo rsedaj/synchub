@@ -845,7 +845,9 @@ async function executeAsync(
           }
           // Save H kód decisions for audit log
           if (pushResult.hKodDecisions && pushResult.hKodDecisions.length > 0) {
-            storage.insertHkodDecisions(runId, config.id, pushResult.hKodDecisions).catch((_e: any) => {});
+            storage.insertHkodDecisions(runId, config.id, pushResult.hKodDecisions).catch((e: any) => {
+              console.warn(`[sync-engine] H kód decisions save failed (runId=${runId}): ${e?.message ?? e}`);
+            });
           }
         } catch (err: any) {
           totalFailed += mappedBatch.length;

@@ -43,7 +43,7 @@ export interface HKodDecision {
   recordKey: string;
   onixId: number | null;
   onixNsNumber: string | null;
-  decision: 'preserved' | 'assigned';
+  decision: 'preserved' | 'assigned' | 'skipped';
   hCodeValue: string;
   reason: string;
 }
@@ -602,6 +602,39 @@ async function buildOnixIndex(
           } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index $skip error: ${e2.message}`); break; }
         }
         console.log(`[target-push] ONIX index paginated via @odata.count: fetched=${arr.length}/${oDataCount}`);
+      } else if (!nextLink && !oDataCount && arr.length >= 500) {
+        // Fallback: non-OData page-limited response — try $skip/$top until short/empty page
+        // Stop if ONIX ignores $skip (same records returned) or page is shorter than first page
+        const PAGE_SIZE = arr.length;
+        const firstPageFirstId = arr[0]?.IdRecord ?? arr[0]?.Id ?? arr[0]?.id ?? null;
+        let safetyLimit = 200;
+        let pageFailed = false;
+        while (!pageFailed && safetyLimit-- > 0) {
+          const skip = arr.length;
+          const sep = fetchUrl.includes('?') ? '&' : '?';
+          const pageUrl = `${fetchUrl}${sep}$skip=${skip}&$top=${PAGE_SIZE}`;
+          const ctrl2 = new AbortController();
+          const t2 = setTimeout(() => ctrl2.abort(), 300000);
+          try {
+            const res2 = await fetch(pageUrl, { headers: fetchHdrs, signal: ctrl2.signal });
+            clearTimeout(t2);
+            if (!res2.ok) { pageFailed = true; break; }
+            const data2 = await res2.json();
+            const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
+            if (page.length === 0) break; // Empty page — done
+            // Detect if ONIX ignores $skip by comparing first IDs
+            const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? page[0]?.id ?? null;
+            if (pageFirstId !== null && pageFirstId === firstPageFirstId) {
+              console.log(`[target-push] ONIX index: $skip ignored (same first record) — endpoint returns all records in single response`);
+              break;
+            }
+            arr.push(...page);
+            if (page.length < PAGE_SIZE) break; // Short page — last page
+          } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index fallback $skip error: ${e2.message}`); pageFailed = true; }
+        }
+        if (arr.length > PAGE_SIZE) {
+          console.log(`[target-push] ONIX index fallback pagination complete: total=${arr.length} records`);
+        }
       }
     }
 
@@ -1158,7 +1191,14 @@ async function pushToOnix(
         const alreadyHasHKod = existingFieldVal ? existingFieldVal.startsWith(hKodCfg.prefix) : false;
         const _hkOnixNsNum = onixIndex?.idToNsNumber?.get(Number(onixId)) ?? null;
         const _hkRecKey = _snapKey || `idx-${globalIndex}`;
-        if (!alreadyHasHKod) {
+        // Check if source mapping already placed a valid H kód in body
+        const sourceBodyVal = body[hkField] != null ? String(body[hkField]).trim() : null;
+        const sourceAlreadyHasHKod = sourceBodyVal ? sourceBodyVal.startsWith(hKodCfg.prefix) : false;
+        if (sourceAlreadyHasHKod) {
+          // Source already provides a valid H kód — use it as-is, do NOT increment counter
+          console.log(`[target-push] H kód prevzatý zo zdroja: ${sourceBodyVal} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
+          hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'skipped', hCodeValue: sourceBodyVal!, reason: 'source-provided' });
+        } else if (!alreadyHasHKod) {
           body[hkField] = hKodCfg.prefix + hKodCounter++;
           console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"}, key=${_hkRecKey})`);
           hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });

@@ -474,6 +474,7 @@ function SparklineChart({ data, label }: { data: Array<{b: number; s: number}>; 
 
 function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) {
   const [show, setShow] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'assigned' | 'preserved' | 'skipped'>('all');
   const { data, isLoading } = useQuery<Array<{
     id: string; recordKey: string; onixId: number | null; onixNsNumber: string | null;
     decision: string; hCodeValue: string | null; reason: string | null; createdAt: string;
@@ -500,18 +501,47 @@ function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) 
     return <span className="text-xs text-muted-foreground animate-pulse">{t('syncDash.hkodLoading')}</span>;
   }
 
-  const decisions = data ?? [];
-  const assigned = decisions.filter(d => d.decision === 'assigned').length;
-  const preserved = decisions.filter(d => d.decision === 'preserved').length;
+  const all = data ?? [];
+  const assigned = all.filter(d => d.decision === 'assigned').length;
+  const preserved = all.filter(d => d.decision === 'preserved').length;
+  const skipped = all.filter(d => d.decision === 'skipped').length;
+  const decisions = filter === 'all' ? all : all.filter(d => d.decision === filter);
+
+  const decisionLabel = (dec: string) => {
+    if (dec === 'assigned') return t('syncDash.hkodAssigned');
+    if (dec === 'preserved') return t('syncDash.hkodPreserved');
+    return t('syncDash.hkodSkipped');
+  };
+  const decisionClass = (dec: string) =>
+    dec === 'assigned' ? 'text-green-500 dark:text-green-400'
+    : dec === 'preserved' ? 'text-blue-500 dark:text-blue-400'
+    : 'text-muted-foreground';
+
+  const filterBtn = (val: typeof filter, label: string) => (
+    <button
+      onClick={() => setFilter(val)}
+      data-testid={`button-hkod-filter-${val}-${runId}`}
+      className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${filter === val ? 'border-foreground/40 bg-muted text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+    >{label}</button>
+  );
 
   return (
     <div data-testid={`hkod-panel-${runId}`}>
-      <p className="text-muted-foreground mb-1.5 flex items-center gap-3 flex-wrap">
-        <span># {t('syncDash.hkodDecisions')}: {t('syncDash.hkodTotal')} {decisions.length}</span>
-        {assigned > 0 && <span className="text-green-500">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
-        {preserved > 0 && <span className="text-blue-500">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
-        <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground ml-auto text-[10px]">▲</button>
-      </p>
+      {/* Summary counts + filter */}
+      <div className="mb-1.5 flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground font-medium">{t('syncDash.hkodDecisions')}:</span>
+        <span className="text-[11px] text-muted-foreground">{t('syncDash.hkodTotal')} {all.length}</span>
+        {assigned > 0 && <span className="text-[11px] text-green-500">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
+        {preserved > 0 && <span className="text-[11px] text-blue-500">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
+        {skipped > 0 && <span className="text-[11px] text-muted-foreground">~{skipped} {t('syncDash.hkodSkippedCount')}</span>}
+        <div className="ml-auto flex items-center gap-1">
+          {filterBtn('all', t('syncDash.hkodFilterAll'))}
+          {assigned > 0 && filterBtn('assigned', t('syncDash.hkodAssigned'))}
+          {preserved > 0 && filterBtn('preserved', t('syncDash.hkodPreserved'))}
+          {skipped > 0 && filterBtn('skipped', t('syncDash.hkodSkipped'))}
+          <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1">▲</button>
+        </div>
+      </div>
       {decisions.length === 0 ? (
         <p className="text-muted-foreground text-[10px]">{t('syncDash.hkodNone')}</p>
       ) : (
@@ -524,18 +554,20 @@ function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) 
                 <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColNsNum')}</th>
                 <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColDecision')}</th>
                 <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColCode')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.hkodColReason')}</th>
               </tr>
             </thead>
             <tbody>
               {decisions.map((d) => (
                 <tr key={d.id} className="border-t border-muted/20 hover:bg-muted/20" data-testid={`hkod-row-${d.id}`}>
-                  <td className="px-2 py-0.5 font-mono max-w-[160px] truncate" title={d.recordKey}>{d.recordKey}</td>
+                  <td className="px-2 py-0.5 font-mono max-w-[140px] truncate" title={d.recordKey}>{d.recordKey}</td>
                   <td className="px-2 py-0.5 text-muted-foreground">{d.onixId ?? '—'}</td>
                   <td className="px-2 py-0.5 text-muted-foreground font-mono">{d.onixNsNumber ?? '—'}</td>
-                  <td className={`px-2 py-0.5 font-semibold ${d.decision === 'assigned' ? 'text-green-500 dark:text-green-400' : 'text-blue-500 dark:text-blue-400'}`}>
-                    {d.decision === 'assigned' ? t('syncDash.hkodAssigned') : t('syncDash.hkodPreserved')}
+                  <td className={`px-2 py-0.5 font-semibold ${decisionClass(d.decision)}`}>
+                    {decisionLabel(d.decision)}
                   </td>
                   <td className="px-2 py-0.5 text-foreground font-mono">{d.hCodeValue ?? '—'}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{d.reason ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
