@@ -602,14 +602,19 @@ async function buildOnixIndex(
           } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index $skip error: ${e2.message}`); break; }
         }
         console.log(`[target-push] ONIX index paginated via @odata.count: fetched=${arr.length}/${oDataCount}`);
-      } else if (!nextLink && !oDataCount && arr.length >= 500) {
-        // Fallback: non-OData page-limited response — try $skip/$top until short/empty page
-        // Stop if ONIX ignores $skip (same records returned) or page is shorter than first page
+      } else if (!nextLink && !oDataCount && arr.length > 0) {
+        // Fallback: non-OData page-limited response — try $skip/$top until short/empty page.
+        // Triggered for ANY non-empty first page (no threshold) to handle small ONIX page sizes
+        // (e.g., 250 records/page). Stops when page is shorter than first page, empty, or
+        // duplicate-page detection fires (ONIX ignoring $skip).
         const PAGE_SIZE = arr.length;
         const firstPageFirstId = arr[0]?.IdRecord ?? arr[0]?.Id ?? arr[0]?.id ?? null;
-        let safetyLimit = 200;
+        const initialLen = arr.length;
+        // 10 000 page hard cap (~2.5M records at 250/page) + loop-progress guard below
+        let maxPages = 10000;
         let pageFailed = false;
-        while (!pageFailed && safetyLimit-- > 0) {
+        while (!pageFailed && maxPages-- > 0) {
+          const prevLen = arr.length;
           const skip = arr.length;
           const sep = fetchUrl.includes('?') ? '&' : '?';
           const pageUrl = `${fetchUrl}${sep}$skip=${skip}&$top=${PAGE_SIZE}`;
@@ -618,22 +623,24 @@ async function buildOnixIndex(
           try {
             const res2 = await fetch(pageUrl, { headers: fetchHdrs, signal: ctrl2.signal });
             clearTimeout(t2);
-            if (!res2.ok) { pageFailed = true; break; }
+            if (!res2.ok) { console.warn(`[target-push] ONIX index fallback $skip HTTP ${res2.status}`); pageFailed = true; break; }
             const data2 = await res2.json();
             const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
             if (page.length === 0) break; // Empty page — done
-            // Detect if ONIX ignores $skip by comparing first IDs
+            // Detect if ONIX ignores $skip by comparing first record ID to first page
             const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? page[0]?.id ?? null;
             if (pageFirstId !== null && pageFirstId === firstPageFirstId) {
-              console.log(`[target-push] ONIX index: $skip ignored (same first record) — endpoint returns all records in single response`);
+              console.log(`[target-push] ONIX index: $skip ignored (same first record) — single-response endpoint`);
               break;
             }
             arr.push(...page);
+            // Loop-progress guard: stop if no growth (shouldn't happen, but defensive)
+            if (arr.length <= prevLen) { console.warn(`[target-push] ONIX index fallback: no growth after push, stopping`); break; }
             if (page.length < PAGE_SIZE) break; // Short page — last page
           } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index fallback $skip error: ${e2.message}`); pageFailed = true; }
         }
-        if (arr.length > PAGE_SIZE) {
-          console.log(`[target-push] ONIX index fallback pagination complete: total=${arr.length} records`);
+        if (arr.length > initialLen) {
+          console.log(`[target-push] ONIX index fallback pagination complete: total=${arr.length} records (${Math.ceil(arr.length / PAGE_SIZE)} pages)`);
         }
       }
     }
