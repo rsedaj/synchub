@@ -81,10 +81,10 @@ export default function SyncAnalyticsTab({ language }: { language: string }) {
           <Activity className="h-4 w-4" />
           {t("Prehľad synchronizácií", "Sync Analytics")}
         </h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{t("Posledných", "Last")}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">{t("Posledných", "Last")}</span>
           <Select value={days} onValueChange={setDays}>
-            <SelectTrigger className="w-28 h-8" data-testid="select-analytics-days">
+            <SelectTrigger className="w-28 h-8 min-w-0" data-testid="select-analytics-days">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
