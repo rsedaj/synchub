@@ -134,7 +134,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
   return (
     <Card className={`border ${mod.status === "connected" ? "border-blue-500/20" : ""}`} data-testid={`vault-card-${mod.code}`}>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-1">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-mono">{String(mod.sortOrder).padStart(2, "0")}.</span>
             {mod.name}

@@ -609,12 +609,12 @@ export default function ModuleDetailPage() {
         <TabsContent value="data" className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-x-2 gap-y-2 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-muted-foreground" />
                   <h2 className="text-sm font-medium">{t("moduleDetail.liveDataPreview")}</h2>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {(() => {
                     const sources: Record<string, { value: string; label: string }[]> = {
                       ONIX: [

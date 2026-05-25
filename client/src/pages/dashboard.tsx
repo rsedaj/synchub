@@ -193,12 +193,12 @@ function NetworkTopology({ modules }: { modules: ApiModule[] }) {
   return (
     <Card>
       <CardHeader className="pb-2 pt-3 px-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-x-2 gap-y-1 flex-wrap">
           <div className="flex items-center gap-2">
             <Globe className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.networkMap")}</h2>
           </div>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="font-mono text-[10px] whitespace-nowrap">
             {connected}/{total} {t("dashboard.nodesActive")}
           </Badge>
         </div>
@@ -304,12 +304,12 @@ function ModuleStatusPanel({ modules }: { modules: ApiModule[] }) {
   return (
     <Card>
       <CardHeader className="pb-2 pt-3 px-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-x-2 gap-y-1 flex-wrap">
           <div className="flex items-center gap-2">
             <Activity className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.moduleStatus")}</h2>
           </div>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="font-mono text-[10px] whitespace-nowrap">
             {modules.filter(m => m.status === "connected").length} / {modules.length}
           </Badge>
         </div>
@@ -370,13 +370,13 @@ function RecentSyncsPanel({ syncs, modules }: { syncs: SyncLog[]; modules: ApiMo
   return (
     <Card>
       <CardHeader className="pb-2 pt-3 px-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-x-2 gap-y-1 flex-wrap">
           <div className="flex items-center gap-2">
             <Radio className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             <h2 className="text-sm font-medium font-mono uppercase tracking-wider">{t("dashboard.recentSync")}</h2>
           </div>
           {syncs.length > 0 && (
-            <Badge variant="outline" className="font-mono text-[10px]">
+            <Badge variant="outline" className="font-mono text-[10px] whitespace-nowrap">
               {syncs.length} {t("dashboard.signals")}
             </Badge>
           )}
@@ -487,7 +487,7 @@ function ActiveSyncsPanel() {
   return (
     <Card className="border-emerald-500/30 dark:border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/5">
       <CardHeader className="pb-2 pt-3 px-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-x-2 gap-y-1 flex-wrap">
           <div className="flex items-center gap-2">
             <Play className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             <h2 className="text-sm font-medium font-mono uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
@@ -495,7 +495,7 @@ function ActiveSyncsPanel() {
             </h2>
             <PulsingDot color="emerald" />
           </div>
-          <Badge variant="outline" className="font-mono text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
+          <Badge variant="outline" className="font-mono text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
             {activeRuns.length}
           </Badge>
         </div>

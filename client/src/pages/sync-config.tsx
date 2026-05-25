@@ -1177,7 +1177,7 @@ export default function SyncConfigPage() {
       {editorOpen && (
         <Card className="border-2 border-primary/20" data-testid="card-config-editor">
           <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-1">
               <CardTitle className="text-lg">
                 {editor.id
                   ? (language === "sk" ? "Upraviť konfiguráciu" : "Edit Configuration")
