@@ -2087,8 +2087,16 @@ export async function registerRoutes(
   app.get("/api/hkod-decisions/export-csv", requireAuth, async (req, res) => {
     const runId = req.query.runId as string;
     if (!runId) return res.status(400).json({ message: "runId is required" });
+    const decisionFilter = req.query.decision as string | undefined;
+    const allowed = ["assigned", "preserved", "skipped"];
+    if (decisionFilter && !allowed.includes(decisionFilter)) {
+      return res.status(400).json({ message: `Invalid decision value. Accepted: ${allowed.join(", ")}` });
+    }
     try {
-      const rows = await storage.getHkodDecisions(runId);
+      let rows = await storage.getHkodDecisions(runId);
+      if (decisionFilter) {
+        rows = rows.filter(r => r.decision === decisionFilter);
+      }
       const run = await storage.getSyncRun(runId);
       const runLabel = run?.createdAt ? new Date(run.createdAt).toISOString().slice(0, 10) : "export";
       const fileName = `hkod_decisions_${runLabel}.csv`;
