@@ -408,9 +408,19 @@ export default function ModuleDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-[500px] rounded-lg" />
+      <div className="p-6 space-y-6 max-w-[1400px]">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-9 rounded-md flex-shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-6 w-56" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(n => <Skeleton key={n} className="h-20 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-10 w-full rounded-lg" />
+        <Skeleton className="h-[380px] w-full rounded-lg" />
       </div>
     );
   }

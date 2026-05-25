@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, Activity, TrendingUp, CheckCircle2, Clock, Database } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -57,8 +58,20 @@ export default function SyncAnalyticsTab({ language }: { language: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-8 w-28" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(n => <Skeleton key={n} className="h-24 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-56 w-full rounded-lg" />
+        <Skeleton className="h-56 w-full rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Skeleton className="h-40 rounded-lg" />
+          <Skeleton className="h-40 rounded-lg" />
+        </div>
       </div>
     );
   }

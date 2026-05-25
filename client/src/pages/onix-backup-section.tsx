@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, Database, HardDrive, Cloud, Download, CheckCircle2, XCircle, Clock, RefreshCw } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -111,8 +112,8 @@ export default function OnixBackupSection({ t, language }: { t: (key: string) =>
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <div className="space-y-2">
+            {[1, 2, 3].map(n => <Skeleton key={n} className="h-16 w-full rounded-lg" />)}
           </div>
         ) : backups.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">{t("syncDash.onixBackupNoHistory")}</p>

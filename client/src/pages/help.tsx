@@ -85,8 +85,13 @@ export default function HelpPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-48" />
-        {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-4 w-full" />)}
+        <div>
+          <Skeleton className="h-7 w-48 mb-1" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <div className="space-y-2">
+          {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)}
+        </div>
       </div>
     );
   }

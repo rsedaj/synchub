@@ -261,6 +261,27 @@ export default function BackupManagementPage() {
     }
   }, [backups.length]);
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-8 w-8 rounded-md" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(n => <Skeleton key={n} className="h-20 rounded-md" />)}
+        </div>
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <div className="space-y-4">
+          {[1, 2, 3].map(n => <Skeleton key={n} className="h-32 rounded-md" />)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
       {/* Header */}
@@ -278,18 +299,12 @@ export default function BackupManagementPage() {
       </div>
 
       {/* Stats */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[1,2,3,4].map(n => <Skeleton key={n} className="h-20 rounded-md" />)}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label={t("backups.totalBackups")} value={backups.length} icon={FileArchive} />
-          <StatCard label={t("backups.totalSize")} value={formatBytes(totalSize)} icon={Database} />
-          <StatCard label={t("backups.productionCount")} value={productionCount} sub={t("backups.envProduction")} icon={Server} />
-          <StatCard label={t("backups.testCount")} value={testCount} sub={t("backups.envTest")} icon={HardDrive} />
-        </div>
-      )}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label={t("backups.totalBackups")} value={backups.length} icon={FileArchive} />
+        <StatCard label={t("backups.totalSize")} value={formatBytes(totalSize)} icon={Database} />
+        <StatCard label={t("backups.productionCount")} value={productionCount} sub={t("backups.envProduction")} icon={Server} />
+        <StatCard label={t("backups.testCount")} value={testCount} sub={t("backups.envTest")} icon={HardDrive} />
+      </div>
 
       {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -341,11 +356,7 @@ export default function BackupManagementPage() {
       </div>
 
       {/* Groups */}
-      {isLoading ? (
-        <div className="space-y-4">
-          {[1,2,3].map(n => <Skeleton key={n} className="h-32 rounded-md" />)}
-        </div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="border rounded-md p-12 text-center" data-testid="text-no-backups">
           <HardDrive className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
           <p className="text-sm font-medium">{t("backups.noBackups")}</p>

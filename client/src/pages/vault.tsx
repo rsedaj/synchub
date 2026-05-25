@@ -193,6 +193,23 @@ export default function VaultPage() {
     queryKey: ["/api/modules"],
   });
 
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-lg flex-shrink-0" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-3.5 w-64" />
+          </div>
+        </div>
+        <div className="grid gap-3">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}
+        </div>
+      </div>
+    );
+  }
+
   const configuredModules = modules?.filter((m) => {
     const config = (m.config || {}) as Record<string, any>;
     const hasConfig = Object.keys(config).some((k) => SENSITIVE_KEYS.has(k) && config[k]);
@@ -235,42 +252,34 @@ export default function VaultPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-32 w-full" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {configuredModules.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Lock className="h-3.5 w-3.5" />
-                {t("vault.configuredModules")} ({configuredModules.length})
-              </h2>
-              <div className="grid gap-3">
-                {configuredModules.map((mod) => (
-                  <ModuleVaultCard key={mod.id} mod={mod} />
-                ))}
-              </div>
+      <>
+        {configuredModules.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Lock className="h-3.5 w-3.5" />
+              {t("vault.configuredModules")} ({configuredModules.length})
+            </h2>
+            <div className="grid gap-3">
+              {configuredModules.map((mod) => (
+                <ModuleVaultCard key={mod.id} mod={mod} />
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {unconfiguredModules.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">
-                {t("vault.waitingConfig")} ({unconfiguredModules.length})
-              </h2>
-              <div className="grid gap-3">
-                {unconfiguredModules.map((mod) => (
-                  <ModuleVaultCard key={mod.id} mod={mod} />
-                ))}
-              </div>
+        {unconfiguredModules.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-medium text-muted-foreground">
+              {t("vault.waitingConfig")} ({unconfiguredModules.length})
+            </h2>
+            <div className="grid gap-3">
+              {unconfiguredModules.map((mod) => (
+                <ModuleVaultCard key={mod.id} mod={mod} />
+              ))}
             </div>
-          )}
-        </>
-      )}
+          </div>
+        )}
+      </>
     </div>
   );
 }
