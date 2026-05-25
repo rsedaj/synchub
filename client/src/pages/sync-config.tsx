@@ -638,6 +638,12 @@ export default function SyncConfigPage() {
   const { data: modules } = useQuery<ApiModule[]>({ queryKey: ["/api/modules"] });
   const { data: configs, isLoading: configsLoading } = useQuery<EnrichedSyncConfig[]>({ queryKey: ["/api/sync-configs"] });
 
+  const { data: liveEditedConfig } = useQuery<EnrichedSyncConfig>({
+    queryKey: ["/api/sync-configs", editor.id],
+    enabled: !!editor.id && editorOpen,
+    refetchInterval: editorOpen && !!editor.id ? 4000 : false,
+  });
+
   const targetModules = useMemo(() =>
     (modules || []).filter(m => TARGET_MODULE_CODES.includes(m.code)).sort((a, b) => a.sortOrder - b.sortOrder),
     [modules]
@@ -2362,6 +2368,19 @@ export default function SyncConfigPage() {
                                   }))}
                                   data-testid="input-hkod-next-number"
                                 />
+                                {editor.id && (() => {
+                                  const liveCfg = liveEditedConfig ?? configs?.find(c => c.id === editor.id);
+                                  const savedNext = (liveCfg as any)?.hKodConfig?.nextNumber;
+                                  if (savedNext === undefined) return null;
+                                  const savedPrefix = (liveCfg as any)?.hKodConfig?.prefix || "H20";
+                                  return (
+                                    <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="text-hkod-saved-value">
+                                      {language === "sk" ? "Uložené v DB:" : "Saved in DB:"}
+                                      {" "}
+                                      <span className="font-mono font-semibold text-foreground">{savedPrefix}{savedNext}</span>
+                                    </p>
+                                  );
+                                })()}
                               </div>
                               <div className="flex flex-col gap-1 pb-0.5">
                                 <label className="text-xs text-muted-foreground">

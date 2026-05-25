@@ -787,6 +787,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const { data: configs = [] } = useQuery<(SyncConfig & { sourceModule?: any; targetModule?: any })[]>({
     queryKey: ["/api/sync-configs"],
+    refetchInterval: trackingRunId ? 3000 : false,
   });
 
   const { data: runs = [], refetch: refetchRuns } = useQuery<SyncRun[]>({
@@ -1420,6 +1421,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         {/* H-kód range (live) */}
                         <HKodRangeDisplay range={(trackedRun.details as any)?.hKodRange} language={language} />
 
+                        {/* H-kód total counter from config */}
+                        {(() => {
+                          const cfg = configMap[trackedRun.syncConfigId];
+                          const hkCfg = (cfg as any)?.hKodConfig;
+                          if (!hkCfg?.enabled || hkCfg?.nextNumber === undefined) return null;
+                          return (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="hkod-total-counter">
+                              <span>{language === "sk" ? "Celkový counter (DB):" : "Total counter (DB):"}</span>
+                              <span className="font-mono font-semibold text-foreground">{hkCfg.prefix || "H"}{hkCfg.nextNumber}</span>
+                            </div>
+                          );
+                        })()}
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
                             <span className="text-muted-foreground">{language === "sk" ? "Odoslaných do ONIX:" : "Pushed to target:"}</span>
@@ -1894,6 +1908,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30" data-testid={`badge-vat-${config.id}`}>
                                   <Percent className="h-3 w-3" />
                                   {t("syncDash.vatExcl")}
+                                </Badge>
+                              )}
+                              {(config as any).hKodConfig?.enabled && (config as any).hKodConfig?.nextNumber !== undefined && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 font-mono" data-testid={`badge-hkod-counter-${config.id}`} title={language === "sk" ? "Aktuálny H kód counter" : "Current H code counter"}>
+                                  <span className="font-mono">{(config as any).hKodConfig.prefix || "H"}{(config as any).hKodConfig.nextNumber}</span>
                                 </Badge>
                               )}
                               {isInBatch && !isBatchDone && !isRunning && (
