@@ -2605,12 +2605,12 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
         <>
           {/* Filter bar */}
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{language === "sk" ? "Filter:" : "Filter:"}</span>
             </div>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-44" data-testid="select-log-filter-status">
+              <SelectTrigger className="flex-1 min-w-[8rem] min-[480px]:flex-none min-[480px]:w-44" data-testid="select-log-filter-status">
                 <SelectValue placeholder={language === "sk" ? "Všetky stavy" : "All statuses"} />
               </SelectTrigger>
               <SelectContent>
