@@ -523,10 +523,13 @@ async function buildOnixIndex(
   // When any target match field is a CustomColumns.* field, we must append
   // ?tables=CustomColumns so ONIX returns the CustomColumns array per record.
   // Without this, item.CustomColumns is always undefined → no match ever found → all records skipped.
+  //
+  // $count=true is required by OData v4 spec to ask the server to return @odata.count.
+  // Without it ONIX will NOT include @odata.count even if pagination is active.
   const needsCustomColumns = targetFields.some(f => f.startsWith("CustomColumns."));
   const fetchUrl = needsCustomColumns
-    ? `${baseUrl}${endpoint}?tables=CustomColumns`
-    : `${baseUrl}${endpoint}`;
+    ? `${baseUrl}${endpoint}?tables=CustomColumns&$count=true`
+    : `${baseUrl}${endpoint}?$count=true`;
   const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
 
   const existing = _onixIndexCache.get(cacheKey);
@@ -560,6 +563,20 @@ async function buildOnixIndex(
       (Array.isArray(data?.value) ? data.value :
         (Array.isArray(data?.data) ? data.data :
           (Array.isArray(data?.items) ? data.items : [])));
+
+    // Log OData metadata present in the response (key diagnostic for pagination verification)
+    {
+      const odataKeys = Object.keys(data ?? {}).filter(k => k.startsWith('@odata.') || k.startsWith('@'));
+      const rawCount = data?.['@odata.count'];
+      const rawNextLink = data?.['@odata.nextLink'];
+      console.log(
+        `[target-push] ONIX index first response: page1=${arr.length} records | ` +
+        `odataFields=[${odataKeys.join(',')}] | ` +
+        `@odata.count=${rawCount ?? 'absent'} | ` +
+        `@odata.nextLink=${rawNextLink ? 'present' : 'absent'} | ` +
+        `responseType=${Array.isArray(data) ? 'array' : (typeof data === 'object' ? `object(keys:${Object.keys(data ?? {}).slice(0,8).join(',')})` : typeof data)}`
+      );
+    }
 
     // OData pagination: follow @odata.nextLink or use @odata.count to fetch remaining pages
     {
@@ -604,6 +621,9 @@ async function buildOnixIndex(
           } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index $skip error: ${e2.message}`); break; }
         }
         console.log(`[target-push] ONIX index paginated via @odata.count: fetched=${arr.length}/${oDataCount}`);
+      } else if (oDataCount && oDataCount === arr.length) {
+        // @odata.count matches first page — ONIX returned everything in one shot
+        console.log(`[target-push] ONIX index: single-page response confirmed by @odata.count=${oDataCount} == page1=${arr.length} — no pagination needed`);
       } else if (!nextLink && !oDataCount && arr.length > 0) {
         // Fallback: non-OData page-limited response — try $skip/$top until short/empty page.
         // Triggered for ANY non-empty first page (no threshold) to handle small ONIX page sizes
@@ -615,6 +635,7 @@ async function buildOnixIndex(
         // 10 000 page hard cap (~2.5M records at 250/page) + loop-progress guard below
         let maxPages = 10000;
         let pageFailed = false;
+        let singlePageConfirmed = false;
         while (!pageFailed && maxPages-- > 0) {
           const prevLen = arr.length;
           const skip = arr.length;
@@ -628,11 +649,12 @@ async function buildOnixIndex(
             if (!res2.ok) { console.warn(`[target-push] ONIX index fallback $skip HTTP ${res2.status}`); pageFailed = true; break; }
             const data2 = await res2.json();
             const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
-            if (page.length === 0) break; // Empty page — done
+            if (page.length === 0) { singlePageConfirmed = true; break; } // Empty page — done
             // Detect if ONIX ignores $skip by comparing first record ID to first page
             const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? page[0]?.id ?? null;
             if (pageFirstId !== null && pageFirstId === firstPageFirstId) {
-              console.log(`[target-push] ONIX index: $skip ignored (same first record) — single-response endpoint`);
+              console.log(`[target-push] ONIX index: $skip ignored (same first record) — single-response endpoint, total=${arr.length}`);
+              singlePageConfirmed = true;
               break;
             }
             arr.push(...page);
@@ -641,7 +663,9 @@ async function buildOnixIndex(
             if (page.length < PAGE_SIZE) break; // Short page — last page
           } catch (e2: any) { clearTimeout(t2); console.warn(`[target-push] ONIX index fallback $skip error: ${e2.message}`); pageFailed = true; }
         }
-        if (arr.length > initialLen) {
+        if (singlePageConfirmed && arr.length === initialLen) {
+          console.log(`[target-push] ONIX index: single-page response (no @odata.count/@odata.nextLink) — ONIX returned all ${arr.length} records at once, no pagination needed`);
+        } else if (arr.length > initialLen) {
           console.log(`[target-push] ONIX index fallback pagination complete: total=${arr.length} records (${Math.ceil(arr.length / PAGE_SIZE)} pages)`);
         }
       }
