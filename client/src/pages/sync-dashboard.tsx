@@ -550,15 +550,18 @@ function HkodPanel({ runId, configName, runCreatedAt, t }: { runId: string; conf
           {preserved > 0 && filterBtn('preserved', t('syncDash.hkodPreserved'))}
           {skipped > 0 && filterBtn('skipped', t('syncDash.hkodSkipped'))}
           {all.length > 0 && (
-            <a
-              href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}${filter !== 'all' ? `&decision=${filter}` : ''}`}
-              download
-              title={exportFilename}
-              data-testid={`button-hkod-export-csv-${runId}`}
-              className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-            >
-              {t('syncDash.hkodExportCsv')}
-            </a>
+            <div className="flex flex-col items-end gap-0">
+              <a
+                href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}${filter !== 'all' ? `&decision=${filter}` : ''}`}
+                download
+                title={exportFilename}
+                data-testid={`button-hkod-export-csv-${runId}`}
+                className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              >
+                {t('syncDash.hkodExportCsv')}
+              </a>
+              <span className="text-[10px] text-muted-foreground font-mono leading-tight px-1.5">{exportFilename}</span>
+            </div>
           )}
           <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1">▲</button>
         </div>
