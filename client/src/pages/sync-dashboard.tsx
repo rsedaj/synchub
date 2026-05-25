@@ -188,10 +188,10 @@ function BackupProgressPanel({ isActive, error, opType, t }: { isActive: boolean
 
   return (
     <div className="mt-3 border rounded-lg p-3 bg-muted/30" data-testid="backup-progress-panel">
-      <div className="flex items-center gap-2 mb-2">
-        <Loader2 className="h-4 w-4 animate-spin text-foreground" />
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <Loader2 className="h-4 w-4 animate-spin text-foreground flex-shrink-0" />
         <span className="text-sm font-medium">{t(phases[currentPhaseIdx].key)}</span>
-        <span className="text-xs text-muted-foreground ml-auto">
+        <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
           {t("syncDash.progressElapsed")}: {fmtElapsed(elapsed)}
         </span>
       </div>
@@ -315,7 +315,7 @@ function PhaseIndicator({ phase, phaseHistory, t }: { phase: string; phaseHistor
   };
 
   return (
-    <div className="flex items-center gap-1 w-full" data-testid="phase-indicator-steps">
+    <div className="flex flex-wrap items-center gap-1 w-full" data-testid="phase-indicator-steps">
       {PHASE_STEPS.map((step, idx) => {
         const status = getStepStatus(step);
         const config = PHASE_CONFIG[step];
@@ -1382,7 +1382,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                     )}
 
                     {(trackedRun.details as any)?.deltaMode !== undefined && (
-                      <div className="flex items-center gap-2 text-xs" data-testid="delta-info">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="delta-info">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(trackedRun.details as any).deltaMode ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"}`}>
                           {(trackedRun.details as any).deltaMode ? "DELTA" : "FULL"}
                         </span>
@@ -1416,21 +1416,21 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       <>
                         {/* Live counters row */}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs py-1 px-2 rounded-md bg-muted/30 border">
-                          <span className="text-green-600 dark:text-green-400 font-medium" data-testid="text-live-created">
+                          <span className="text-green-600 dark:text-green-400 font-medium whitespace-nowrap" data-testid="text-live-created">
                             +{((trackedRun.details as any).totalCreated || 0).toLocaleString()} {t("syncDash.created")}
                           </span>
-                          <span className="text-blue-600 dark:text-blue-400 font-medium" data-testid="text-live-updated">
+                          <span className="text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap" data-testid="text-live-updated">
                             ↻{((trackedRun.details as any).totalUpdated || 0).toLocaleString()} {t("syncDash.updated")}
                           </span>
-                          <span className="text-amber-600 dark:text-amber-400 font-medium" data-testid="text-live-skipped">
+                          <span className="text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap" data-testid="text-live-skipped">
                             ⊘{((trackedRun as any).recordsSkipped || (trackedRun.details as any).totalSkippedByMatch || 0).toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}
                           </span>
                           {(trackedRun.recordsFailed || 0) > 0 && (
-                            <span className="text-destructive font-medium" data-testid="text-live-failed">
+                            <span className="text-destructive font-medium whitespace-nowrap" data-testid="text-live-failed">
                               ✗{(trackedRun.recordsFailed || 0).toLocaleString()} {t("syncDash.errors")}
                             </span>
                           )}
-                          <span className="text-muted-foreground ml-auto text-[10px]">
+                          <span className="text-muted-foreground ml-auto text-[10px] whitespace-nowrap">
                             {(((trackedRun.details as any).totalCreated || 0) + ((trackedRun.details as any).totalUpdated || 0) + ((trackedRun as any).recordsSkipped || (trackedRun.details as any).totalSkippedByMatch || 0) + (trackedRun.recordsFailed || 0)).toLocaleString()} / {(trackedRun.recordsTotal || 0).toLocaleString()} {language === "sk" ? "spracovaných" : "processed"}
                           </span>
                         </div>
@@ -1498,10 +1498,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           )}
                           {((trackedRun.details as any)?.avgLatencyMs || 0) > 0 && (
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-muted-foreground text-xs">{t("syncDash.serverSpeed")}:</span>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                                <span className="text-muted-foreground text-xs whitespace-nowrap">{t("syncDash.serverSpeed")}:</span>
                                 {(trackedRun.details as any)?.speedRating && <SpeedRatingBadge rating={(trackedRun.details as any).speedRating} t={t} />}
-                                <span className="text-[10px] text-muted-foreground ml-auto">
+                                <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
                                   min <span className="font-medium text-foreground">{(trackedRun.details as any).minLatencyMs || 0}ms</span>
                                   {" · "}avg <span className="font-medium text-foreground">{(trackedRun.details as any).avgLatencyMs}ms</span>
                                   {" · "}max <span className="font-medium text-foreground">{(trackedRun.details as any).maxLatencyMs || 0}ms</span>
@@ -1514,13 +1514,13 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                         {/* Live error rate */}
                         {((trackedRun.details as any)?.errorRate || 0) > 0 && (
-                          <div className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md border border-destructive/20 bg-destructive/5" data-testid="live-error-rate">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs px-2.5 py-1.5 rounded-md border border-destructive/20 bg-destructive/5" data-testid="live-error-rate">
                             <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
-                            <span className="text-muted-foreground">{language === "sk" ? "Miera chýb:" : "Error rate:"}</span>
-                            <span className={`font-semibold ${(trackedRun.details as any).errorRate > 5 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+                            <span className="text-muted-foreground whitespace-nowrap">{language === "sk" ? "Miera chýb:" : "Error rate:"}</span>
+                            <span className={`font-semibold whitespace-nowrap ${(trackedRun.details as any).errorRate > 5 ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
                               {(trackedRun.details as any).errorRate}%
                             </span>
-                            <span className="text-[10px] text-muted-foreground ml-auto">
+                            <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
                               {(trackedRun.details as any).errorRate <= 1 ? (language === "sk" ? "nízka" : "low") :
                                (trackedRun.details as any).errorRate <= 5 ? (language === "sk" ? "stredná" : "medium") :
                                (language === "sk" ? "vysoká" : "high")}
@@ -1710,11 +1710,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                           {/* Throughput sparkline in completion */}
                           {cs.batchSpeedHistory && cs.batchSpeedHistory.length >= 3 && (
-                            <div className="flex items-center gap-3 px-2.5 py-1.5 rounded-md border bg-muted/20 text-xs">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5 rounded-md border bg-muted/20 text-xs">
                               <TrendingUp className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                              <span className="text-muted-foreground">{language === "sk" ? "Priebeh rýchlosti:" : "Speed trend:"}</span>
+                              <span className="text-muted-foreground whitespace-nowrap">{language === "sk" ? "Priebeh rýchlosti:" : "Speed trend:"}</span>
                               <SparklineChart data={cs.batchSpeedHistory} />
-                              <span className="text-[10px] text-muted-foreground ml-auto">
+                              <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
                                 {language === "sk" ? "max" : "peak"}: <span className="font-medium text-foreground">{Math.max(...cs.batchSpeedHistory.map((d: any) => d.s))} rec/s</span>
                               </span>
                             </div>
@@ -1850,7 +1850,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <Card className="lg:col-span-2">
-              <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between gap-2 space-y-0">
+              <CardHeader className="pb-2 pt-3 px-4 flex flex-row flex-wrap items-center justify-between gap-x-2 gap-y-2 space-y-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
                   {hkodStats && hkodStats.totalAssigned > 0 && (
@@ -2129,7 +2129,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                     return (
                       <div key={run.id} className="rounded-lg border" data-testid={`row-run-${run.id}`}>
                         <div
-                          className={`flex items-center justify-between p-3 text-sm ${hasDetails ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 p-3 text-sm ${hasDetails ? "cursor-pointer hover:bg-muted/50" : ""}`}
                           onClick={() => {
                             if (!hasDetails) return;
                             if (isExpanded) {
@@ -2144,26 +2144,26 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             <StatusBadge status={run.status} t={t} />
                             <span className="font-medium truncate">{config?.name || run.syncConfigId}</span>
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                             {(created > 0 || updated > 0 || skipped > 0 || failed > 0) ? (
-                              <span className="flex items-center gap-1.5">
-                                {created > 0 && <span className="text-green-600 dark:text-green-400">+{created.toLocaleString()} {t("syncDash.created")}</span>}
-                                {updated > 0 && <span className="text-blue-600 dark:text-blue-400">↻{updated.toLocaleString()} {t("syncDash.updated")}</span>}
-                                {skipped > 0 && <span className="text-amber-600 dark:text-amber-400">⊘{skipped.toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}</span>}
-                                {failed > 0 && <span className="text-destructive">✗{failed.toLocaleString()} {t("syncDash.errors")}</span>}
+                              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                {created > 0 && <span className="text-green-600 dark:text-green-400 whitespace-nowrap">+{created.toLocaleString()} {t("syncDash.created")}</span>}
+                                {updated > 0 && <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">↻{updated.toLocaleString()} {t("syncDash.updated")}</span>}
+                                {skipped > 0 && <span className="text-amber-600 dark:text-amber-400 whitespace-nowrap">⊘{skipped.toLocaleString()} {language === "sk" ? "preskočených" : "skipped"}</span>}
+                                {failed > 0 && <span className="text-destructive whitespace-nowrap">✗{failed.toLocaleString()} {t("syncDash.errors")}</span>}
                               </span>
                             ) : isDeltaNoChanges ? (
                               <span className="flex items-center gap-1.5" title={language === "sk" ? "Delta sync — všetky záznamy sú aktuálne, nič sa nezmenilo od posledného behu" : "Delta sync — all records up to date, nothing changed since last run"}>
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold">DELTA</span>
-                                <span className="text-green-600 dark:text-green-400">{deltaSkipped.toLocaleString()} {language === "sk" ? "bez zmeny" : "unchanged"}</span>
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold whitespace-nowrap">DELTA</span>
+                                <span className="text-green-600 dark:text-green-400 whitespace-nowrap">{deltaSkipped.toLocaleString()} {language === "sk" ? "bez zmeny" : "unchanged"}</span>
                               </span>
                             ) : (
-                              <span title="odoslaných do ONIX / na spracovanie">
+                              <span className="whitespace-nowrap" title="odoslaných do ONIX / na spracovanie">
                                 {(run.recordsProcessed || 0).toLocaleString()} / {(run.recordsTotal || 0).toLocaleString()}
                               </span>
                             )}
-                            <span>{formatDuration(duration)}</span>
-                            <span>{formatTimeAgo(run.startedAt)}</span>
+                            <span className="whitespace-nowrap">{formatDuration(duration)}</span>
+                            <span className="whitespace-nowrap">{formatTimeAgo(run.startedAt)}</span>
                             {hasDetails && (failed > 0 || skipped > 0) && (
                               <button
                                 data-testid={`button-export-csv-${run.id}`}
