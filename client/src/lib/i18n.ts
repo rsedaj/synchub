@@ -597,6 +597,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncDash.hkodPreservedCount": "zachovaných",
     "syncDash.hkodSkippedCount": "preskočených",
     "syncDash.hkodExportCsv": "⬇ Stiahnuť CSV",
+    "syncDash.hkodTotalAssigned": "Celkovo priradených H kódov",
+    "syncDash.hkodTotalAssignedTitle": "Počet H kódov priradených naprieč všetkými behmi synchronizácie",
   },
   en: {
     "sidebar.navigation": "Navigation",
@@ -1194,5 +1196,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "syncDash.hkodPreservedCount": "preserved",
     "syncDash.hkodSkippedCount": "skipped",
     "syncDash.hkodExportCsv": "⬇ Download CSV",
+    "syncDash.hkodTotalAssigned": "Total H codes assigned",
+    "syncDash.hkodTotalAssignedTitle": "Number of H codes assigned across all sync runs combined",
   },
 };

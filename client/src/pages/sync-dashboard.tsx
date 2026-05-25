@@ -59,6 +59,7 @@ import {
   Settings,
   Gauge,
   Percent,
+  Hash,
 } from "lucide-react";
 import type { ApiModule, SyncConfig, SyncLog, SyncRun } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -819,6 +820,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const { data: retryScheduleData = [] } = useQuery<Array<{ configId: string; fireAt: string; failedRunId: string; remainingMs: number }>>({
     queryKey: ["/api/retry-schedule"],
     refetchInterval: 5000,
+  });
+
+  const { data: hkodStats } = useQuery<{ totalAssigned: number; perConfig: Array<{ configId: string; assigned: number }> }>({
+    queryKey: ["/api/hkod-stats"],
+    refetchInterval: 30000,
   });
 
   const filteredLogs = syncLogs.filter((log) => {
@@ -1826,7 +1832,20 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between gap-2 space-y-0">
-                <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
+                <div className="flex items-center gap-2 min-w-0">
+                  <CardTitle className="text-sm font-medium">{t("syncDash.quickSync")}</CardTitle>
+                  {hkodStats && hkodStats.totalAssigned > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 gap-0.5 font-mono cursor-help shrink-0"
+                      title={t("syncDash.hkodTotalAssignedTitle")}
+                      data-testid="badge-hkod-total-assigned"
+                    >
+                      <Hash className="h-2.5 w-2.5" />
+                      {hkodStats.totalAssigned.toLocaleString()} {t("syncDash.hkodAssignedCount")}
+                    </Badge>
+                  )}
+                </div>
                 {configs.length > 0 && (
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" data-testid="toggle-full-sync">
@@ -1910,11 +1929,20 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   {t("syncDash.vatExcl")}
                                 </Badge>
                               )}
-                              {(config as any).hKodConfig?.enabled && (config as any).hKodConfig?.nextNumber !== undefined && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 font-mono" data-testid={`badge-hkod-counter-${config.id}`} title={language === "sk" ? "Aktuálny H kód counter" : "Current H code counter"}>
-                                  <span className="font-mono">{(config as any).hKodConfig.prefix || "H"}{(config as any).hKodConfig.nextNumber}</span>
-                                </Badge>
-                              )}
+                              {(config as any).hKodConfig?.enabled && (config as any).hKodConfig?.nextNumber !== undefined && (() => {
+                                const configAssigned = hkodStats?.perConfig.find(p => p.configId === config.id)?.assigned ?? 0;
+                                const tooltipText = language === "sk"
+                                  ? `Aktuálny H kód counter\nPriradených celkovo: ${configAssigned.toLocaleString()}`
+                                  : `Current H code counter\nTotal assigned: ${configAssigned.toLocaleString()}`;
+                                return (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 font-mono cursor-help" data-testid={`badge-hkod-counter-${config.id}`} title={tooltipText}>
+                                    <span className="font-mono">{(config as any).hKodConfig.prefix || "H"}{(config as any).hKodConfig.nextNumber}</span>
+                                    {configAssigned > 0 && (
+                                      <span className="text-muted-foreground ml-0.5">({configAssigned.toLocaleString()})</span>
+                                    )}
+                                  </Badge>
+                                );
+                              })()}
                               {isInBatch && !isBatchDone && !isRunning && (
                                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                                   <Clock className="h-3 w-3 mr-0.5" />

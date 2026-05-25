@@ -118,6 +118,11 @@ export interface IStorage {
     createdAt: Date;
   }>>;
 
+  getHkodStats(): Promise<{
+    totalAssigned: number;
+    perConfig: Array<{ configId: string; assigned: number }>;
+  }>;
+
   createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup>;
   updateOnixBackup(id: string, data: Partial<OnixBackup>): Promise<void>;
   getOnixBackups(limit?: number): Promise<OnixBackup[]>;
@@ -564,6 +569,27 @@ export class DatabaseStorage implements IStorage {
       reason: r.reason ?? null,
       createdAt: r.createdAt,
     }));
+  }
+
+  async getHkodStats(): Promise<{
+    totalAssigned: number;
+    perConfig: Array<{ configId: string; assigned: number }>;
+  }> {
+    const rows = await db
+      .select({
+        configId: hkodDecisions.syncConfigId,
+        cnt: count(),
+      })
+      .from(hkodDecisions)
+      .where(eq(hkodDecisions.decision, "assigned"))
+      .groupBy(hkodDecisions.syncConfigId);
+
+    const perConfig = rows.map(r => ({
+      configId: r.configId ?? "",
+      assigned: Number(r.cnt),
+    }));
+    const totalAssigned = perConfig.reduce((s, r) => s + r.assigned, 0);
+    return { totalAssigned, perConfig };
   }
 
   async createOnixBackup(data: Partial<InsertOnixBackup>): Promise<OnixBackup> {
