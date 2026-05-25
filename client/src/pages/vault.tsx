@@ -212,7 +212,7 @@ export default function VaultPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6" data-testid="page-vault">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-foreground">
             <KeyRound className="h-5 w-5 text-background" />
@@ -224,7 +224,7 @@ export default function VaultPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 whitespace-nowrap">
           <Badge variant="outline" className="text-xs" data-testid="badge-total-secrets">
             <Lock className="h-3 w-3 mr-1" />
             {totalSecrets} {t("vault.secretKeys")}

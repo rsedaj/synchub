@@ -197,7 +197,7 @@ export default function UsersPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1000px]">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-users-title">
             {t("users.title")}
