@@ -1228,7 +1228,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-medium tracking-tight" data-testid="text-sync-dashboard-title">
             {t("syncDash.title")}

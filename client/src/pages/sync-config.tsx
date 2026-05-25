@@ -1154,7 +1154,7 @@ export default function SyncConfigPage() {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6" data-testid="page-sync-config">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2" data-testid="text-sync-title">
             <GitBranch className="h-6 w-6" />

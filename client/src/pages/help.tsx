@@ -93,7 +93,7 @@ export default function HelpPage() {
 
   return (
     <div className="p-6 max-w-[900px] print:max-w-none print:p-4">
-      <div className="flex items-center justify-between gap-4 mb-8 print:hidden">
+      <div className="flex items-center justify-between gap-4 mb-8 flex-wrap print:hidden">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" data-testid="text-help-title">
             Dokumentácia SyncHub
