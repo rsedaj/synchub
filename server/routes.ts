@@ -2098,8 +2098,13 @@ export async function registerRoutes(
         rows = rows.filter(r => r.decision === decisionFilter);
       }
       const run = await storage.getSyncRun(runId);
+      const config = run?.syncConfigId ? await storage.getSyncConfig(run.syncConfigId) : undefined;
       const runLabel = run?.createdAt ? new Date(run.createdAt).toISOString().slice(0, 10) : "export";
-      const fileName = `hkod_decisions_${runLabel}.csv`;
+      const configSlug = config?.name
+        ? config.name.replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 40)
+        : "unknown";
+      const shortRunId = runId.slice(0, 8);
+      const fileName = `hkod_decisions_${configSlug}_${runLabel}_${shortRunId}.csv`;
 
       const header = "recordKey;onixId;onixNsNumber;decision;hCodeValue;reason;createdAt";
       const lines = rows.map(r => [
