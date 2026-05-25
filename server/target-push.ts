@@ -567,7 +567,8 @@ async function buildOnixIndex(
       let nextLink: string | null = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : null;
 
       if (nextLink) {
-        let safetyLimit = 200;
+        // No fixed page cap — terminate when nextLink is null; 10 000 is an upper safety guard only
+        let safetyLimit = 10000;
         while (nextLink && safetyLimit-- > 0) {
           const ctrl2 = new AbortController();
           const t2 = setTimeout(() => ctrl2.abort(), 300000);
@@ -584,7 +585,8 @@ async function buildOnixIndex(
         console.log(`[target-push] ONIX index paginated via @odata.nextLink: total=${arr.length} records`);
       } else if (oDataCount && oDataCount > arr.length) {
         const PAGE_SIZE = arr.length > 0 ? arr.length : 500;
-        let safetyLimit = 200;
+        // Terminate when arr.length >= oDataCount; 10 000 is an upper safety guard only
+        let safetyLimit = 10000;
         while (arr.length < oDataCount && safetyLimit-- > 0) {
           const skip = arr.length;
           const sep = fetchUrl.includes('?') ? '&' : '?';
