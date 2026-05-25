@@ -2691,17 +2691,15 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             data-testid={`button-log-expand-${run.id}`}
                           >
                             <span className={`mt-0.5 w-4 shrink-0 text-center font-bold ${runStatusColor}`}>{runStatusIcon}</span>
-                            <span className="flex-1 min-w-0">
-                              <span className="text-muted-foreground">[{run.startedAt ? new Date(run.startedAt).toISOString().replace("T", " ").slice(0, 19) : "—"}]</span>
-                              {" "}<span className="font-semibold text-foreground">{configName}</span>
-                              {" "}<span className={runStatusColor}>{runStatus.toUpperCase()}</span>
-                              {duration != null && <span className="text-muted-foreground ml-2">({duration}s)</span>}
-                              <span className="ml-3 gap-2 inline-flex flex-wrap">
-                                {created > 0 && <span className="text-green-600 dark:text-green-400">+{created.toLocaleString()} nové</span>}
-                                {updated > 0 && <span className="text-blue-600 dark:text-blue-400">↻{updated.toLocaleString()} upd</span>}
-                                {skipped > 0 && <span className="text-amber-500 dark:text-amber-400">⊘{skipped.toLocaleString()} skip</span>}
-                                {failed > 0 && <span className="text-red-500 dark:text-red-400">✗{failed.toLocaleString()} err</span>}
-                              </span>
+                            <span className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                              <span className="text-muted-foreground whitespace-nowrap">[{run.startedAt ? new Date(run.startedAt).toISOString().replace("T", " ").slice(0, 19) : "—"}]</span>
+                              <span className="font-semibold text-foreground break-all">{configName}</span>
+                              <span className={`${runStatusColor} whitespace-nowrap`}>{runStatus.toUpperCase()}</span>
+                              {duration != null && <span className="text-muted-foreground whitespace-nowrap">({duration}s)</span>}
+                              {created > 0 && <span className="text-green-600 dark:text-green-400 whitespace-nowrap">+{created.toLocaleString()} nové</span>}
+                              {updated > 0 && <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">↻{updated.toLocaleString()} upd</span>}
+                              {skipped > 0 && <span className="text-amber-500 dark:text-amber-400 whitespace-nowrap">⊘{skipped.toLocaleString()} skip</span>}
+                              {failed > 0 && <span className="text-red-500 dark:text-red-400 whitespace-nowrap">✗{failed.toLocaleString()} err</span>}
                             </span>
                             <span className="text-muted-foreground shrink-0">{isExpLog ? "▲" : "▼"}</span>
                           </button>

@@ -273,12 +273,12 @@ export default function SyncAnalyticsTab({ language }: { language: string }) {
                 const pct = Math.round((cfg.totalRuns / maxRuns) * 100);
                 return (
                   <div key={cfg.configId} className="px-4 py-2.5" data-testid={`row-analytics-config-${i}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground w-4 text-right">{i + 1}.</span>
-                        <span className="font-medium text-sm">{cfg.configName}</span>
+                    <div className="flex items-start justify-between flex-wrap gap-y-1 mb-1">
+                      <div className="flex items-center gap-3 min-w-0 mr-3">
+                        <span className="text-xs text-muted-foreground w-4 shrink-0 text-right">{i + 1}.</span>
+                        <span className="font-medium text-sm break-words">{cfg.configName}</span>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground whitespace-nowrap shrink-0">
                         <span>{cfg.totalRuns} {t("behov", "runs")}</span>
                         <span className="font-mono tabular-nums">
                           {cfg.totalProcessed.toLocaleString()} {t("záz.", "rec.")}
