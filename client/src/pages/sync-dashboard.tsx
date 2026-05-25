@@ -538,13 +538,15 @@ function HkodPanel({ runId, configName, runCreatedAt, t }: { runId: string; conf
   return (
     <div data-testid={`hkod-panel-${runId}`}>
       {/* Summary counts + filter */}
-      <div className="mb-1.5 flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] text-muted-foreground font-medium">{t('syncDash.hkodDecisions')}:</span>
-        <span className="text-[11px] text-muted-foreground">{t('syncDash.hkodTotal')} {all.length}</span>
-        {assigned > 0 && <span className="text-[11px] text-green-500">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
-        {preserved > 0 && <span className="text-[11px] text-blue-500">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
-        {skipped > 0 && <span className="text-[11px] text-muted-foreground">~{skipped} {t('syncDash.hkodSkippedCount')}</span>}
-        <div className="ml-auto flex flex-wrap items-center gap-1 min-w-0 justify-end">
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+          <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap">{t('syncDash.hkodDecisions')}:</span>
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{t('syncDash.hkodTotal')} {all.length}</span>
+          {assigned > 0 && <span className="text-[11px] text-green-500 whitespace-nowrap">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
+          {preserved > 0 && <span className="text-[11px] text-blue-500 whitespace-nowrap">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
+          {skipped > 0 && <span className="text-[11px] text-muted-foreground whitespace-nowrap">~{skipped} {t('syncDash.hkodSkippedCount')}</span>}
+        </div>
+        <div className="flex flex-wrap items-center gap-1 min-w-0 justify-end">
           <div className="flex items-center gap-1 flex-shrink-0">
             {filterBtn('all', t('syncDash.hkodFilterAll'))}
             {assigned > 0 && filterBtn('assigned', t('syncDash.hkodAssigned'))}
