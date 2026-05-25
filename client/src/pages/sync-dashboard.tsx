@@ -544,26 +544,30 @@ function HkodPanel({ runId, configName, runCreatedAt, t }: { runId: string; conf
         {assigned > 0 && <span className="text-[11px] text-green-500">+{assigned} {t('syncDash.hkodAssignedCount')}</span>}
         {preserved > 0 && <span className="text-[11px] text-blue-500">={preserved} {t('syncDash.hkodPreservedCount')}</span>}
         {skipped > 0 && <span className="text-[11px] text-muted-foreground">~{skipped} {t('syncDash.hkodSkippedCount')}</span>}
-        <div className="ml-auto flex items-center gap-1 min-w-0">
-          {filterBtn('all', t('syncDash.hkodFilterAll'))}
-          {assigned > 0 && filterBtn('assigned', t('syncDash.hkodAssigned'))}
-          {preserved > 0 && filterBtn('preserved', t('syncDash.hkodPreserved'))}
-          {skipped > 0 && filterBtn('skipped', t('syncDash.hkodSkipped'))}
-          {all.length > 0 && (
-            <div className="flex flex-col items-end gap-0 min-w-0 max-w-[180px]">
-              <a
-                href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}${filter !== 'all' ? `&decision=${filter}` : ''}`}
-                download
-                title={exportFilename}
-                data-testid={`button-hkod-export-csv-${runId}`}
-                className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-              >
-                {t('syncDash.hkodExportCsv')}
-              </a>
-              <span className="text-[10px] text-muted-foreground font-mono leading-tight px-1.5 w-full truncate text-right" title={exportFilename}>{exportFilename}</span>
-            </div>
-          )}
-          <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1">▲</button>
+        <div className="ml-auto flex flex-wrap items-center gap-1 min-w-0 justify-end">
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {filterBtn('all', t('syncDash.hkodFilterAll'))}
+            {assigned > 0 && filterBtn('assigned', t('syncDash.hkodAssigned'))}
+            {preserved > 0 && filterBtn('preserved', t('syncDash.hkodPreserved'))}
+            {skipped > 0 && filterBtn('skipped', t('syncDash.hkodSkipped'))}
+          </div>
+          <div className="flex items-center gap-1 min-w-0">
+            {all.length > 0 && (
+              <div className="flex flex-col items-end gap-0 min-w-0 max-w-[180px]">
+                <a
+                  href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}${filter !== 'all' ? `&decision=${filter}` : ''}`}
+                  download
+                  title={exportFilename}
+                  data-testid={`button-hkod-export-csv-${runId}`}
+                  className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                >
+                  {t('syncDash.hkodExportCsv')}
+                </a>
+                <span className="text-[10px] text-muted-foreground font-mono leading-tight px-1.5 w-full truncate text-right" title={exportFilename}>{exportFilename}</span>
+              </div>
+            )}
+            <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1 flex-shrink-0">▲</button>
+          </div>
         </div>
       </div>
       {decisions.length === 0 ? (
