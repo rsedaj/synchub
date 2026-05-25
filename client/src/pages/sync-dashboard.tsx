@@ -473,7 +473,7 @@ function SparklineChart({ data, label }: { data: Array<{b: number; s: number}>; 
   );
 }
 
-function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) {
+function HkodPanel({ runId, configName, runCreatedAt, t }: { runId: string; configName?: string; runCreatedAt?: string; t: (key: string) => string }) {
   const [show, setShow] = useState(false);
   const [filter, setFilter] = useState<'all' | 'assigned' | 'preserved' | 'skipped'>('all');
   const { data, isLoading } = useQuery<Array<{
@@ -526,6 +526,15 @@ function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) 
     >{label}</button>
   );
 
+  const configSlug = configName
+    ? configName.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40)
+    : 'unknown';
+  const runLabel = runCreatedAt
+    ? new Date(runCreatedAt).toISOString().slice(0, 10)
+    : 'export';
+  const shortRunId = runId.slice(0, 8);
+  const exportFilename = `hkod_decisions_${configSlug}_${runLabel}_${shortRunId}.csv`;
+
   return (
     <div data-testid={`hkod-panel-${runId}`}>
       {/* Summary counts + filter */}
@@ -544,6 +553,7 @@ function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) 
             <a
               href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}${filter !== 'all' ? `&decision=${filter}` : ''}`}
               download
+              title={exportFilename}
               data-testid={`button-hkod-export-csv-${runId}`}
               className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
             >
@@ -2766,7 +2776,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
                               {/* H kód decisions log */}
                               <div>
-                                <HkodPanel runId={run.id} t={t} />
+                                <HkodPanel runId={run.id} configName={config?.name} runCreatedAt={run.startedAt?.toString()} t={t} />
                               </div>
 
                               {/* CSV download */}

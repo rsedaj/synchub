@@ -2108,7 +2108,7 @@ export async function registerRoutes(
       }
       const run = await storage.getSyncRun(runId);
       const config = run?.syncConfigId ? await storage.getSyncConfig(run.syncConfigId) : undefined;
-      const runLabel = run?.createdAt ? new Date(run.createdAt).toISOString().slice(0, 10) : "export";
+      const runLabel = run?.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
       const configSlug = config?.name
         ? config.name.replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 40)
         : "unknown";
