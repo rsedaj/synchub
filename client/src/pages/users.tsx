@@ -182,7 +182,7 @@ export default function UsersPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <Skeleton className="h-7 w-28" />
           <Skeleton className="h-9 w-28" />
         </div>
