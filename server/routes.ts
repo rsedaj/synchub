@@ -2083,5 +2083,36 @@ export async function registerRoutes(
     }
   });
 
+  // H kód decisions CSV export for a given sync run
+  app.get("/api/hkod-decisions/export-csv", requireAuth, async (req, res) => {
+    const runId = req.query.runId as string;
+    if (!runId) return res.status(400).json({ message: "runId is required" });
+    try {
+      const rows = await storage.getHkodDecisions(runId);
+      const run = await storage.getSyncRun(runId);
+      const runLabel = run?.createdAt ? new Date(run.createdAt).toISOString().slice(0, 10) : "export";
+      const fileName = `hkod_decisions_${runLabel}.csv`;
+
+      const header = "recordKey;onixId;onixNsNumber;decision;hCodeValue;reason;createdAt";
+      const lines = rows.map(r => [
+        r.recordKey ?? "",
+        r.onixId != null ? String(r.onixId) : "",
+        r.onixNsNumber ?? "",
+        r.decision ?? "",
+        r.hCodeValue ?? "",
+        r.reason ?? "",
+        r.createdAt ? new Date(r.createdAt).toISOString() : "",
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(";"));
+
+      const csv = [header, ...lines].join("\r\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.setHeader("X-Total-Records", String(rows.length));
+      return res.send("\uFEFF" + csv);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

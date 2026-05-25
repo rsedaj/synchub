@@ -539,6 +539,16 @@ function HkodPanel({ runId, t }: { runId: string; t: (key: string) => string }) 
           {assigned > 0 && filterBtn('assigned', t('syncDash.hkodAssigned'))}
           {preserved > 0 && filterBtn('preserved', t('syncDash.hkodPreserved'))}
           {skipped > 0 && filterBtn('skipped', t('syncDash.hkodSkipped'))}
+          {all.length > 0 && (
+            <a
+              href={`/api/hkod-decisions/export-csv?runId=${encodeURIComponent(runId)}`}
+              download
+              data-testid={`button-hkod-export-csv-${runId}`}
+              className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              {t('syncDash.hkodExportCsv')}
+            </a>
+          )}
           <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1">▲</button>
         </div>
       </div>
