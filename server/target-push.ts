@@ -1232,9 +1232,25 @@ async function pushToOnix(
           console.log(`[target-push] H kód prevzatý zo zdroja: ${sourceBodyVal} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
           hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'skipped', hCodeValue: sourceBodyVal!, reason: 'source-provided' });
         } else if (!alreadyHasHKod) {
-          body[hkField] = hKodCfg.prefix + hKodCounter++;
-          console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"}, key=${_hkRecKey})`);
-          hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
+          // CRITICAL: ONIX upserts exclusively by Ns_Number.
+          // If hkField = "Ns_Number" and the record already exists in ONIX with a DIFFERENT
+          // Ns_Number, sending a new H kód as Ns_Number causes ONIX to CREATE a new record
+          // (duplicate) instead of updating the existing one — because ONIX cannot find a record
+          // with the new Ns_Number yet. The old record remains untouched.
+          // Fix: when isUpdate=true and hkField=Ns_Number and there IS an existing Ns_Number,
+          // preserve it in the body (don't generate new H kód) to ensure ONIX finds and updates
+          // the correct record. Counter is NOT incremented.
+          if (isUpdate && hkField === "Ns_Number" && existingFieldVal) {
+            body[hkField] = existingFieldVal;
+            console.warn(`[target-push] H kód: existujúci záznam má Ns_Number="${existingFieldVal}" (nezačína prefixom "${hKodCfg.prefix}") — nový H kód sa NEPRIRADÍ, zachováva sa existujúci Ns_Number aby nedošlo k duplikátu v ONIX (záznam ${globalIndex}, key=${_hkRecKey})`);
+            hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'preserved', hCodeValue: existingFieldVal, reason: 'cannot-reassign-ns-number' });
+          } else {
+            // New record (isUpdate=false) OR hkField is not Ns_Number OR existingFieldVal is empty
+            // → safe to assign a new H kód
+            body[hkField] = hKodCfg.prefix + hKodCounter++;
+            console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"}, key=${_hkRecKey})`);
+            hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
+          }
         } else {
           // Existujúci H kód — vloží sa späť do body z DVOCH dôvodov:
           // 1. ONIX POST musí obsahovať Ns_Number aby vedel ktorý záznam upsertovať
@@ -1293,6 +1309,16 @@ async function pushToOnix(
 
       if (!hasVal(body.Ns_Number) && !isUpdate) {
         body.Ns_Number = hasVal(body.RecordExternalIdentificator) ? body.RecordExternalIdentificator : autoId;
+      }
+      // For updates: if Ns_Number is still missing (not set by mappings or H kód logic),
+      // restore it from the ONIX index — ONIX upserts by Ns_Number, so without it ONIX
+      // would create a new record instead of updating the existing one.
+      if (isUpdate && !hasVal(body.Ns_Number) && onixIndex && onixId) {
+        const existingNsNum = onixIndex.idToNsNumber.get(Number(onixId));
+        if (existingNsNum) {
+          body.Ns_Number = existingNsNum;
+          console.log(`[target-push] Ns_Number dotiahnutý z indexu pre update: "${existingNsNum}" (záznam ${globalIndex})`);
+        }
       }
       if (!hasVal(body.Ns_Code) && !isUpdate) {
         body.Ns_Code = "SK";
