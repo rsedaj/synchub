@@ -507,6 +507,22 @@ interface OnixIndexEntry {
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
 
+// ONIX REST API returns CustomColumns with table-prefixed names when reading
+// (e.g. "STOCK_ITEMS_Product_Code") but expects bare names when writing.
+// Use this helper everywhere we search a CustomColumns array so both formats match.
+const ONIX_CC_TABLE_PREFIXES = ["STOCK_ITEMS_", "PARTNERS_", "ORDER_ITEMS_", "ORDERS_", "PRICE_LISTS_"];
+function findCustomColumn(customColumns: any, colName: string): any {
+  if (!Array.isArray(customColumns)) return null;
+  return customColumns.find((c: any) => {
+    if (!c?.Name) return false;
+    if (c.Name === colName) return true;
+    for (const pfx of ONIX_CC_TABLE_PREFIXES) {
+      if (c.Name.startsWith(pfx) && c.Name.substring(pfx.length) === colName) return true;
+    }
+    return false;
+  }) ?? null;
+}
+
 async function buildOnixIndex(
   baseUrl: string,
   endpoint: string,
@@ -723,9 +739,7 @@ async function buildOnixIndex(
         let value: any;
         if (tf.startsWith("CustomColumns.")) {
           const colName = tf.substring("CustomColumns.".length);
-          const cc = Array.isArray(item.CustomColumns)
-            ? item.CustomColumns.find((c: any) => c.Name === colName)
-            : null;
+          const cc = findCustomColumn(item.CustomColumns, colName);
           value = cc?.Value;
         } else {
           value = item[tf];
@@ -992,7 +1006,7 @@ async function pushToOnix(
           let actual: any = r[ev.targetField];
           if (ev.targetField.startsWith("CustomColumns.")) {
             const colName = ev.targetField.substring("CustomColumns.".length);
-            const cc = Array.isArray(r.CustomColumns) ? r.CustomColumns.find((c: any) => c.Name === colName) : null;
+            const cc = findCustomColumn(r.CustomColumns, colName);
             actual = cc?.Value;
           }
           if (String(actual ?? "").trim() !== ev.value) return false;
@@ -1120,7 +1134,7 @@ async function pushToOnix(
           let actual: any = r[ev.targetField];
           if (ev.targetField.startsWith("CustomColumns.")) {
             const colName = ev.targetField.substring("CustomColumns.".length);
-            const cc = Array.isArray(r.CustomColumns) ? r.CustomColumns.find((c: any) => c.Name === colName) : null;
+            const cc = findCustomColumn(r.CustomColumns, colName);
             actual = cc?.Value;
           }
           if (String(actual ?? "").trim() !== ev.value) return false;
@@ -1247,7 +1261,9 @@ async function pushToOnix(
           } else {
             // New record (isUpdate=false) OR hkField is not Ns_Number OR existingFieldVal is empty
             // → safe to assign a new H kód
-            body[hkField] = hKodCfg.prefix + hKodCounter++;
+            const _hkPad: number = (hKodCfg as any).padding || 0;
+            const _hkNum = hKodCounter++;
+            body[hkField] = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
             console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (záznam ${globalIndex}, ${isUpdate ? "update" : "create"}, key=${_hkRecKey})`);
             hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
           }
@@ -1344,8 +1360,7 @@ async function pushToOnix(
           // ONIX REST API returns custom column names with a table prefix
           // (e.g. "STOCK_ITEMS_Z_STOI_00001_SIZE") but expects bare "Z_..." names
           // when writing. Strip any known table prefix automatically.
-          const ONIX_TABLE_PREFIXES = ["STOCK_ITEMS_", "PARTNERS_", "ORDER_ITEMS_", "ORDERS_", "PRICE_LISTS_"];
-          for (const pfx of ONIX_TABLE_PREFIXES) {
+          for (const pfx of ONIX_CC_TABLE_PREFIXES) {
             if (colName.startsWith(pfx)) { colName = colName.substring(pfx.length); break; }
           }
           // Legacy short-name alias (old mappings that used "URL" directly)
