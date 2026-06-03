@@ -571,6 +571,26 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
+  async getHkodPreviousAssignments(configId: string): Promise<Map<string, string>> {
+    const rows = await db
+      .select({ recordKey: hkodDecisions.recordKey, hCodeValue: hkodDecisions.hCodeValue })
+      .from(hkodDecisions)
+      .where(
+        and(
+          eq(hkodDecisions.syncConfigId, configId),
+          eq(hkodDecisions.decision, "assigned")
+        )
+      )
+      .orderBy(hkodDecisions.createdAt);
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      if (row.recordKey && row.hCodeValue && !map.has(row.recordKey)) {
+        map.set(row.recordKey, row.hCodeValue);
+      }
+    }
+    return map;
+  }
+
   async getHkodStats(): Promise<{
     totalAssigned: number;
     perConfig: Array<{ configId: string; assigned: number }>;

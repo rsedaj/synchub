@@ -733,6 +733,22 @@ async function executeAsync(
       : undefined;
     if (hKodNextNumber !== undefined) hKodStartNumber = hKodNextNumber;
 
+    // Pre-load H kód assignments from previous sync runs for this config.
+    // Used in target-push to prevent assigning a different H kód to the same
+    // source record across multiple sync runs (anti-duplicate protection).
+    let prevHkodAssignments: Map<string, string> | undefined;
+    if ((config as any).hKodConfig?.enabled && config.id) {
+      try {
+        prevHkodAssignments = await storage.getHkodPreviousAssignments(config.id);
+        if (prevHkodAssignments.size > 0) {
+          log(`H kód: načítaných ${prevHkodAssignments.size} predchádzajúcich priradení pre config ${config.id}`);
+        }
+      } catch (e: any) {
+        log(`H kód: chyba pri načítaní predchádzajúcich priradení: ${e?.message}`, "warn");
+        prevHkodAssignments = new Map();
+      }
+    }
+
     for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
         return await markCancelled(runId, totalCreated, totalUpdated, totalFailed, 0, totalRecords, allErrors, syncedRecords, currentBatch);
@@ -794,6 +810,7 @@ async function executeAsync(
                 ? { ...(config as any).hKodConfig, nextNumber: hKodNextNumber ?? (config as any).hKodConfig.nextNumber }
                 : null,
               onixFixedFields: (config as any).onixFixedFields?.length ? (config as any).onixFixedFields : null,
+              prevHkodAssignments,
             }
           );
           if (pushResult.hKodNextNumber !== undefined) {
