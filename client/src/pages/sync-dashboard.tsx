@@ -1616,35 +1616,38 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             data-testid="panel-live-log-expanded"
                           >
                             {accumulatedSamples.map((item: any, idx: number) => {
-                              const isOk = item.status === "created" || item.status === "updated";
+                              const isUpdated = item.status === "updated";
+                              const isCreated = item.status === "created";
                               const isSkipped = item.status === "skipped";
                               const isError = item.status === "error";
                               return (
                                 <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
-                                  isOk ? "bg-green-500/8 dark:bg-green-500/10" :
+                                  isUpdated ? "bg-foreground text-background" :
+                                  isCreated ? "bg-green-500/8 dark:bg-green-500/10" :
                                   isError ? "bg-red-500/8 dark:bg-red-500/10" :
                                   isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
                                 }`}>
-                                  <span className="text-muted-foreground w-8 text-right flex-shrink-0 font-mono text-[10px]">#{item.index}</span>
+                                  <span className={`w-8 text-right flex-shrink-0 font-mono text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
                                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                    item.status === "created" ? "bg-green-500" :
-                                    item.status === "updated" ? "bg-blue-500" :
-                                    item.status === "skipped" ? "bg-amber-400" : "bg-red-500"
+                                    isCreated ? "bg-green-500" :
+                                    isUpdated ? "bg-background/70" :
+                                    isSkipped ? "bg-amber-400" : "bg-red-500"
                                   }`} />
                                   <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
                                   {item.targetId && (
-                                    <span className="text-muted-foreground flex-shrink-0 text-[10px]">→ {item.targetId}</span>
+                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
                                   )}
                                   <Badge
                                     variant={isError ? "destructive" : "outline"}
                                     className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
-                                      isOk ? "border-green-500/40 text-green-700 dark:text-green-400" :
+                                      isUpdated ? "border-background/30 text-background/80 bg-transparent" :
+                                      isCreated ? "border-green-500/40 text-green-700 dark:text-green-400" :
                                       isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
                                     }`}
                                   >
-                                    {item.status === "created" ? t("syncDash.created") :
-                                     item.status === "updated" ? t("syncDash.updated") :
-                                     item.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped") :
+                                    {isCreated ? t("syncDash.created") :
+                                     isUpdated ? t("syncDash.updated") :
+                                     isSkipped ? (language === "sk" ? "preskočený" : "skipped") :
                                      t("syncDash.error")}
                                   </Badge>
                                 </div>
@@ -1655,35 +1658,38 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         ) : (
                           <div className="space-y-0.5">
                             {((trackedRun.details as any).liveBatch.sample || []).slice(0, 5).map((item: any, idx: number) => {
-                              const isOk = item.status === "created" || item.status === "updated";
+                              const isUpdated = item.status === "updated";
+                              const isCreated = item.status === "created";
                               const isSkipped = item.status === "skipped";
                               const isError = item.status === "error";
                               return (
                                 <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
-                                  isOk ? "bg-green-500/8 dark:bg-green-500/10" :
+                                  isUpdated ? "bg-foreground text-background" :
+                                  isCreated ? "bg-green-500/8 dark:bg-green-500/10" :
                                   isError ? "bg-red-500/8 dark:bg-red-500/10" :
                                   isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
                                 }`}>
-                                  <span className="text-muted-foreground w-8 text-right flex-shrink-0 font-mono">#{item.index}</span>
+                                  <span className={`w-8 text-right flex-shrink-0 font-mono ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
                                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                    item.status === "created" ? "bg-green-500" :
-                                    item.status === "updated" ? "bg-blue-500" :
-                                    item.status === "skipped" ? "bg-amber-400" : "bg-red-500"
+                                    isCreated ? "bg-green-500" :
+                                    isUpdated ? "bg-background/70" :
+                                    isSkipped ? "bg-amber-400" : "bg-red-500"
                                   }`} />
                                   <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
                                   {item.targetId && (
-                                    <span className="text-muted-foreground flex-shrink-0 text-[10px]">→ {item.targetId}</span>
+                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
                                   )}
                                   <Badge
                                     variant={isError ? "destructive" : "outline"}
                                     className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
-                                      isOk ? "border-green-500/40 text-green-700 dark:text-green-400" :
+                                      isUpdated ? "border-background/30 text-background/80 bg-transparent" :
+                                      isCreated ? "border-green-500/40 text-green-700 dark:text-green-400" :
                                       isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
                                     }`}
                                   >
-                                    {item.status === "created" ? t("syncDash.created") :
-                                     item.status === "updated" ? t("syncDash.updated") :
-                                     item.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped") :
+                                    {isCreated ? t("syncDash.created") :
+                                     isUpdated ? t("syncDash.updated") :
+                                     isSkipped ? (language === "sk" ? "preskočený" : "skipped") :
                                      t("syncDash.error")}
                                   </Badge>
                                 </div>
