@@ -1001,7 +1001,7 @@ async function executeAsync(
       const remaining = totalRecords - totalProcessed;
       const estimatedMs = speedPerSec > 0 ? (remaining / speedPerSec) * 1000 : 0;
 
-      const lastBatchSample = batchRecords.slice(0, 5).map((r: any, idx: number) => {
+      const lastBatchSample = batchRecords.slice(0, 30).map((r: any, idx: number) => {
         const mapped = mappedBatch[idx];
         const keys = Object.keys(r);
         const label = r.Name || r.name || r.Code || r.code || r.Nazov || r.nazov ||

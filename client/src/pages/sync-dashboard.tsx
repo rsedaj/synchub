@@ -920,6 +920,41 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   }, [activeRuns.length]);
 
   const [fullSyncMode, setFullSyncMode] = useState(false);
+  const [liveLogExpanded, setLiveLogExpanded] = useState(false);
+  const [accumulatedSamples, setAccumulatedSamples] = useState<any[]>([]);
+  const liveLogScrollRef = useRef<HTMLDivElement>(null);
+  const lastAccBatchRef = useRef<number>(-1);
+
+  // Accumulate live batch samples across batches + auto-scroll
+  useEffect(() => {
+    const liveBatch = (trackedRun?.details as any)?.liveBatch;
+    const isRunning = trackedRun?.status === "running" || trackedRun?.status === "pending";
+    if (!isRunning) {
+      lastAccBatchRef.current = -1;
+      return;
+    }
+    if (!liveBatch?.sample?.length) return;
+    const batchNum = liveBatch.batchNumber ?? 0;
+    if (batchNum === lastAccBatchRef.current) return;
+    lastAccBatchRef.current = batchNum;
+    setAccumulatedSamples(prev => {
+      const next = [...prev, ...liveBatch.sample];
+      return next.slice(-300);
+    });
+  }, [(trackedRun?.details as any)?.liveBatch?.batchNumber, trackedRun?.status]);
+
+  // Clear accumulated log when tracking a new run
+  useEffect(() => {
+    setAccumulatedSamples([]);
+    lastAccBatchRef.current = -1;
+  }, [trackingRunId]);
+
+  // Auto-scroll live log to bottom
+  useEffect(() => {
+    if (liveLogExpanded && liveLogScrollRef.current) {
+      liveLogScrollRef.current.scrollTop = liveLogScrollRef.current.scrollHeight;
+    }
+  }, [accumulatedSamples, liveLogExpanded]);
 
   const startSyncMutation = useMutation({
     mutationFn: async ({ configId, fullSync }: { configId: string; fullSync: boolean }) => {
@@ -1540,7 +1575,6 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               .replace("{current}", String((trackedRun.details as any).liveBatch.batchNumber))
                               .replace("{total}", String(trackedRun.totalBatches || 0))}
                           </Badge>
-                          {/* Per-batch mini counters */}
                           {((trackedRun.details as any).liveBatch.batchCreated > 0 || (trackedRun.details as any).liveBatch.batchUpdated > 0 || (trackedRun.details as any).liveBatch.batchErrors > 0) && (
                             <div className="flex items-center gap-1.5 text-[10px]">
                               {(trackedRun.details as any).liveBatch.batchCreated > 0 && (
@@ -1559,45 +1593,104 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           )}
                           <div className="ml-auto flex items-center gap-2">
                             <LiveElapsedTimer startedAt={trackedRun.startedAt} isRunning={true} />
+                            {accumulatedSamples.length > 0 && (
+                              <button
+                                onClick={() => setLiveLogExpanded(v => !v)}
+                                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground border border-border/60 rounded px-1.5 py-0.5 hover:border-foreground/30 transition-colors"
+                                data-testid="button-toggle-live-log"
+                                title={liveLogExpanded ? (language === "sk" ? "Zbaliť log" : "Collapse log") : (language === "sk" ? "Rozbaliť log" : "Expand log")}
+                              >
+                                {liveLogExpanded
+                                  ? <><svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 7.5L6 4.5L3 7.5"/></svg><span>{language === "sk" ? "Zbaliť" : "Collapse"}</span></>
+                                  : <><svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg><span>{language === "sk" ? "Rozbaliť" : "Expand"} ({accumulatedSamples.length})</span></>
+                                }
+                              </button>
+                            )}
                           </div>
                         </div>
-                        <div className="space-y-0.5">
-                          {((trackedRun.details as any).liveBatch.sample || []).slice(0, 5).map((item: any, idx: number) => {
-                            const isOk = item.status === "created" || item.status === "updated";
-                            const isSkipped = item.status === "skipped";
-                            const isError = item.status === "error";
-                            return (
-                              <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
-                                isOk ? "bg-green-500/8 dark:bg-green-500/10" :
-                                isError ? "bg-red-500/8 dark:bg-red-500/10" :
-                                isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
-                              }`}>
-                                <span className="text-muted-foreground w-8 text-right flex-shrink-0 font-mono">#{item.index}</span>
-                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  item.status === "created" ? "bg-green-500" :
-                                  item.status === "updated" ? "bg-blue-500" :
-                                  item.status === "skipped" ? "bg-amber-400" : "bg-red-500"
-                                }`} />
-                                <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
-                                {item.targetId && (
-                                  <span className="text-muted-foreground flex-shrink-0 text-[10px]">→ {item.targetId}</span>
-                                )}
-                                <Badge
-                                  variant={isError ? "destructive" : "outline"}
-                                  className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
-                                    isOk ? "border-green-500/40 text-green-700 dark:text-green-400" :
-                                    isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
-                                  }`}
-                                >
-                                  {item.status === "created" ? t("syncDash.created") :
-                                   item.status === "updated" ? t("syncDash.updated") :
-                                   item.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped") :
-                                   t("syncDash.error")}
-                                </Badge>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        {liveLogExpanded ? (
+                          <div
+                            ref={liveLogScrollRef}
+                            className="space-y-0.5 overflow-y-auto"
+                            style={{ maxHeight: "480px" }}
+                            data-testid="panel-live-log-expanded"
+                          >
+                            {accumulatedSamples.map((item: any, idx: number) => {
+                              const isOk = item.status === "created" || item.status === "updated";
+                              const isSkipped = item.status === "skipped";
+                              const isError = item.status === "error";
+                              return (
+                                <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
+                                  isOk ? "bg-green-500/8 dark:bg-green-500/10" :
+                                  isError ? "bg-red-500/8 dark:bg-red-500/10" :
+                                  isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
+                                }`}>
+                                  <span className="text-muted-foreground w-8 text-right flex-shrink-0 font-mono text-[10px]">#{item.index}</span>
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                    item.status === "created" ? "bg-green-500" :
+                                    item.status === "updated" ? "bg-blue-500" :
+                                    item.status === "skipped" ? "bg-amber-400" : "bg-red-500"
+                                  }`} />
+                                  <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
+                                  {item.targetId && (
+                                    <span className="text-muted-foreground flex-shrink-0 text-[10px]">→ {item.targetId}</span>
+                                  )}
+                                  <Badge
+                                    variant={isError ? "destructive" : "outline"}
+                                    className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
+                                      isOk ? "border-green-500/40 text-green-700 dark:text-green-400" :
+                                      isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
+                                    }`}
+                                  >
+                                    {item.status === "created" ? t("syncDash.created") :
+                                     item.status === "updated" ? t("syncDash.updated") :
+                                     item.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped") :
+                                     t("syncDash.error")}
+                                  </Badge>
+                                </div>
+                              );
+                            })}
+                            <div className="h-1" />
+                          </div>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {((trackedRun.details as any).liveBatch.sample || []).slice(0, 5).map((item: any, idx: number) => {
+                              const isOk = item.status === "created" || item.status === "updated";
+                              const isSkipped = item.status === "skipped";
+                              const isError = item.status === "error";
+                              return (
+                                <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
+                                  isOk ? "bg-green-500/8 dark:bg-green-500/10" :
+                                  isError ? "bg-red-500/8 dark:bg-red-500/10" :
+                                  isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
+                                }`}>
+                                  <span className="text-muted-foreground w-8 text-right flex-shrink-0 font-mono">#{item.index}</span>
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                    item.status === "created" ? "bg-green-500" :
+                                    item.status === "updated" ? "bg-blue-500" :
+                                    item.status === "skipped" ? "bg-amber-400" : "bg-red-500"
+                                  }`} />
+                                  <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
+                                  {item.targetId && (
+                                    <span className="text-muted-foreground flex-shrink-0 text-[10px]">→ {item.targetId}</span>
+                                  )}
+                                  <Badge
+                                    variant={isError ? "destructive" : "outline"}
+                                    className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
+                                      isOk ? "border-green-500/40 text-green-700 dark:text-green-400" :
+                                      isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
+                                    }`}
+                                  >
+                                    {item.status === "created" ? t("syncDash.created") :
+                                     item.status === "updated" ? t("syncDash.updated") :
+                                     item.status === "skipped" ? (language === "sk" ? "preskočený" : "skipped") :
+                                     t("syncDash.error")}
+                                  </Badge>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 
