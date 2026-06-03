@@ -1270,20 +1270,31 @@ async function pushToOnix(
           console.log(`[target-push] H kód prevzatý zo zdroja: ${sourceBodyVal} → ${hkField} (detPfx="${detPfx}", záznam ${globalIndex}, key=${_hkRecKey})`);
           hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'skipped', hCodeValue: sourceBodyVal!, reason: 'source-provided' });
         } else if (!alreadyHasHKod) {
-          // Record does not yet have an H kód. Assign one.
-          // Anti-duplicate: if this recordKey was already assigned an H kód in a previous sync run
-          // (stored in prevHkodAssignments), reuse that H kód instead of generating a new one.
-          const prevAssigned = matchOptions?.prevHkodAssignments?.get(_hkRecKey);
-          const _hkPad: number = (hKodCfg as any).padding || 0;
-          if (prevAssigned) {
-            body[hkField] = prevAssigned;
-            console.log(`[target-push] H kód opätovne použitý (predchádzajúci run): ${prevAssigned} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
-            hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: prevAssigned, reason: 'reused-from-previous-run' });
+          // CRITICAL: ONIX upserts exclusively by Ns_Number.
+          // If hkField = "Ns_Number" and the record already exists in ONIX with a DIFFERENT
+          // Ns_Number (not matching detPfx), we CANNOT send a new H kód as Ns_Number —
+          // ONIX would CREATE a new duplicate record instead of updating the existing one.
+          // Preserve the existing Ns_Number so ONIX can find and update the correct record.
+          if (isUpdate && hkField === "Ns_Number" && existingFieldVal) {
+            body[hkField] = existingFieldVal;
+            console.warn(`[target-push] H kód: ONIX Ns_Number="${existingFieldVal}" nezačína detekčným prefixom "${detPfx}" — H kód SA NEPRIRADÍ, zachováva sa existujúci Ns_Number (zmena Ns_Number by vytvorila duplikát v ONIX, záznam ${globalIndex}, key=${_hkRecKey})`);
+            hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'preserved', hCodeValue: existingFieldVal, reason: 'cannot-reassign-ns-number' });
           } else {
-            const _hkNum = hKodCounter++;
-            body[hkField] = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
-            console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (genPfx="${hKodCfg.prefix}", pad=${_hkPad}, ${isUpdate ? "update-bez-hkod" : "nový záznam"}, existingNs="${existingFieldVal ?? "–"}", key=${_hkRecKey})`);
-            hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
+            // New record (isUpdate=false) OR hkField is not Ns_Number OR existingFieldVal is empty
+            // → safe to assign a new H kód using generation prefix + padding
+            // Anti-duplicate: check if this recordKey was previously assigned an H kód
+            const prevAssigned = matchOptions?.prevHkodAssignments?.get(_hkRecKey);
+            const _hkPad: number = (hKodCfg as any).padding || 0;
+            if (prevAssigned) {
+              body[hkField] = prevAssigned;
+              console.log(`[target-push] H kód opätovne použitý (predchádzajúci run): ${prevAssigned} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
+              hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: prevAssigned, reason: 'reused-from-previous-run' });
+            } else {
+              const _hkNum = hKodCounter++;
+              body[hkField] = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
+              console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (genPfx="${hKodCfg.prefix}", pad=${_hkPad}, ${isUpdate ? "update-bez-hkod" : "nový záznam"}, existingNs="${existingFieldVal ?? "–"}", key=${_hkRecKey})`);
+              hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
+            }
           }
         } else {
           // Existujúci H kód — vloží sa späť do body z DVOCH dôvodov:
