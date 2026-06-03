@@ -1700,6 +1700,27 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       </div>
                     )}
 
+                    {(trackedRun.status === "running" || trackedRun.status === "pending") && (
+                      <div className="flex items-center gap-3 text-[10px] text-muted-foreground mt-1 px-0.5 flex-wrap" data-testid="legend-live-log">
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-foreground" />
+                          {language === "sk" ? "aktualizovaný" : "updated"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-500/30" />
+                          {language === "sk" ? "vytvorený" : "created"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400/30" />
+                          {language === "sk" ? "preskočený" : "skipped"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-500/30" />
+                          {language === "sk" ? "chyba" : "error"}
+                        </span>
+                      </div>
+                    )}
+
                     {(trackedRun.status !== "running" && trackedRun.status !== "pending") && (trackedRun.recordsFailed || 0) > 0 && (
                       <div className="flex items-center gap-1.5 text-destructive text-sm">
                         <AlertTriangle className="h-3.5 w-3.5" />
