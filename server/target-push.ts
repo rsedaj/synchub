@@ -507,6 +507,21 @@ interface OnixIndexEntry {
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
 
+/**
+ * Clears the ONIX index cache.
+ * MUST be called at the start of every sync run so each run fetches a fresh
+ * snapshot from ONIX. Without this, a stale index from a previous run would
+ * cause records that were just created (with new H kóds) to appear "missing"
+ * again in the next run → re-assigned new H kóds → duplicate ONIX records.
+ */
+export function clearOnixIndexCache(): void {
+  const size = _onixIndexCache.size;
+  _onixIndexCache.clear();
+  if (size > 0) {
+    console.log(`[target-push] ONIX index cache cleared (${size} entries invalidated)`);
+  }
+}
+
 // ONIX REST API returns CustomColumns with table-prefixed names when reading
 // (e.g. "STOCK_ITEMS_Product_Code") but expects bare names when writing.
 // Use this helper everywhere we search a CustomColumns array so both formats match.
@@ -546,7 +561,9 @@ async function buildOnixIndex(
   const fetchUrl = needsCustomColumns
     ? `${baseUrl}${endpoint}?tables=CustomColumns&$count=true`
     : `${baseUrl}${endpoint}?$count=true`;
-  const cacheKey = `${fetchUrl}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
+  // databasePath is included so prod and test ONIX environments never share the same index.
+  const _dbPathForKey = hdrs["DatabasePath"] ?? "";
+  const cacheKey = `${fetchUrl}:db=${_dbPathForKey}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
 
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {

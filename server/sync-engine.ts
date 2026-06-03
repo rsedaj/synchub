@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
-import { pushToTarget } from "./target-push";
+import { pushToTarget, clearOnixIndexCache } from "./target-push";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult, VATTransformEntry } from "./target-push";
@@ -292,6 +292,12 @@ async function executeAsync(
   let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean } | null = null;
 
   try {
+    // Clear ONIX index cache at the very start of every run.
+    // The cache has a 2-hour TTL but must NOT carry over between sync runs —
+    // records created in run N would be missing from the stale index in run N+1,
+    // causing them to look "new" and receive a second H kód → duplicate ONIX records.
+    clearOnixIndexCache();
+
     log("=== PHASE 1/4: PREFLIGHT ===");
     await updatePhase(runId, "preflight");
 
