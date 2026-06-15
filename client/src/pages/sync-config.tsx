@@ -938,6 +938,13 @@ export default function SyncConfigPage() {
             : "SupplierCode is added as a fixed field but its value is empty. Without it, new ONIX cards will have no supplier and won't appear in the purchase price list. Please fill in its value in the Fixed Field Values section.",
           variant: "destructive",
         });
+        setHighlightSupplierCode(true);
+        setTimeout(() => {
+          if (supplierCodeValueRef.current) {
+            supplierCodeValueRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+            supplierCodeValueRef.current.focus();
+          }
+        }, 100);
         return;
       }
     }
@@ -1135,6 +1142,8 @@ export default function SyncConfigPage() {
 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
+  const [highlightSupplierCode, setHighlightSupplierCode] = useState(false);
+  const supplierCodeValueRef = useRef<HTMLInputElement>(null);
 
   const suggestions = useMemo(() => {
     if (!fieldsReady) return [];
@@ -2236,7 +2245,9 @@ export default function SyncConfigPage() {
                           : "Fields written to every ONIX record — regardless of mappings. E.g. Ns_Code = \"H\", Ist_Dmj = 0."}
                       </p>
                       <div className="space-y-2">
-                        {editor.onixFixedFields.map((ff, idx) => (
+                        {editor.onixFixedFields.map((ff, idx) => {
+                          const isSupplierRow = ff.field === "SupplierCode";
+                          return (
                           <div key={idx} className="flex items-center gap-2 flex-wrap" data-testid={`row-fixed-field-${idx}`}>
                             <Input
                               className="h-8 text-xs font-mono w-44"
@@ -2251,14 +2262,18 @@ export default function SyncConfigPage() {
                             />
                             <span className="text-muted-foreground text-xs">=</span>
                             <Input
-                              className="h-8 text-xs font-mono w-36"
+                              ref={isSupplierRow ? supplierCodeValueRef : undefined}
+                              className={`h-8 text-xs font-mono w-36${isSupplierRow && highlightSupplierCode ? " border-destructive ring-1 ring-destructive" : ""}`}
                               placeholder="H"
                               value={ff.value}
-                              onChange={e => setEditor(prev => {
-                                const arr = [...prev.onixFixedFields];
-                                arr[idx] = { ...arr[idx], value: e.target.value };
-                                return { ...prev, onixFixedFields: arr };
-                              })}
+                              onChange={e => {
+                                if (isSupplierRow && highlightSupplierCode) setHighlightSupplierCode(false);
+                                setEditor(prev => {
+                                  const arr = [...prev.onixFixedFields];
+                                  arr[idx] = { ...arr[idx], value: e.target.value };
+                                  return { ...prev, onixFixedFields: arr };
+                                });
+                              }}
                               data-testid={`input-fixed-field-value-${idx}`}
                             />
                             <Select
@@ -2294,7 +2309,8 @@ export default function SyncConfigPage() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                        ))}
+                          );
+                        })}
                         <Button
                           variant="outline"
                           size="sm"
