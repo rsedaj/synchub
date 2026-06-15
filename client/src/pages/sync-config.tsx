@@ -926,27 +926,27 @@ export default function SyncConfigPage() {
       return;
     }
 
-    const dsKey = editor.targetDataSource === "auto" ? "stockitems" : editor.targetDataSource;
-    if (dsKey === "stockitems" && editor.onMissing !== "skip") {
-      const supplierFixed = (editor.onixFixedFields || []).find(ff => ff.field === "SupplierCode");
-      const supplierInMappings = validMappings.some(m => m.targetField === "SupplierCode");
-      if (supplierFixed && !supplierInMappings && (!supplierFixed.value || supplierFixed.value.trim() === "")) {
-        toast({
-          title: language === "sk" ? "SupplierCode je prázdny" : "SupplierCode is blank",
-          description: language === "sk"
-            ? "Pole SupplierCode je pridané ako pevná hodnota, ale zostalo prázdne. Bez neho nové ONIX karty nebudú mať dodávateľa a nezobrazia sa v nákupnom cenníku. Vyplňte hodnotu v sekcii Pevné hodnoty polí."
-            : "SupplierCode is added as a fixed field but its value is empty. Without it, new ONIX cards will have no supplier and won't appear in the purchase price list. Please fill in its value in the Fixed Field Values section.",
-          variant: "destructive",
-        });
-        setHighlightSupplierCode(true);
-        setTimeout(() => {
-          if (supplierCodeValueRef.current) {
-            supplierCodeValueRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-            supplierCodeValueRef.current.focus();
-          }
-        }, 100);
-        return;
-      }
+    const emptyFixedIndices: number[] = (editor.onixFixedFields || []).reduce<number[]>((acc, ff, idx) => {
+      if (ff.field.trim() !== "" && ff.value.trim() === "") acc.push(idx);
+      return acc;
+    }, []);
+    if (emptyFixedIndices.length > 0) {
+      setHighlightedFixedFields(new Set(emptyFixedIndices));
+      toast({
+        title: language === "sk" ? "Pevné polia majú prázdne hodnoty" : "Fixed fields have empty values",
+        description: language === "sk"
+          ? `${emptyFixedIndices.length === 1 ? "Pole" : "Polia"} ${emptyFixedIndices.map(i => editor.onixFixedFields[i].field).join(", ")} ${emptyFixedIndices.length === 1 ? "je pridané" : "sú pridané"} ako pevná hodnota, ale ${emptyFixedIndices.length === 1 ? "zostalo" : "zostali"} prázdne. Vyplňte ${emptyFixedIndices.length === 1 ? "hodnotu" : "hodnoty"} v sekcii Pevné hodnoty polí.`
+          : `${emptyFixedIndices.map(i => editor.onixFixedFields[i].field).join(", ")} ${emptyFixedIndices.length === 1 ? "is" : "are"} added as fixed ${emptyFixedIndices.length === 1 ? "field" : "fields"} but ${emptyFixedIndices.length === 1 ? "its value is" : "their values are"} empty. Please fill in the value(s) in the Fixed Field Values section.`,
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        const firstRef = fixedFieldValueRefs.current.get(emptyFixedIndices[0]);
+        if (firstRef) {
+          firstRef.scrollIntoView({ behavior: "smooth", block: "center" });
+          firstRef.focus();
+        }
+      }, 100);
+      return;
     }
 
     const validation = validateMappings(validMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing);
@@ -1142,8 +1142,8 @@ export default function SyncConfigPage() {
 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
-  const [highlightSupplierCode, setHighlightSupplierCode] = useState(false);
-  const supplierCodeValueRef = useRef<HTMLInputElement>(null);
+  const [highlightedFixedFields, setHighlightedFixedFields] = useState<Set<number>>(new Set());
+  const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
 
   const suggestions = useMemo(() => {
     if (!fieldsReady) return [];
@@ -2246,7 +2246,7 @@ export default function SyncConfigPage() {
                       </p>
                       <div className="space-y-2">
                         {editor.onixFixedFields.map((ff, idx) => {
-                          const isSupplierRow = ff.field === "SupplierCode";
+                          const isHighlighted = highlightedFixedFields.has(idx);
                           return (
                           <div key={idx} className="flex items-center gap-2 flex-wrap" data-testid={`row-fixed-field-${idx}`}>
                             <Input
@@ -2262,12 +2262,21 @@ export default function SyncConfigPage() {
                             />
                             <span className="text-muted-foreground text-xs">=</span>
                             <Input
-                              ref={isSupplierRow ? supplierCodeValueRef : undefined}
-                              className={`h-8 text-xs font-mono w-36${isSupplierRow && highlightSupplierCode ? " border-destructive ring-1 ring-destructive" : ""}`}
+                              ref={el => {
+                                if (el) fixedFieldValueRefs.current.set(idx, el);
+                                else fixedFieldValueRefs.current.delete(idx);
+                              }}
+                              className={`h-8 text-xs font-mono w-36${isHighlighted ? " border-destructive ring-1 ring-destructive" : ""}`}
                               placeholder="H"
                               value={ff.value}
                               onChange={e => {
-                                if (isSupplierRow && highlightSupplierCode) setHighlightSupplierCode(false);
+                                if (isHighlighted) {
+                                  setHighlightedFixedFields(prev => {
+                                    const next = new Set(prev);
+                                    next.delete(idx);
+                                    return next;
+                                  });
+                                }
                                 setEditor(prev => {
                                   const arr = [...prev.onixFixedFields];
                                   arr[idx] = { ...arr[idx], value: e.target.value };
