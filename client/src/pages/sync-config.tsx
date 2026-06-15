@@ -1395,6 +1395,7 @@ export default function SyncConfigPage() {
                           : prev.onixFixedFields;
                         return { ...prev, targetModuleId: val, targetDataSource: defaultTarget, sourceModuleId: "", sourceDataSource: "", fieldMappings: [], onixFixedFields: newFixedFields };
                       });
+                      setHighlightedFixedFields(new Set());
                     }}
                   >
                     <SelectTrigger data-testid="select-target-module">
@@ -1426,14 +1427,17 @@ export default function SyncConfigPage() {
                           <Label className="text-xs">{language === "sk" ? "Cieľové dáta" : "Target Data"}</Label>
                           <Select
                             value={editor.targetDataSource}
-                            onValueChange={val => setEditor(prev => {
-                              const isStockItems = selectedTargetModule?.code === "ONIX" && (!val || val === "auto" || val === "stockitems");
-                              const hasSupplierCode = prev.onixFixedFields.some(ff => ff.field === "SupplierCode");
-                              const newFixedFields = (isStockItems && !hasSupplierCode && !prev.id)
-                                ? [{ field: "SupplierCode", value: "", condition: "if_empty" as const }, ...prev.onixFixedFields]
-                                : prev.onixFixedFields;
-                              return { ...prev, targetDataSource: val, fieldMappings: [], onixFixedFields: newFixedFields };
-                            })}
+                            onValueChange={val => {
+                              setEditor(prev => {
+                                const isStockItems = selectedTargetModule?.code === "ONIX" && (!val || val === "auto" || val === "stockitems");
+                                const hasSupplierCode = prev.onixFixedFields.some(ff => ff.field === "SupplierCode");
+                                const newFixedFields = (isStockItems && !hasSupplierCode && !prev.id)
+                                  ? [{ field: "SupplierCode", value: "", condition: "if_empty" as const }, ...prev.onixFixedFields]
+                                  : prev.onixFixedFields;
+                                return { ...prev, targetDataSource: val, fieldMappings: [], onixFixedFields: newFixedFields };
+                              });
+                              setHighlightedFixedFields(new Set());
+                            }}
                           >
                             <SelectTrigger className="mt-1" data-testid="select-target-data-source">
                               <SelectValue />
@@ -2309,10 +2313,20 @@ export default function SyncConfigPage() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={() => setEditor(prev => ({
-                                ...prev,
-                                onixFixedFields: prev.onixFixedFields.filter((_, i) => i !== idx),
-                              }))}
+                              onClick={() => {
+                                setEditor(prev => ({
+                                  ...prev,
+                                  onixFixedFields: prev.onixFixedFields.filter((_, i) => i !== idx),
+                                }));
+                                setHighlightedFixedFields(prev => {
+                                  const next = new Set<number>();
+                                  prev.forEach(i => {
+                                    if (i < idx) next.add(i);
+                                    else if (i > idx) next.add(i - 1);
+                                  });
+                                  return next;
+                                });
+                              }}
                               data-testid={`button-delete-fixed-field-${idx}`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
