@@ -713,7 +713,10 @@ async function buildOnixIndex(
     }
 
     const fieldMap = new Map<string, Map<string, number[]>>();
-    for (const tf of targetFields) {
+    // Always index Ns_Number — even when not in matchFields — so H kód fallback lookup
+    // (prevHkodAssignments → Ns_Number search) works on any sync configuration.
+    const fieldsToIndex = targetFields.includes("Ns_Number") ? targetFields : [...targetFields, "Ns_Number"];
+    for (const tf of fieldsToIndex) {
       fieldMap.set(tf, new Map());
     }
     const idToRecExtId = new Map<number, string>();
@@ -753,7 +756,7 @@ async function buildOnixIndex(
         }
       }
 
-      for (const tf of targetFields) {
+      for (const tf of fieldsToIndex) {
         let value: any;
         if (tf.startsWith("CustomColumns.")) {
           const colName = tf.substring("CustomColumns.".length);
@@ -1219,18 +1222,52 @@ async function pushToOnix(
         if (lookup.id) {
           onixId = lookup.id;
           isUpdate = true;
-        } else if (onMissing === "skip") {
-          const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
-          const src = sourceRecords?.[i];
-          const lookupDesc = matchTargetByMappingsRaw.map(m => {
-            const val = src ? src[m.sourceField] : undefined;
-            return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
-          }).join(", ");
-          return {
-            created: 0, updated: 0, error: 0,
-            recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Nenájdené v ONIX: ${lookupDesc} — preskočené podľa konfigurácie`, nsNumber: nsNum, recordKey: _snapKey },
-            latency: 0,
-          };
+        } else if (!lookup.ambiguous) {
+          // matchFields lookup returned no result. Log what was tried (first 3 failures).
+          if (_noMatchDebugCount <= 3) {
+            const src = sourceRecords?.[i];
+            const lookupDesc = matchTargetByMappingsRaw.map(m => {
+              const val = src ? src[m.sourceField] : undefined;
+              return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
+            }).join(", ");
+            console.log(`[target-push] matchFields ZLYHALO (záznam ${globalIndex}, key=${_snapKey || "–"}): hľadané: ${lookupDesc || "(žiadne matchFields)"}`);
+          }
+
+          // H kód fallback: if this record was previously assigned an H kód in a prior sync run,
+          // search the ONIX index by Ns_Number = that H kód. This prevents creating duplicate ONIX
+          // cards when the matchFields can't locate the card that was created in a previous run.
+          // (ONIX upserts by Ns_Number, so if we find the card this way we can safely update it.)
+          if (onMissing !== "force" && _snapKey && matchOptions?.prevHkodAssignments && onixIndex) {
+            const prevHKod = matchOptions.prevHkodAssignments.get(_snapKey);
+            if (prevHKod) {
+              const nsMap = onixIndex.fieldMap.get("Ns_Number");
+              const nsIds = nsMap?.get(prevHKod) ?? [];
+              if (nsIds.length === 1) {
+                onixId = nsIds[0];
+                isUpdate = true;
+                console.log(`[target-push] H kód fallback: nájdené cez Ns_Number="${prevHKod}" → IdRecord=${onixId} (záznam ${globalIndex}, key=${_snapKey})`);
+              } else if (nsIds.length > 1) {
+                console.warn(`[target-push] H kód fallback: Ns_Number="${prevHKod}" má ${nsIds.length} záznamov v ONIX — ambiguous, preskočené (záznam ${globalIndex})`);
+              } else {
+                console.log(`[target-push] H kód fallback: Ns_Number="${prevHKod}" nenájdené v ONIX indexe — bude vytvorený nový záznam (záznam ${globalIndex}, key=${_snapKey})`);
+              }
+            }
+          }
+
+          // If still not found and onMissing === "skip", skip cleanly
+          if (!isUpdate && onMissing === "skip") {
+            const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
+            const src = sourceRecords?.[i];
+            const lookupDesc = matchTargetByMappingsRaw.map(m => {
+              const val = src ? src[m.sourceField] : undefined;
+              return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
+            }).join(", ");
+            return {
+              created: 0, updated: 0, error: 0,
+              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Nenájdené v ONIX: ${lookupDesc} — preskočené podľa konfigurácie`, nsNumber: nsNum, recordKey: _snapKey },
+              latency: 0,
+            };
+          }
         }
       }
 
