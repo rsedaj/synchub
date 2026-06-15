@@ -2253,6 +2253,29 @@ export default function SyncConfigPage() {
                           const isHighlighted = highlightedFixedFields.has(idx);
                           return (
                           <div key={idx} className="flex items-center gap-2 flex-wrap" data-testid={`row-fixed-field-${idx}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                              title={language === "sk" ? "Vložiť riadok pred" : "Insert row before"}
+                              onClick={() => {
+                                setEditor(prev => {
+                                  const arr = [...prev.onixFixedFields];
+                                  arr.splice(idx, 0, { field: "", value: "", condition: "if_empty" });
+                                  return { ...prev, onixFixedFields: arr };
+                                });
+                                setHighlightedFixedFields(prev => {
+                                  const next = new Set<number>();
+                                  prev.forEach(i => {
+                                    next.add(i >= idx ? i + 1 : i);
+                                  });
+                                  return next;
+                                });
+                              }}
+                              data-testid={`button-insert-fixed-field-${idx}`}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </Button>
                             <Input
                               className="h-8 text-xs font-mono w-44"
                               placeholder="Ns_Code"
