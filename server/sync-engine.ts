@@ -327,6 +327,43 @@ async function executeAsync(
 
     log(`Source: ${sourceModule.code}, Target: ${targetModule.code}, Mappings: ${mappings.length}`);
 
+    // Preflight hard-stop: ONIX stockitems configs that can create new records MUST have SupplierCode.
+    // Without it, created cards have no supplier link and won't appear in the purchase price list.
+    // Skip the check when onMissing = "skip" because no new records are ever created in that mode.
+    if (targetModule.code === "ONIX") {
+      const targetDs = (config.targetDataSource || "") as string;
+      const onMissingVal = ((config as any).onMissing as string) || "create";
+      if ((!targetDs || targetDs === "auto" || targetDs === "stockitems") && onMissingVal !== "skip") {
+        const fixedFields = (config.onixFixedFields || []) as Array<{ field: string; value: string; condition: string }>;
+        const hasSupplierInMappings = mappings.some((m: { targetField: string }) => m.targetField === "SupplierCode");
+        const hasSupplierInFixed = fixedFields.some(ff => ff.field === "SupplierCode" && ff.value && String(ff.value).trim() !== "");
+        if (!hasSupplierInMappings && !hasSupplierInFixed) {
+          const errMsg = "ONIX preflight: SupplierCode nie je nakonfigurovaný. Nové karty by nemali priradenie dodávateľa a neobjavili by sa v nákupnom cenníku. Pridajte SupplierCode ako pevnú hodnotu (sekcia 'Pevné hodnoty polí') alebo cez mapovanie polí.";
+          log(`[PREFLIGHT ERROR] ${errMsg}`);
+          await storage.updateSyncRun(runId, {
+            status: "error",
+            errorMessage: errMsg,
+            completedAt: new Date(),
+            details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
+          });
+          try {
+            await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: errMsg, triggeredBy: null });
+          } catch {}
+          try {
+            await storage.createAuditLog({
+              userId: config.createdBy || "system",
+              action: "sync_complete",
+              entity: "sync_config",
+              entityId: config.id,
+              details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: errMsg, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+            });
+          } catch {}
+          activeRuns.delete(runId);
+          return;
+        }
+      }
+    }
+
     if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
 
     const schedule = config.schedule as any;

@@ -423,7 +423,9 @@ function validateMappings(
   mappings: FieldMapping[],
   targetDataSource: string,
   sourceFields: string[],
-  targetFields: string[]
+  targetFields: string[],
+  onixFixedFields?: OnixFixedField[],
+  onMissing?: "create" | "skip" | "force"
 ): MappingValidation[] {
   const results: MappingValidation[] = [];
 
@@ -439,6 +441,20 @@ function validateMappings(
   const dsKey = targetDataSource === "auto" ? "stockitems" : targetDataSource;
   const critical = CRITICAL_TARGET_FIELDS[dsKey] || [];
   const mappedTargetsNorm = new Set(mappings.map(m => norm(m.targetField)));
+
+  // SupplierCode is required for ONIX stockitems when new records may be created.
+  // If onMissing = "skip", no new records are ever created so this check is skipped.
+  if (dsKey === "stockitems" && onMissing !== "skip") {
+    const supplierInMappings = mappings.some(m => m.targetField === "SupplierCode");
+    const supplierInFixed = (onixFixedFields || []).some(ff => ff.field === "SupplierCode" && ff.value && ff.value.trim() !== "");
+    if (!supplierInMappings && !supplierInFixed) {
+      results.push({
+        status: "error",
+        message: "SupplierCode is not configured — new ONIX cards created via sync will have no supplier and won't appear in the purchase price list. Add it as a fixed field value (e.g. 'H-0001') or via field mapping.",
+        messageSk: "SupplierCode nie je nakonfigurovaný — nové ONIX karty vytvorené cez sync nebudú mať dodávateľa a nebudú v nákupnom cenníku. Pridajte ho ako pevnú hodnotu (napr. 'H-0001') alebo cez mapovanie polí.",
+      });
+    }
+  }
 
   for (const cf of critical) {
     if (!mappedTargetsNorm.has(norm(cf))) {
@@ -536,6 +552,7 @@ const MODULE_HINTS: Record<string, (ds: string, srcCode: string) => HintItem[]> 
         { type: "info", sk: "Ceny (Default_Price) musia byť čísla. Text ako \"8.44 EUR\" sa automaticky prevedie na číslo 8.44.", en: "Prices (Default_Price) must be numbers. Text like \"8.44 EUR\" is automatically converted to 8.44." },
         { type: "info", sk: "CustomColumns (vlastné stĺpce) sa automaticky prevedú do správneho formátu pre ONIX.", en: "CustomColumns are automatically converted to the correct format for ONIX." },
         { type: "warning", sk: "Polia ako StockItemBalance, StockItemGroups a ďalšie \"len na čítanie\" polia sa automaticky odstránia z odosielaných dát.", en: "Fields like StockItemBalance, StockItemGroups and other read-only fields are automatically removed from sent data." },
+        { type: "warning", sk: "Nové karty vytvorené cez sync NEMAJÚ priradenie dodávateľa (SupplierCode). Nastavte ho ako pevnú hodnotu v sekcii 'Pevné hodnoty polí' - inak karta nebude v nákupnom cenníku.", en: "New cards created via sync do NOT have a supplier (SupplierCode) assigned. Set it as a fixed field value - otherwise the card won't appear in the purchase price list." },
       );
       if (srcCode) {
         hints.push({ type: "info", sk: `Namapujte minimálne: názov produktu (Name), číslo (Ns_Number) a cenu (Default_Price). Ostatné polia sú voliteľné.`, en: `Map at minimum: product name (Name), number (Ns_Number) and price (Default_Price). Other fields are optional.` });
@@ -909,7 +926,7 @@ export default function SyncConfigPage() {
       return;
     }
 
-    const validation = validateMappings(validMappings, editor.targetDataSource, sourceFields, targetFields);
+    const validation = validateMappings(validMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing);
     const hasErrors = validation.some(v => v.status === "error");
     if (hasErrors) {
       setShowValidation(true);
@@ -1090,6 +1107,10 @@ export default function SyncConfigPage() {
       sk: "Sadzba DPH ako celé číslo bez znaku % (napr. 20). Môžete použiť pevnú hodnotu.",
       en: "VAT rate as integer without % sign (e.g. 20). Can be set as a fixed value.",
     },
+    "SupplierCode": {
+      sk: "Kód dodávateľa v ONIX (napr. H-0001). Bez tohto poľa karta nebude v nákupnom cenníku. Nastavte ako pevnú hodnotu.",
+      en: "Supplier code in ONIX (e.g. H-0001). Without this field the card won't appear in the purchase price list. Set as a fixed value.",
+    },
     "Default_Price": {
       sk: "Predajná cena. Ak zdroj obsahuje cenu s DPH, použite transformáciu 'Cena bez DPH'.",
       en: "Selling price. If source includes VAT, use the \"Price excl. VAT\" transform.",
@@ -1106,8 +1127,8 @@ export default function SyncConfigPage() {
 
   const validationResults = useMemo(() => {
     if (editor.fieldMappings.length === 0 && !showValidation) return [];
-    return validateMappings(editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields);
-  }, [editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, showValidation]);
+    return validateMappings(editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing);
+  }, [editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing, showValidation]);
 
   function handleAutoMap() {
     if (!fieldsReady) return;
@@ -2260,6 +2281,7 @@ export default function SyncConfigPage() {
                         {editor.onixFixedFields.length === 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-2">
                             {[
+                              { field: "SupplierCode", value: "" },
                               { field: "Ns_Code", value: "H" },
                               { field: "Ist_Dmj", value: "0" },
                               { field: "Ist_Code", value: "" },
