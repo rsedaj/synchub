@@ -434,6 +434,13 @@ export async function runMigrations() {
     log("Schema m010: hkod_decisions migration skipped", "seed");
   }
 
+  // Schema migration m011: notes column on sync_configs
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS notes text`);
+    log("Schema m011: sync_configs.notes added", "seed");
+  } catch (_e) {
+    log("Schema m011: sync_configs.notes migration skipped", "seed");
+  }
 
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");

@@ -56,7 +56,9 @@ import {
   ClipboardCheck,
   Percent,
   RefreshCw,
+  FileText,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
 const TARGET_MODULE_CODES = ["ONIX", "PIPEDRIVE", "RAYNET"];
@@ -242,6 +244,7 @@ interface EditorState {
   backupBeforeSync: boolean;
   autoRetry: boolean;
   retryDelayMin: number;
+  notes: string;
 }
 
 const emptyEditor: EditorState = {
@@ -264,6 +267,7 @@ const emptyEditor: EditorState = {
   backupBeforeSync: true,
   autoRetry: false,
   retryDelayMin: 3,
+  notes: "",
 };
 
 const SEMANTIC_ALIASES: Record<string, string[]> = {
@@ -881,6 +885,7 @@ export default function SyncConfigPage() {
       backupBeforeSync: (config.schedule as any)?.backupBeforeSync !== false,
       autoRetry: (config as any).autoRetry || false,
       retryDelayMin: (config as any).retryDelayMin || 3,
+      notes: (config as any).notes || "",
     });
     setEditorOpen(true);
   }
@@ -937,6 +942,7 @@ export default function SyncConfigPage() {
       isEnabled: editor.isEnabled,
       autoRetry: editor.autoRetry,
       retryDelayMin: editor.retryDelayMin,
+      notes: editor.notes || null,
     };
 
     if (editor.id) {
@@ -2638,6 +2644,23 @@ export default function SyncConfigPage() {
                 </div>
               </>
             )}
+
+            <Separator />
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                {language === "sk" ? "Poznámky" : "Notes"}
+              </Label>
+              <Textarea
+                value={editor.notes}
+                onChange={e => setEditor(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder={language === "sk" ? "Vlastné poznámky k tejto konfigurácii…" : "Your notes for this configuration…"}
+                rows={3}
+                className="text-sm resize-y"
+                data-testid="textarea-config-notes"
+              />
+            </div>
 
             <Separator />
 
