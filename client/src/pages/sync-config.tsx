@@ -926,6 +926,22 @@ export default function SyncConfigPage() {
       return;
     }
 
+    const dsKey = editor.targetDataSource === "auto" ? "stockitems" : editor.targetDataSource;
+    if (dsKey === "stockitems" && editor.onMissing !== "skip") {
+      const supplierFixed = (editor.onixFixedFields || []).find(ff => ff.field === "SupplierCode");
+      const supplierInMappings = validMappings.some(m => m.targetField === "SupplierCode");
+      if (supplierFixed && !supplierInMappings && (!supplierFixed.value || supplierFixed.value.trim() === "")) {
+        toast({
+          title: language === "sk" ? "SupplierCode je prázdny" : "SupplierCode is blank",
+          description: language === "sk"
+            ? "Pole SupplierCode je pridané ako pevná hodnota, ale zostalo prázdne. Bez neho nové ONIX karty nebudú mať dodávateľa a nezobrazia sa v nákupnom cenníku. Vyplňte hodnotu v sekcii Pevné hodnoty polí."
+            : "SupplierCode is added as a fixed field but its value is empty. Without it, new ONIX cards will have no supplier and won't appear in the purchase price list. Please fill in its value in the Fixed Field Values section.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     const validation = validateMappings(validMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing);
     const hasErrors = validation.some(v => v.status === "error");
     if (hasErrors) {
