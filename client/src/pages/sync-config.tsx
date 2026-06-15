@@ -1362,7 +1362,14 @@ export default function SyncConfigPage() {
                       const mod = modules?.find(m => m.id === val);
                       const opts = mod ? (SOURCE_OPTIONS[mod.code] || []) : [];
                       const defaultTarget = opts.length > 0 ? opts[0].value : "auto";
-                      setEditor(prev => ({ ...prev, targetModuleId: val, targetDataSource: defaultTarget, sourceModuleId: "", sourceDataSource: "", fieldMappings: [] }));
+                      setEditor(prev => {
+                        const isStockItems = mod?.code === "ONIX" && (!defaultTarget || defaultTarget === "auto" || defaultTarget === "stockitems");
+                        const hasSupplierCode = prev.onixFixedFields.some(ff => ff.field === "SupplierCode");
+                        const newFixedFields = (isStockItems && !hasSupplierCode && !prev.id)
+                          ? [{ field: "SupplierCode", value: "", condition: "if_empty" as const }, ...prev.onixFixedFields]
+                          : prev.onixFixedFields;
+                        return { ...prev, targetModuleId: val, targetDataSource: defaultTarget, sourceModuleId: "", sourceDataSource: "", fieldMappings: [], onixFixedFields: newFixedFields };
+                      });
                     }}
                   >
                     <SelectTrigger data-testid="select-target-module">
@@ -1394,7 +1401,14 @@ export default function SyncConfigPage() {
                           <Label className="text-xs">{language === "sk" ? "Cieľové dáta" : "Target Data"}</Label>
                           <Select
                             value={editor.targetDataSource}
-                            onValueChange={val => setEditor(prev => ({ ...prev, targetDataSource: val, fieldMappings: [] }))}
+                            onValueChange={val => setEditor(prev => {
+                              const isStockItems = selectedTargetModule?.code === "ONIX" && (!val || val === "auto" || val === "stockitems");
+                              const hasSupplierCode = prev.onixFixedFields.some(ff => ff.field === "SupplierCode");
+                              const newFixedFields = (isStockItems && !hasSupplierCode && !prev.id)
+                                ? [{ field: "SupplierCode", value: "", condition: "if_empty" as const }, ...prev.onixFixedFields]
+                                : prev.onixFixedFields;
+                              return { ...prev, targetDataSource: val, fieldMappings: [], onixFixedFields: newFixedFields };
+                            })}
                           >
                             <SelectTrigger className="mt-1" data-testid="select-target-data-source">
                               <SelectValue />
