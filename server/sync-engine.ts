@@ -688,6 +688,7 @@ async function executeAsync(
     let totalUpdated = resumeFrom?.totalUpdated ?? 0;
     let totalFailed = resumeFrom?.totalFailed ?? 0;
     let totalSkippedByMatch = resumeFrom?.totalSkippedByMatch ?? 0;
+    let totalFallbackHits = 0;
     let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
@@ -821,6 +822,7 @@ async function executeAsync(
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;
           totalSkippedByMatch += pushResult.skippedCount || 0;
+          totalFallbackHits += pushResult.records.filter(r => r.matchType === "hkod_fallback").length;
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
           if (pushResult.avgLatencyMs != null && pushResult.avgLatencyMs > 0) {
@@ -1014,6 +1016,7 @@ async function executeAsync(
           index: i + idx + 1,
           label: String(label).slice(0, 80),
           status,
+          matchType: result?.matchType,
           targetId: result?.target_id || null,
           fields: mapped ? Object.keys(mapped).length : keys.length,
         };
@@ -1053,6 +1056,7 @@ async function executeAsync(
             batchErrors: batchErrorCount,
             batchAvgLatency,
           },
+          totalFallbackHits,
           elapsedMs: elapsed,
           avgLatencyMs: currentAvgLatency,
           minLatencyMs: globalMinLatency === Infinity ? 0 : globalMinLatency,
@@ -1149,6 +1153,7 @@ async function executeAsync(
       totalUpdated,
       totalFailed,
       totalSkippedByMatch,
+      totalFallbackHits,
       totalProcessed: processedOk,
       sourceRecordCount: totalRecords,
       fieldMappings: mappingNames,
@@ -1191,6 +1196,7 @@ async function executeAsync(
         totalUpdated,
         totalFailed,
         totalSkippedByMatch,
+        totalFallbackHits,
         batchErrors: allErrors,
         skippedItems: allSkippedItems,
         syncedRecords,

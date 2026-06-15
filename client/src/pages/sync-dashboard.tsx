@@ -1617,35 +1617,40 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           >
                             {accumulatedSamples.map((item: any, idx: number) => {
                               const isUpdated = item.status === "updated";
+                              const isFallback = item.status === "updated" && item.matchType === "hkod_fallback";
                               const isCreated = item.status === "created";
                               const isSkipped = item.status === "skipped";
                               const isError = item.status === "error";
                               return (
                                 <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
+                                  isFallback ? "bg-purple-500/10 dark:bg-purple-500/10" :
                                   isUpdated ? "bg-foreground text-background" :
                                   isCreated ? "bg-green-500/8 dark:bg-green-500/10" :
                                   isError ? "bg-red-500/8 dark:bg-red-500/10" :
                                   isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
                                 }`}>
-                                  <span className={`w-8 text-right flex-shrink-0 font-mono text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
+                                  <span className={`w-8 text-right flex-shrink-0 font-mono text-[10px] ${isUpdated && !isFallback ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
                                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                     isCreated ? "bg-green-500" :
+                                    isFallback ? "bg-purple-500" :
                                     isUpdated ? "bg-background/70" :
                                     isSkipped ? "bg-amber-400" : "bg-red-500"
                                   }`} />
                                   <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
                                   {item.targetId && (
-                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
+                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated && !isFallback ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
                                   )}
                                   <Badge
                                     variant={isError ? "destructive" : "outline"}
                                     className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
+                                      isFallback ? "border-purple-500/40 text-purple-700 dark:text-purple-400" :
                                       isUpdated ? "border-background/30 text-background/80 bg-transparent" :
                                       isCreated ? "border-green-500/40 text-green-700 dark:text-green-400" :
                                       isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
                                     }`}
                                   >
-                                    {isCreated ? t("syncDash.created") :
+                                    {isFallback ? t("syncDash.hkodFallback") :
+                                     isCreated ? t("syncDash.created") :
                                      isUpdated ? t("syncDash.updated") :
                                      isSkipped ? (language === "sk" ? "preskočený" : "skipped") :
                                      t("syncDash.error")}
@@ -1658,36 +1663,41 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         ) : (
                           <div className="space-y-0.5">
                             {((trackedRun.details as any).liveBatch.sample || []).slice(0, 5).map((item: any, idx: number) => {
+                              const isFallback = item.status === "updated" && item.matchType === "hkod_fallback";
                               const isUpdated = item.status === "updated";
                               const isCreated = item.status === "created";
                               const isSkipped = item.status === "skipped";
                               const isError = item.status === "error";
                               return (
                                 <div key={idx} className={`flex items-center gap-2 text-xs py-0.5 px-1.5 rounded ${
+                                  isFallback ? "bg-purple-500/10 dark:bg-purple-500/10" :
                                   isUpdated ? "bg-foreground text-background" :
                                   isCreated ? "bg-green-500/8 dark:bg-green-500/10" :
                                   isError ? "bg-red-500/8 dark:bg-red-500/10" :
                                   isSkipped ? "bg-amber-500/8 dark:bg-amber-500/10" : ""
                                 }`}>
-                                  <span className={`w-8 text-right flex-shrink-0 font-mono ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
+                                  <span className={`w-8 text-right flex-shrink-0 font-mono ${isUpdated && !isFallback ? "text-background/60" : "text-muted-foreground"}`}>#{item.index}</span>
                                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                     isCreated ? "bg-green-500" :
+                                    isFallback ? "bg-purple-500" :
                                     isUpdated ? "bg-background/70" :
                                     isSkipped ? "bg-amber-400" : "bg-red-500"
                                   }`} />
                                   <span className="truncate font-mono text-[11px]" title={item.label}>{item.label}</span>
                                   {item.targetId && (
-                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
+                                    <span className={`flex-shrink-0 text-[10px] ${isUpdated && !isFallback ? "text-background/60" : "text-muted-foreground"}`}>→ {item.targetId}</span>
                                   )}
                                   <Badge
                                     variant={isError ? "destructive" : "outline"}
                                     className={`text-[9px] h-3.5 px-1 ml-auto flex-shrink-0 ${
+                                      isFallback ? "border-purple-500/40 text-purple-700 dark:text-purple-400" :
                                       isUpdated ? "border-background/30 text-background/80 bg-transparent" :
                                       isCreated ? "border-green-500/40 text-green-700 dark:text-green-400" :
                                       isSkipped ? "border-amber-400/40 text-amber-700 dark:text-amber-400" : ""
                                     }`}
                                   >
-                                    {isCreated ? t("syncDash.created") :
+                                    {isFallback ? t("syncDash.hkodFallback") :
+                                     isCreated ? t("syncDash.created") :
                                      isUpdated ? t("syncDash.updated") :
                                      isSkipped ? (language === "sk" ? "preskočený" : "skipped") :
                                      t("syncDash.error")}
@@ -1705,6 +1715,10 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                         <span className="flex items-center gap-1">
                           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-foreground" />
                           {language === "sk" ? "aktualizovaný" : "updated"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-500/30" />
+                          {language === "sk" ? "H kód fallback" : "H code fallback"}
                         </span>
                         <span className="flex items-center gap-1">
                           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-500/30" />
@@ -1796,6 +1810,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               <p className="font-semibold" data-testid="text-summary-duration">{cs.durationFormatted || "—"}</p>
                             </div>
                           </div>
+
+                          {(cs.totalFallbackHits || 0) > 0 && (
+                            <div className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md border border-purple-500/30 bg-purple-500/5" data-testid="panel-fallback-hits">
+                              <span className="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0" />
+                              <span className="text-muted-foreground">{t("syncDash.fallbackHits")}:</span>
+                              <span className="font-semibold text-purple-700 dark:text-purple-400" data-testid="text-summary-fallback-hits">{cs.totalFallbackHits.toLocaleString()}</span>
+                              <span className="text-muted-foreground text-[10px]">
+                                {language === "sk"
+                                  ? `(záznamy nájdené cez Ns_Number, nie cez matchFields)`
+                                  : `(records matched via Ns_Number, not matchFields)`}
+                              </span>
+                            </div>
+                          )}
 
                           {/* Visual breakdown bar */}
                           <ResultBreakdownBar

@@ -30,6 +30,7 @@ export interface PushRecordResult {
   sourceIndex: number;
   target_id: number | null;
   status: "created" | "updated" | "error" | "skipped";
+  matchType?: "matchFields" | "hkod_fallback";
   errorMsg?: string;
   nsNumber?: string;
   vatTransforms?: VATTransformEntry[];
@@ -1191,6 +1192,7 @@ async function pushToOnix(
     let _snapHCode: string | undefined;
     let _snapNsNum: string | undefined;
     let _snapRecId: string | undefined;
+    let _usedHkodFallback = false;
     {
       const src = sourceRecords?.[i];
       if (src && matchFields.length > 0) {
@@ -1245,6 +1247,7 @@ async function pushToOnix(
               if (nsIds.length === 1) {
                 onixId = nsIds[0];
                 isUpdate = true;
+                _usedHkodFallback = true;
                 console.log(`[target-push] H kód fallback: nájdené cez Ns_Number="${prevHKod}" → IdRecord=${onixId} (záznam ${globalIndex}, key=${_snapKey})`);
               } else if (nsIds.length > 1) {
                 console.warn(`[target-push] H kód fallback: Ns_Number="${prevHKod}" má ${nsIds.length} záznamov v ONIX — ambiguous, preskočené (záznam ${globalIndex})`);
@@ -1618,7 +1621,7 @@ async function pushToOnix(
         } else if (isUpdate) {
           return {
             created: 0, updated: 1, error: 0, latency: fetchLatency,
-            recResult: { sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated", recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
+            recResult: { sourceIndex: globalIndex, target_id: newId || Number(onixId), status: "updated", matchType: _usedHkodFallback ? "hkod_fallback" : "matchFields", recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
           };
         } else {
           return {
