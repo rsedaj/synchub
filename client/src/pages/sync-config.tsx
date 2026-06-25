@@ -1172,12 +1172,12 @@ export default function SyncConfigPage() {
   const duplicateFixedFieldIndices = useMemo(() => {
     const counts = new Map<string, number>();
     editor.onixFixedFields.forEach(ff => {
-      const name = ff.field.trim();
+      const name = ff.field.trim().toLowerCase();
       if (name) counts.set(name, (counts.get(name) || 0) + 1);
     });
     const dups = new Set<number>();
     editor.onixFixedFields.forEach((ff, idx) => {
-      const name = ff.field.trim();
+      const name = ff.field.trim().toLowerCase();
       if (name && (counts.get(name) || 0) > 1) dups.add(idx);
     });
     return dups;
