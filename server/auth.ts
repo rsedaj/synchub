@@ -6,11 +6,11 @@ import { pool } from "./db";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import type { Express, Request, Response, NextFunction } from "express";
-import type { User } from "@shared/schema";
+import type { User as SchemaUser } from "@shared/schema";
 
 declare global {
   namespace Express {
-    interface User extends import("@shared/schema").User {}
+    interface User extends SchemaUser {}
   }
 }
 

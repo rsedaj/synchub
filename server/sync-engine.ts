@@ -282,8 +282,8 @@ async function executeAsync(
 ) {
   const startTime = Date.now();
   const isResume = !!resumeFrom;
-  const log = (msg: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}]${isResume ? " [RESUME]" : ""} ${msg}`);
-  let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean } | null = null;
+  const log = (msg: string, _level?: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}]${isResume ? " [RESUME]" : ""} ${msg}`);
+  let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean; totalFiles?: number } | null = null;
 
   try {
     // Clear ONIX index cache at the very start of every run.
@@ -582,8 +582,8 @@ async function executeAsync(
     const _srcFilters: Array<{ field: string; operator: string; value: string }> =
       ((config as any).sourceFilters || []).filter((f: any) => f?.field && f?.value != null && String(f.value).trim() !== "");
     const allFetchedRecords = _srcFilters.length > 0
-      ? _rawFetchedRecords.filter(rec =>
-          _srcFilters.every(f => {
+      ? _rawFetchedRecords.filter((rec: any) =>
+          _srcFilters.every((f: any) => {
             const v = String(rec[f.field] ?? "").trim();
             const fv = String(f.value).trim();
             switch (f.operator) {
@@ -644,7 +644,7 @@ async function executeAsync(
       if (allRecords.length === 0 && totalSkipped > 0) {
         log(`Delta result: 0 zmenených, ${totalSkipped} bez zmeny — nič sa neodošle do ONIX`);
       } else {
-        const sampleKeys = allRecords.slice(0, 5).map(r => getRecordKey(r, cfgMatchFields)).filter(Boolean);
+        const sampleKeys = allRecords.slice(0, 5).map((r: any) => getRecordKey(r, cfgMatchFields)).filter(Boolean);
         const sampleStr = sampleKeys.length ? ` (ukážka: ${sampleKeys.join(", ")}${allRecords.length > 5 ? ", …" : ""})` : "";
         log(`Delta result: ${allRecords.length} zmenených${sampleStr}, ${totalSkipped} bez zmeny (preskočených)`);
       }
@@ -734,7 +734,7 @@ async function executeAsync(
     const ETA_WINDOW = 5;
     const batchSpeeds: number[] = [];
     const batchSpeedHistory: Array<{b: number; s: number}> = [];
-    const vatSamples: Array<{field: string; original: number; converted: number; rate: string}> = [];
+    const vatSamples: VATTransformEntry[] = [];
     const sourceFiltersApplied = _rawFetchedRecords.length - allFetchedRecords.length;
     let hKodStartNumber: number | undefined;
     let globalMaxLatency = 0;

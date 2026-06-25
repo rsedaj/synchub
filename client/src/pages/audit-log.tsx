@@ -65,7 +65,7 @@ function ActionBadgeColor(action: string): string {
 }
 
 function BeforeAfterTable({ before, after, t }: { before: Record<string, any>; after: Record<string, any>; t: (k: string) => string }) {
-  const allKeys = [...new Set([...Object.keys(before || {}), ...Object.keys(after || {})])];
+  const allKeys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
   if (allKeys.length === 0) return null;
 
   return (
@@ -245,8 +245,8 @@ export default function AuditLogPage() {
     return true;
   });
 
-  const uniqueActions = [...new Set((logs || []).map(l => l.action))].sort();
-  const uniqueEntities = [...new Set((logs || []).map(l => l.entity).filter(Boolean))].sort();
+  const uniqueActions = Array.from(new Set((logs || []).map(l => l.action))).sort();
+  const uniqueEntities = Array.from(new Set((logs || []).map(l => l.entity).filter(Boolean))).sort();
 
   if (isLoading) {
     return (

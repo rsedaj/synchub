@@ -196,7 +196,10 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-export const insertApiModuleSchema = createInsertSchema(apiModules).pick({
+export const insertApiModuleSchema = createInsertSchema(apiModules, {
+  config: z.record(z.any()).nullable().optional(),
+  dataFields: z.array(z.string()).nullable().optional(),
+}).pick({
   code: true,
   name: true,
   description: true,
@@ -208,7 +211,9 @@ export const insertApiModuleSchema = createInsertSchema(apiModules).pick({
   docsUrl: true,
 });
 
-export const insertSyncLogSchema = createInsertSchema(syncLogs).pick({
+export const insertSyncLogSchema = createInsertSchema(syncLogs, {
+  details: z.record(z.any()).nullable().optional(),
+}).pick({
   moduleId: true,
   direction: true,
   status: true,
@@ -219,7 +224,9 @@ export const insertSyncLogSchema = createInsertSchema(syncLogs).pick({
   triggeredBy: true,
 });
 
-export const insertAuditLogSchema = createInsertSchema(auditLogs).pick({
+export const insertAuditLogSchema = createInsertSchema(auditLogs, {
+  details: z.record(z.any()).nullable().optional(),
+}).pick({
   userId: true,
   action: true,
   entity: true,
@@ -237,7 +244,59 @@ export type SyncLog = typeof syncLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 
-export const insertSyncConfigSchema = createInsertSchema(syncConfigs).pick({
+export const insertSyncConfigSchema = createInsertSchema(syncConfigs, {
+  fieldMappings: z
+    .array(
+      z.object({
+        sourceField: z.string(),
+        targetField: z.string(),
+        transform: z.string().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  matchNormalization: z
+    .object({
+      caseInsensitive: z.boolean().optional(),
+      collapseWhitespace: z.boolean().optional(),
+      stripLeadingZeros: z.boolean().optional(),
+      normalizeDecimals: z.boolean().optional(),
+      stripDiacritics: z.boolean().optional(),
+    })
+    .nullable()
+    .optional(),
+  sourceFilters: z
+    .array(
+      z.object({
+        field: z.string(),
+        operator: z.string(),
+        value: z.string(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  hKodConfig: z
+    .object({
+      enabled: z.boolean(),
+      prefix: z.string(),
+      nextNumber: z.number(),
+      field: z.string(),
+      detectionPrefix: z.string().optional(),
+      padding: z.number().optional(),
+    })
+    .nullable()
+    .optional(),
+  schedule: z
+    .object({
+      enabled: z.boolean(),
+      frequency: z.string(),
+      timeOfDay: z.string().optional(),
+      dayOfWeek: z.string().optional(),
+      backupBeforeSync: z.boolean().optional(),
+    })
+    .nullable()
+    .optional(),
+}).pick({
   name: true,
   targetModuleId: true,
   sourceModuleId: true,
@@ -260,7 +319,9 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs).pick({
   createdBy: true,
 });
 
-export const insertSyncRunSchema = createInsertSchema(syncRuns).pick({
+export const insertSyncRunSchema = createInsertSchema(syncRuns, {
+  details: z.record(z.any()).nullable().optional(),
+}).pick({
   syncConfigId: true,
   status: true,
   recordsProcessed: true,
@@ -272,7 +333,9 @@ export const insertSyncRunSchema = createInsertSchema(syncRuns).pick({
   triggeredBy: true,
 });
 
-export const insertSyncBackupSchema = createInsertSchema(syncBackups).pick({
+export const insertSyncBackupSchema = createInsertSchema(syncBackups, {
+  configSnapshot: z.record(z.any()).nullable().optional(),
+}).pick({
   syncConfigId: true,
   syncRunId: true,
   fileName: true,
@@ -287,7 +350,9 @@ export const insertSyncBackupSchema = createInsertSchema(syncBackups).pick({
   dbEnvironment: true,
 });
 
-export const insertOnixBackupSchema = createInsertSchema(onixBackups).pick({
+export const insertOnixBackupSchema = createInsertSchema(onixBackups, {
+  details: z.record(z.any()).nullable().optional(),
+}).pick({
   status: true,
   endpoints: true,
   localFilePath: true,

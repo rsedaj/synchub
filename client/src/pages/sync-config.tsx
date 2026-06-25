@@ -371,7 +371,7 @@ function computeMappingSuggestions(sourceFields: string[], targetFields: string[
         continue;
       }
 
-      for (const [aliasKey, srcAliases] of NORM_ALIAS_MAP.entries()) {
+      for (const [aliasKey, srcAliases] of Array.from(NORM_ALIAS_MAP.entries())) {
         if (aliasKey === tfN) {
           if (srcAliases.includes(sfN)) {
             const score = 85;
@@ -492,8 +492,8 @@ function validateMappings(
   if (dupTargets.length > 0) {
     results.push({
       status: "error",
-      message: `Duplicate target fields: ${[...new Set(dupTargets)].join(", ")} — each target field should be mapped only once`,
-      messageSk: `Duplicitné cieľové polia: ${[...new Set(dupTargets)].join(", ")} — každé cieľové pole by malo byť namapované iba raz`,
+      message: `Duplicate target fields: ${Array.from(new Set(dupTargets)).join(", ")} — each target field should be mapped only once`,
+      messageSk: `Duplicitné cieľové polia: ${Array.from(new Set(dupTargets)).join(", ")} — každé cieľové pole by malo byť namapované iba raz`,
     });
   }
 

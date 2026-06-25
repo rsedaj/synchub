@@ -725,10 +725,10 @@ async function buildOnixIndex(
           const ctrl2 = new AbortController();
           const t2 = setTimeout(() => ctrl2.abort(), 300000);
           try {
-            const res2 = await fetch(nextLink, { headers: fetchHdrs, signal: ctrl2.signal });
+            const res2: Response = await fetch(nextLink, { headers: fetchHdrs, signal: ctrl2.signal });
             clearTimeout(t2);
             if (!res2.ok) { console.warn(`[target-push] ONIX index nextLink failed HTTP ${res2.status}`); break; }
-            const data2 = await res2.json();
+            const data2: any = await res2.json();
             const page: any[] = Array.isArray(data2) ? data2 : (Array.isArray(data2?.value) ? data2.value : []);
             arr.push(...page);
             nextLink = typeof data2?.['@odata.nextLink'] === 'string' ? data2['@odata.nextLink'] : null;
@@ -895,7 +895,7 @@ async function buildOnixIndex(
     _onixIndexCache.set(cacheKey, entry);
     console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
-    for (const [field, vMap] of fieldMap.entries()) {
+    for (const [field, vMap] of Array.from(fieldMap.entries())) {
       const samples = Array.from(vMap.keys()).slice(0, 5);
       sampleLog.push(`${field}: [${samples.map(s => JSON.stringify(s)).join(", ")}] (${vMap.size} unique vals)`);
       if (vMap.size === 0 && field.startsWith("CustomColumns.")) {
@@ -1151,7 +1151,7 @@ async function pushToOnix(
       });
       if (matches.length > 1) {
         // Pick the lowest IdRecord among duplicates
-        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id): id is number => id !== null).sort((a, b) => a - b);
+        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id: number | null): id is number => id !== null).sort((a: number, b: number) => a - b);
         return { id: sorted[0] ?? null, ambiguous: false };
       }
       return { id: extractOnixId(matches[0]), ambiguous: false };
@@ -1185,7 +1185,7 @@ async function pushToOnix(
         const vMap = onixIndex.fieldMap.get(fv.targetField);
         if (vMap && !vMap.has(fv.value)) {
           const loose = looseMatchValue(fv.value);
-          for (const k of vMap.keys()) {
+          for (const k of Array.from(vMap.keys())) {
             if (looseMatchValue(k) === loose) {
               return `nesúlad formátu hodnoty pre "${fv.targetField}": zdroj="${fv.value}" vs ONIX="${k}" — zapnite normalizáciu párovania`;
             }
@@ -1252,7 +1252,7 @@ async function pushToOnix(
         if (candidateIds === null) {
           candidateIds = idSet;
         } else {
-          for (const id of candidateIds) {
+          for (const id of Array.from(candidateIds)) {
             if (!idSet.has(id)) candidateIds.delete(id);
           }
         }
@@ -1402,7 +1402,7 @@ async function pushToOnix(
           // search the ONIX index by Ns_Number = that H kód. This prevents creating duplicate ONIX
           // cards when the matchFields can't locate the card that was created in a previous run.
           // (ONIX upserts by Ns_Number, so if we find the card this way we can safely update it.)
-          if (onMissing !== "force" && _snapKey && matchOptions?.prevHkodAssignments && onixIndex) {
+          if (_snapKey && matchOptions?.prevHkodAssignments && onixIndex) {
             const prevHKod = matchOptions.prevHkodAssignments.get(_snapKey);
             if (prevHKod) {
               const nsMap = onixIndex.fieldMap.get("Ns_Number");

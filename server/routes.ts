@@ -22,7 +22,7 @@ async function checkAutoRetries() {
   const now = Date.now();
 
   // Fire due retries
-  for (const [configId, entry] of retrySchedule.entries()) {
+  for (const [configId, entry] of Array.from(retrySchedule.entries())) {
     if (now < entry.fireAt) continue;
     retrySchedule.delete(configId);
     try {
@@ -36,7 +36,7 @@ async function checkAutoRetries() {
         resumeSyncRun(entry.failedRunId).catch((err: any) => console.error("[auto-retry] Resume failed:", err.message));
       } else {
         console.log(`[auto-retry] Starting fresh run for config ${configId.slice(0, 8)}`);
-        executeSyncRun(configId, null).catch((err: any) => console.error("[auto-retry] Execute failed:", err.message));
+        executeSyncRun(configId, undefined).catch((err: any) => console.error("[auto-retry] Execute failed:", err.message));
       }
     } catch (err: any) {
       console.error("[auto-retry] Error firing retry:", err.message);
@@ -448,7 +448,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       return res.json(mod);
     } catch (err: any) {
@@ -462,7 +462,7 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Invalid module data" });
     }
     try {
-      const before = await storage.getModule(req.params.id);
+      const before = await storage.getModule(String(req.params.id));
       if (!before) return res.status(404).json({ message: "Module not found" });
       const changedFields: string[] = [];
       const beforeValues: Record<string, any> = {};
@@ -478,7 +478,7 @@ export async function registerRoutes(
             const allKeys = new Set([...Object.keys(oldConfig), ...Object.keys(newConfig)]);
             beforeValues[key] = {};
             afterValues[key] = {};
-            for (const ck of allKeys) {
+            for (const ck of Array.from(allKeys)) {
               if (JSON.stringify(oldConfig[ck]) !== JSON.stringify(newConfig[ck])) {
                 (beforeValues[key] as any)[ck] = redactSensitive(ck, oldConfig[ck]);
                 (afterValues[key] as any)[ck] = redactSensitive(ck, newConfig[ck]);
@@ -490,7 +490,7 @@ export async function registerRoutes(
           }
         }
       }
-      const mod = await storage.updateModule(req.params.id, parsed.data);
+      const mod = await storage.updateModule(String(req.params.id), parsed.data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "config_change",
@@ -507,7 +507,7 @@ export async function registerRoutes(
 
   app.patch("/api/modules/:id/toggle-active", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const newActive = !mod.isActive;
       const updated = await storage.updateModule(mod.id, { isActive: newActive });
@@ -527,7 +527,7 @@ export async function registerRoutes(
 
   app.post("/api/modules/:id/test-connection", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const result = await testModuleConnection(mod);
       if (result.success && mod.status !== "connected") {
@@ -553,7 +553,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id/data-preview", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const limit = parseInt(req.query.limit as string) || 50;
       const source = (req.query.source as string) || undefined;
@@ -567,7 +567,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id/export-csv", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const source = (req.query.source as string) || undefined;
       console.log(`[export-csv] ${mod.code} source=${source || "auto"}`);
@@ -595,7 +595,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id/filter-count", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const source = (req.query.source as string) || undefined;
       const limit = parseInt(req.query.limit as string) || 5000;
@@ -701,20 +701,20 @@ export async function registerRoutes(
     const parsed = updateUserSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid user data" });
     try {
-      const beforeUser = await storage.getUser(req.params.id);
+      const beforeUser = await storage.getUser(String(req.params.id));
       const data: any = { ...parsed.data };
       const passwordChanged = !!data.password;
       if (data.password) {
         data.password = await bcrypt.hash(data.password, 12);
       }
-      const user = await storage.updateUser(req.params.id, data);
+      const user = await storage.updateUser(String(req.params.id), data);
       if (!user) return res.status(404).json({ message: "User not found" });
       const changedFields: string[] = [];
       const beforeValues: Record<string, any> = {};
       const afterValues: Record<string, any> = {};
       if (beforeUser) {
         for (const key of ["username", "fullName", "email", "role", "isActive"] as const) {
-          if (parsed.data[key] !== undefined && (beforeUser as any)[key] !== (user as any)[key]) {
+          if ((parsed.data as any)[key] !== undefined && (beforeUser as any)[key] !== (user as any)[key]) {
             changedFields.push(key);
             beforeValues[key] = (beforeUser as any)[key];
             afterValues[key] = (user as any)[key];
@@ -739,13 +739,13 @@ export async function registerRoutes(
 
   app.delete("/api/users/:id", requireRole("admin"), async (req, res) => {
     try {
-      const deletedUser = await storage.getUser(req.params.id);
-      await storage.deleteUser(req.params.id);
+      const deletedUser = await storage.getUser(String(req.params.id));
+      await storage.deleteUser(String(req.params.id));
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "delete",
         entity: "user",
-        entityId: req.params.id,
+        entityId: String(req.params.id),
         details: deletedUser ? { username: deletedUser.username, fullName: deletedUser.fullName, role: deletedUser.role } : {},
         ipAddress: req.ip || null,
       });
@@ -813,7 +813,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-configs/:id", requireAuth, async (req, res) => {
     try {
-      const config = await storage.getSyncConfig(req.params.id);
+      const config = await storage.getSyncConfig(String(req.params.id));
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const modules = await storage.getAllModules();
       const moduleMap = Object.fromEntries(modules.map(m => {
@@ -845,13 +845,13 @@ export async function registerRoutes(
         ...parsed.data,
         createdBy: req.user!.id,
       };
-      const config = await storage.createSyncConfig(data);
+      const config = await storage.createSyncConfig(data as any);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "create",
         entity: "sync_config",
         entityId: config.id,
-        details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId, direction: config.direction },
+        details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId, direction: (config as any).direction },
         ipAddress: req.ip || null,
       });
       return res.status(201).json(config);
@@ -866,8 +866,8 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
       }
-      const beforeConfig = await storage.getSyncConfig(req.params.id);
-      const config = await storage.updateSyncConfig(req.params.id, parsed.data);
+      const beforeConfig = await storage.getSyncConfig(String(req.params.id));
+      const config = await storage.updateSyncConfig(String(req.params.id), parsed.data as any);
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const changedFields: string[] = [];
       const beforeValues: Record<string, any> = {};
@@ -899,13 +899,13 @@ export async function registerRoutes(
 
   app.delete("/api/sync-configs/:id", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const deletedConfig = await storage.getSyncConfig(req.params.id);
-      await storage.deleteSyncConfig(req.params.id);
+      const deletedConfig = await storage.getSyncConfig(String(req.params.id));
+      await storage.deleteSyncConfig(String(req.params.id));
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "delete",
         entity: "sync_config",
-        entityId: req.params.id,
+        entityId: String(req.params.id),
         details: deletedConfig ? { name: deletedConfig.name, sourceModuleId: deletedConfig.sourceModuleId, targetModuleId: deletedConfig.targetModuleId } : {},
         ipAddress: req.ip || null,
       });
@@ -918,7 +918,7 @@ export async function registerRoutes(
   app.get("/api/sync-configs/:id/runs", requireAuth, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
-      const runs = await storage.getSyncRuns(req.params.id, limit);
+      const runs = await storage.getSyncRuns(String(req.params.id), limit);
       return res.json(runs);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load sync runs" });
@@ -927,7 +927,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id/source-fields", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod) return res.status(404).json({ message: "Module not found" });
       const source = (req.query.source as string) || undefined;
       const result = await fetchModuleData(mod, 20, source);
@@ -965,7 +965,7 @@ export async function registerRoutes(
 
   app.get("/api/modules/:id/onix-stocks", requireAuth, async (req, res) => {
     try {
-      const mod = await storage.getModule(req.params.id);
+      const mod = await storage.getModule(String(req.params.id));
       if (!mod || mod.code.toUpperCase() !== "ONIX") return res.status(404).json({ message: "ONIX module not found" });
       const { getOnixCreds } = await import("./onix-creds");
       const creds = getOnixCreds(mod.config as Record<string, any>);
@@ -1000,7 +1000,7 @@ export async function registerRoutes(
 
   app.post("/api/sync-configs/:id/test-onix-match", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const config = await storage.getSyncConfig(req.params.id);
+      const config = await storage.getSyncConfig(String(req.params.id));
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const modules = await storage.getAllModules();
       const targetMod = modules.find(m => m.id === config.targetModuleId);
@@ -1086,10 +1086,10 @@ export async function registerRoutes(
 
   app.post("/api/sync-configs/:id/run", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const config = await storage.getSyncConfig(req.params.id);
+      const config = await storage.getSyncConfig(String(req.params.id));
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const fullSync = req.body?.fullSync === true;
-      const runId = await executeSyncRun(req.params.id, req.user!.id, fullSync);
+      const runId = await executeSyncRun(String(req.params.id), req.user!.id, fullSync);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "sync_run",
@@ -1164,7 +1164,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-runs/:id", requireAuth, async (req, res) => {
     try {
-      const run = await storage.getSyncRun(req.params.id);
+      const run = await storage.getSyncRun(String(req.params.id));
       if (!run) return res.status(404).json({ message: "Sync run not found" });
       return res.json(run);
     } catch (err: any) {
@@ -1174,7 +1174,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-runs/:id/export-csv", requireAuth, async (req, res) => {
     try {
-      const run = await storage.getSyncRun(req.params.id);
+      const run = await storage.getSyncRun(String(req.params.id));
       if (!run) return res.status(404).json({ message: "Sync run not found" });
 
       const details = (run as any).details as Record<string, any> | null;
@@ -1213,7 +1213,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-runs/:id/progress", requireAuth, async (req, res) => {
     try {
-      const run = await storage.getSyncRun(req.params.id);
+      const run = await storage.getSyncRun(String(req.params.id));
       if (!run) return res.status(404).json({ message: "Sync run not found" });
       return res.json({
         id: run.id,
@@ -1236,7 +1236,7 @@ export async function registerRoutes(
   app.get("/api/retry-schedule", requireAuth, (_req, res) => {
     const result: Array<{ configId: string; fireAt: string; failedRunId: string; remainingMs: number }> = [];
     const now = Date.now();
-    for (const [configId, entry] of retrySchedule.entries()) {
+    for (const [configId, entry] of Array.from(retrySchedule.entries())) {
       result.push({ configId, fireAt: new Date(entry.fireAt).toISOString(), failedRunId: entry.failedRunId, remainingMs: Math.max(0, entry.fireAt - now) });
     }
     return res.json(result);
@@ -1260,13 +1260,13 @@ export async function registerRoutes(
 
   app.post("/api/sync-runs/:id/cancel", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const success = cancelSyncRun(req.params.id);
+      const success = cancelSyncRun(String(req.params.id));
       if (success) {
         return res.json({ message: "Cancellation requested" });
       }
-      const run = await storage.getSyncRun(req.params.id);
+      const run = await storage.getSyncRun(String(req.params.id));
       if (run && (run.status === "running" || run.status === "pending")) {
-        await storage.updateSyncRun(req.params.id, {
+        await storage.updateSyncRun(String(req.params.id), {
           status: "error",
           errorMessage: "Force stopped (process not active)",
           completedAt: new Date(),
@@ -1281,14 +1281,14 @@ export async function registerRoutes(
 
   app.post("/api/sync-runs/:id/resume", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const run = await storage.getSyncRun(req.params.id);
+      const run = await storage.getSyncRun(String(req.params.id));
       if (!run) return res.status(404).json({ message: "Run not found" });
       if (run.status === "running") return res.status(400).json({ message: "Run is already active" });
       const checkpoint = (run as any).checkpointData;
       if (!checkpoint || !checkpoint.globalOffset) {
         return res.status(400).json({ message: "No checkpoint available for this run" });
       }
-      const ok = await resumeSyncRun(req.params.id);
+      const ok = await resumeSyncRun(String(req.params.id));
       if (!ok) return res.status(500).json({ message: "Failed to resume run" });
       return res.json({ message: "Resume started", resumeOffset: checkpoint.globalOffset });
     } catch (err: any) {
@@ -1342,7 +1342,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-backups/config/:configId", requireAuth, async (req, res) => {
     try {
-      const backups = await storage.getSyncBackupsByConfig(req.params.configId);
+      const backups = await storage.getSyncBackupsByConfig(String(req.params.configId));
       return res.json(backups);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to load backups" });
@@ -1351,13 +1351,13 @@ export async function registerRoutes(
 
   app.post("/api/sync-backups/:id/restore", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const result = await restoreFromBackup(req.params.id);
+      const result = await restoreFromBackup(String(req.params.id));
       if (result.success) {
         await storage.createAuditLog({
           userId: req.user!.id,
           action: "restore_backup",
           entity: "sync_backup",
-          entityId: req.params.id,
+          entityId: String(req.params.id),
           details: { recordCount: result.recordCount },
           ipAddress: req.ip || null,
         });
@@ -1370,7 +1370,7 @@ export async function registerRoutes(
 
   app.delete("/api/sync-backups/:id", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const backup = await storage.getSyncBackup(req.params.id);
+      const backup = await storage.getSyncBackup(String(req.params.id));
       if (!backup) return res.status(404).json({ message: "Backup not found" });
       if (backup.googleDriveFileId) {
         try {
@@ -1391,12 +1391,12 @@ export async function registerRoutes(
           }
         }
       }
-      await storage.deleteSyncBackup(req.params.id);
+      await storage.deleteSyncBackup(String(req.params.id));
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "delete_backup",
         entity: "sync_backup",
-        entityId: req.params.id,
+        entityId: String(req.params.id),
         ipAddress: req.ip || null,
       });
       return res.json({ message: "Backup deleted" });
@@ -1463,7 +1463,7 @@ export async function registerRoutes(
 
   app.post("/api/backups/manual/:configId", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const config = await storage.getSyncConfig(req.params.configId);
+      const config = await storage.getSyncConfig(String(req.params.configId));
       if (!config) return res.status(404).json({ message: "Config not found" });
 
       const modules = await storage.getAllModules();
@@ -1537,7 +1537,7 @@ export async function registerRoutes(
         entity: "sync_backup",
         status: "success",
         details: { backupId: backup.id, recordCount: driveResult.totalRecords, fileName: driveResult.primaryFileName, totalFiles: driveResult.totalFiles },
-      });
+      } as any);
 
       return res.json({ success: true, backup });
     } catch (err: any) {
@@ -1561,11 +1561,11 @@ export async function registerRoutes(
           targetModuleId: c.targetModuleId,
           fieldMappings: c.fieldMappings,
           schedule: c.schedule,
-          isActive: c.isActive,
-          syncMode: c.syncMode,
-          batchSize: c.batchSize,
-          retryAttempts: c.retryAttempts,
-          backupBeforeSync: c.backupBeforeSync,
+          isActive: (c as any).isActive,
+          syncMode: (c as any).syncMode,
+          batchSize: (c as any).batchSize,
+          retryAttempts: (c as any).retryAttempts,
+          backupBeforeSync: (c as any).backupBeforeSync,
         })),
         modules: modules.map(m => ({
           id: m.id,
@@ -1642,7 +1642,7 @@ export async function registerRoutes(
 
   app.get("/api/backups/config-drive-download/:fileId", requireRole("admin"), async (req, res) => {
     try {
-      const data = await downloadBackup(req.params.fileId);
+      const data = await downloadBackup(String(req.params.fileId));
       return res.json(data);
     } catch (err: any) {
       return res.status(500).json({ message: `Failed to download config backup: ${err.message}` });
@@ -1651,7 +1651,7 @@ export async function registerRoutes(
 
   app.delete("/api/backups/config-drive/:fileId", requireRole("admin"), async (req, res) => {
     try {
-      await deleteBackupFile(req.params.fileId);
+      await deleteBackupFile(String(req.params.fileId));
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ message: `Failed to delete config backup: ${err.message}` });
@@ -1660,7 +1660,7 @@ export async function registerRoutes(
 
   app.post("/api/backups/config-restore-from-drive/:fileId", requireRole("admin"), async (req, res) => {
     try {
-      const data = await downloadBackup(req.params.fileId);
+      const data = await downloadBackup(String(req.params.fileId));
       if (!data || (!data.modules && !data.syncConfigs && !data.users)) {
         return res.status(400).json({ message: "Invalid backup file format" });
       }
@@ -1720,7 +1720,7 @@ export async function registerRoutes(
                 batchSize: imp.batchSize,
                 retryAttempts: imp.retryAttempts,
                 backupBeforeSync: imp.backupBeforeSync,
-              });
+              } as any);
               results.syncConfigs++;
             } else {
               const currentModules = await storage.getAllModules();
@@ -1738,7 +1738,7 @@ export async function registerRoutes(
                   batchSize: imp.batchSize || 50,
                   retryAttempts: imp.retryAttempts || 3,
                   backupBeforeSync: imp.backupBeforeSync ?? true,
-                });
+                } as any);
                 results.syncConfigs++;
               } else {
                 results.skipped.push(`Sync config "${imp.name}": source or target module not found after ID remap`);
@@ -1777,7 +1777,7 @@ export async function registerRoutes(
         action: "update",
         entity: "config_restore_from_drive",
         details: {
-          fileId: req.params.fileId,
+          fileId: String(req.params.fileId),
           backupVersion: data.version,
           backupAppVersion: data.appVersion,
           restored: results,
@@ -1810,7 +1810,7 @@ export async function registerRoutes(
 
   app.delete("/api/sync-backups/config/:configId", requireRole("admin", "operator"), async (req, res) => {
     try {
-      const backups = await storage.getSyncBackupsByConfig(req.params.configId);
+      const backups = await storage.getSyncBackupsByConfig(String(req.params.configId));
       for (const b of backups) {
         if (b.googleDriveFileId) {
           try { await deleteBackupFile(b.googleDriveFileId); } catch {}
@@ -1824,7 +1824,7 @@ export async function registerRoutes(
           }
         }
       }
-      await storage.deleteSyncBackupsByConfig(req.params.configId);
+      await storage.deleteSyncBackupsByConfig(String(req.params.configId));
       return res.json({ message: `Deleted ${backups.length} backups` });
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to delete backups" });
@@ -1864,7 +1864,7 @@ export async function registerRoutes(
 
   app.get("/api/onix-backups/:id", requireAuth, async (req, res) => {
     try {
-      const backup = await storage.getOnixBackup(req.params.id);
+      const backup = await storage.getOnixBackup(String(req.params.id));
       if (!backup) return res.status(404).json({ message: "Not found" });
       return res.json(backup);
     } catch (err: any) {
@@ -1874,7 +1874,7 @@ export async function registerRoutes(
 
   app.get("/api/onix-backups/:id/download", requireAuth, async (req, res) => {
     try {
-      const backup = await storage.getOnixBackup(req.params.id);
+      const backup = await storage.getOnixBackup(String(req.params.id));
       if (!backup) return res.status(404).json({ message: "Not found" });
       if (!backup.localFilePath) return res.status(404).json({ message: "Lokálny súbor nie je dostupný" });
       const exists = await localBackupExists(backup.localFilePath);
@@ -1892,7 +1892,7 @@ export async function registerRoutes(
   // === LOCAL BACKUP DOWNLOAD ===
   app.get("/api/sync-backups/:id/download", requireAuth, async (req, res) => {
     try {
-      const backup = await storage.getSyncBackup(req.params.id);
+      const backup = await storage.getSyncBackup(String(req.params.id));
       if (!backup) return res.status(404).json({ message: "Not found" });
       const fp = backup.localFilePath;
       if (!fp) return res.status(404).json({ message: "Lokálny súbor nie je dostupný pre túto zálohu" });
@@ -2079,7 +2079,7 @@ export async function registerRoutes(
 
   app.get("/api/sync-records/:id/detail", requireAuth, async (req, res) => {
     try {
-      const result = await storage.getRecordSnapshots({ configId: String(req.query.configId || ""), limit: 1, offset: 0, search: req.params.id });
+      const result = await storage.getRecordSnapshots({ configId: String(req.query.configId || ""), limit: 1, offset: 0, search: String(req.params.id) });
       const row = result.rows[0] || null;
       if (!row) return res.status(404).json({ message: "Not found" });
       return res.json(row);

@@ -61,7 +61,7 @@ function AppLayout() {
               <Route path="/modules/:id" component={ModuleDetailPage} />
 
               <Route path="/sync" component={SyncConfigPage} />
-              <Route path="/sync-dashboard" component={SyncDashboardPage} />
+              <Route path="/sync-dashboard" component={SyncDashboardPage as any} />
               <Route path="/shop-view" component={ShopViewPage} />
               <Route path="/backups" component={BackupManagementPage} />
               <Route path="/help" component={HelpPage} />

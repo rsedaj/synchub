@@ -147,7 +147,7 @@ function ModuleVaultCard({ mod }: { mod: ApiModule }) {
               </Badge>
             )}
             <Badge
-              variant={mod.status === "connected" ? "outline" : mod.status === "active" ? "default" : mod.status === "configured" ? "secondary" : "outline"}
+              variant={mod.status === "connected" ? "outline" : (mod.status as string) === "active" ? "default" : (mod.status as string) === "configured" ? "secondary" : "outline"}
               className={`text-[10px] h-5 ${mod.status === "connected" ? "bg-blue-500/10 text-blue-600 border-blue-500/30" : ""}`}
               data-testid={`badge-status-${mod.code}`}
             >
