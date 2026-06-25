@@ -25,6 +25,16 @@
  *   - The stub returns `@odata.count` GREATER than the page it serves to force the
  *     "incomplete index" branch, and EQUAL to force the "complete index" branch.
  *
+ * Case 3 exercises the `@odata.nextLink` page-walking branch in `buildOnixIndex`
+ * (server/target-push.ts ~lines 721-737). A real OData v4 first response carries BOTH
+ * `@odata.count` (the true total) AND `@odata.nextLink` (the URL of page 2). If that
+ * nextLink chain ends early — a page returns no further `@odata.nextLink` while fewer
+ * cards than `@odata.count` were collected — the index is just as incomplete as the
+ * `$skip` case, and `onixIndexComplete=false` must still be surfaced. (The completeness
+ * check at ~line 890 needs a non-null `@odata.count` to detect a short fetch, so the
+ * first page MUST include it; nextLink alone carries no notion of "expected", so an
+ * absent count would be indistinguishable from complete.)
+ *
  * Cases 4 & 5 exercise the THIRD pagination branch in `buildOnixIndex`: the non-OData
  * `$skip/$top` fallback (server/target-push.ts ~lines 762-806), reached when the first page
  * carries NEITHER `@odata.count` NOR `@odata.nextLink` but is non-empty. Case 4 models an
@@ -36,15 +46,17 @@
  * expected count is unknowable, so `onixIndexComplete` stays true and `onixIndexExpectedCount`
  * is null in both — the duplicate-risk signal here is correct termination, not a count mismatch.
  *
- * Case 3 additionally exercises the OTHER pagination branch in `buildOnixIndex`:
- * `@odata.nextLink` page-walking (server/target-push.ts ~lines 721-737). A real OData
- * v4 first response carries BOTH `@odata.count` (the true total) AND `@odata.nextLink`
- * (the URL of page 2). If that nextLink chain ends early — a page returns no further
- * `@odata.nextLink` while fewer cards than `@odata.count` were collected — the index is
- * just as incomplete as the `$skip` case, and `onixIndexComplete=false` must still be
- * surfaced. (The completeness check at ~line 890 needs a non-null `@odata.count` to
- * detect a short fetch, so the first page MUST include it; nextLink alone carries no
- * notion of "expected", so an absent count would be indistinguishable from complete.)
+ * Cases 6-9 cover the FAILURE paths of both OData pagination loops: a follow-up page that
+ * fails mid-chain. Both loops `break` on a non-200 response (server/target-push.ts
+ * ~lines 730 / 751) and on a thrown fetch error (~lines 735 / 756), keeping whatever
+ * was collected so far. Because the first page already carried `@odata.count`, that
+ * partial result MUST still surface `onixIndexComplete=false` with the partial
+ * `recordCount` and the `expectedCount` from `@odata.count` — a regression that swallows
+ * the partial fetch and reports the index as complete would hide duplicate-creation risk:
+ *   - Case 6: nextLink chain, page 2 responds HTTP 500.
+ *   - Case 7: nextLink chain, page 2 fetch throws.
+ *   - Case 8: $skip/$top walker, the $skip page responds HTTP 500.
+ *   - Case 9: $skip/$top walker, the $skip page fetch throws.
  */
 
 import assert from "node:assert/strict";
@@ -221,6 +233,90 @@ function installFallbackGrowingPagesStub() {
   return calls;
 }
 
+/**
+ * Install a fetch stub that paginates via `@odata.nextLink` but whose page 2 FAILS
+ * mid-chain — either with a non-200 response (`mode: "http500"`) or a thrown fetch
+ * error (`mode: "throw"`). The first page still returns ONE card plus the real total
+ * via `@odata.count`, so when the nextLink loop breaks on the failure the index is
+ * INCOMPLETE (1 collected < `@odata.count`) and must surface `onixIndexComplete=false`.
+ * Any `$skip=` URL means the wrong branch ran, so we throw on it to fail loudly.
+ */
+function installNextLinkFailFetchStub(odataCount: number, mode: "http500" | "throw") {
+  const calls: string[] = [];
+  const nextLinkUrl =
+    "https://onix-api.hauerland.sk/ONIX_API/api/v1/stockitems?$skiptoken=PAGE2";
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? String(input);
+    calls.push(url);
+    if (url.includes("$skip=")) {
+      throw new Error(`Unexpected $skip fetch — nextLink branch should have been used: ${url}`);
+    }
+    // Page 2 (followed via @odata.nextLink) FAILS mid-chain.
+    if (url.includes("$skiptoken=PAGE2")) {
+      if (mode === "throw") {
+        throw new Error("simulated network failure on @odata.nextLink page 2");
+      }
+      return new Response(JSON.stringify({ error: "internal server error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    // First index page: one card + the real total (@odata.count) + a nextLink to page 2.
+    if (url.includes("$count=true")) {
+      const body = {
+        value: [{ Id: 1, Ns_Number: "AAA" }],
+        "@odata.count": odataCount,
+        "@odata.nextLink": nextLinkUrl,
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch in test (no writes expected): ${url}`);
+  }) as typeof fetch;
+  return calls;
+}
+
+/**
+ * Install a fetch stub that paginates via the `$skip`/`$top` walker (first page carries
+ * `@odata.count` but NO `@odata.nextLink`) whose follow-up `$skip` page FAILS mid-chain —
+ * either with a non-200 response (`mode: "http500"`) or a thrown fetch error
+ * (`mode: "throw"`). The first page returns ONE card plus the real total, so when the
+ * `$skip` loop breaks on the failure the index is INCOMPLETE (1 collected < `@odata.count`)
+ * and must surface `onixIndexComplete=false`.
+ */
+function installSkipFailFetchStub(odataCount: number, mode: "http500" | "throw") {
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? String(input);
+    calls.push(url);
+    // Follow-up $skip page FAILS mid-chain.
+    if (url.includes("$skip=")) {
+      if (mode === "throw") {
+        throw new Error("simulated network failure on $skip page");
+      }
+      return new Response(JSON.stringify({ error: "internal server error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    // First index page: one card + the real total (@odata.count), NO nextLink → $skip branch.
+    if (url.includes("$count=true")) {
+      const body = {
+        value: [{ Id: 1, Ns_Number: "AAA" }],
+        "@odata.count": odataCount,
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch in test (no writes expected): ${url}`);
+  }) as typeof fetch;
+  return calls;
+}
+
 function restoreFetch() {
   globalThis.fetch = realFetch;
 }
@@ -365,6 +461,88 @@ async function run() {
   assert.equal(result.onixIndexExpectedCount, null, "no @odata.count served → onixIndexExpectedCount must be null");
   assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
   console.log("✓ fallback paged walk → onixIndexComplete=true, recordCount=5 (full set indexed)");
+
+  // --- Case 6: INCOMPLETE index — nextLink page 2 responds HTTP 500 ---
+  // First page (count=5) + nextLink → page 2 fails HTTP 500 → loop breaks with 1 card < 5.
+  clearOnixIndexCache();
+  calls = installNextLinkFailFetchStub(5, "http500");
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => u.includes("$skiptoken=PAGE2")),
+    true,
+    "expected the @odata.nextLink page to be attempted before it failed",
+  );
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true") && !u.includes("$skiptoken=PAGE2")),
+    false,
+    "expected only ONIX index fetches (no per-record write/lookup; record should be skipped)",
+  );
+  assert.equal(result.onixIndexComplete, false, "nextLink HTTP 500 mid-chain must surface onixIndexComplete=false");
+  assert.equal(result.onixIndexRecordCount, 1, "onixIndexRecordCount must be the partial cards collected before the failure (1)");
+  assert.equal(result.onixIndexExpectedCount, 5, "onixIndexExpectedCount must be the @odata.count (5)");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ nextLink page HTTP 500 → onixIndexComplete=false, recordCount=1, expectedCount=5");
+
+  // --- Case 7: INCOMPLETE index — nextLink page 2 fetch throws ---
+  // First page (count=5) + nextLink → page 2 fetch throws → loop breaks with 1 card < 5.
+  clearOnixIndexCache();
+  calls = installNextLinkFailFetchStub(5, "throw");
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => u.includes("$skiptoken=PAGE2")),
+    true,
+    "expected the @odata.nextLink page to be attempted before it threw",
+  );
+  assert.equal(result.onixIndexComplete, false, "nextLink thrown error mid-chain must surface onixIndexComplete=false");
+  assert.equal(result.onixIndexRecordCount, 1, "onixIndexRecordCount must be the partial cards collected before the throw (1)");
+  assert.equal(result.onixIndexExpectedCount, 5, "onixIndexExpectedCount must be the @odata.count (5)");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ nextLink page throws → onixIndexComplete=false, recordCount=1, expectedCount=5");
+
+  // --- Case 8: INCOMPLETE index — $skip page responds HTTP 500 ---
+  // First page (count=5, no nextLink) → $skip page fails HTTP 500 → loop breaks with 1 card < 5.
+  clearOnixIndexCache();
+  calls = installSkipFailFetchStub(5, "http500");
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => u.includes("$skip=")),
+    true,
+    "expected the $skip/$top walker to be attempted before it failed",
+  );
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true") && !u.includes("$skip=")),
+    false,
+    "expected only ONIX index fetches (no per-record write/lookup; record should be skipped)",
+  );
+  assert.equal(result.onixIndexComplete, false, "$skip HTTP 500 mid-chain must surface onixIndexComplete=false");
+  assert.equal(result.onixIndexRecordCount, 1, "onixIndexRecordCount must be the partial cards collected before the failure (1)");
+  assert.equal(result.onixIndexExpectedCount, 5, "onixIndexExpectedCount must be the @odata.count (5)");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ $skip page HTTP 500 → onixIndexComplete=false, recordCount=1, expectedCount=5");
+
+  // --- Case 9: INCOMPLETE index — $skip page fetch throws ---
+  // First page (count=5, no nextLink) → $skip page fetch throws → loop breaks with 1 card < 5.
+  clearOnixIndexCache();
+  calls = installSkipFailFetchStub(5, "throw");
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => u.includes("$skip=")),
+    true,
+    "expected the $skip/$top walker to be attempted before it threw",
+  );
+  assert.equal(result.onixIndexComplete, false, "$skip thrown error mid-chain must surface onixIndexComplete=false");
+  assert.equal(result.onixIndexRecordCount, 1, "onixIndexRecordCount must be the partial cards collected before the throw (1)");
+  assert.equal(result.onixIndexExpectedCount, 5, "onixIndexExpectedCount must be the @odata.count (5)");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ $skip page throws → onixIndexComplete=false, recordCount=1, expectedCount=5");
 
   console.log("\nALL TESTS PASSED");
 }
