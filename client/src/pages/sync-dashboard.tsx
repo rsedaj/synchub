@@ -2950,9 +2950,39 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               {/* Records deferred specifically due to incomplete ONIX index */}
                               {deferredItems.length > 0 && (
                                 <div data-testid={`section-onix-deferred-${run.id}`}>
-                                  <p className="text-muted-foreground mb-1">
-                                    # {t("syncDash.onixIndexDeferredListTitle")} ({deferredCount.toLocaleString()}{deferredItems.length > 50 ? `, ${language === "sk" ? "zobrazených prvých 50" : "showing first 50"}` : ""}):
-                                  </p>
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <p className="text-muted-foreground">
+                                      # {t("syncDash.onixIndexDeferredListTitle")} ({deferredCount.toLocaleString()}{deferredItems.length > 50 ? `, ${language === "sk" ? "zobrazených prvých 50" : "showing first 50"}` : ""}):
+                                    </p>
+                                    <button
+                                      data-testid={`button-onix-deferred-export-${run.id}`}
+                                      title={t("syncDash.onixIndexDeferredDownload")}
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          const resp = await fetch(`/api/sync-runs/${run.id}/export-deferred-csv`, { credentials: "include" });
+                                          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                          const blob = await resp.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement("a");
+                                          const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
+                                          a.href = url;
+                                          a.download = `deferred-records-${startedAt}.csv`;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          document.body.removeChild(a);
+                                          URL.revokeObjectURL(url);
+                                        } catch (err) {
+                                          console.error("Deferred CSV export failed", err);
+                                          alert(language === "sk" ? "Export sa nepodaril." : "Export failed.");
+                                        }
+                                      }}
+                                      className="shrink-0 inline-flex items-center gap-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      {t("syncDash.onixIndexDeferredDownload")}
+                                    </button>
+                                  </div>
                                   <div className="space-y-0.5 max-h-40 overflow-y-auto">
                                     {deferredItems.slice(0, 50).map((d, i) => (
                                       <p key={i} className="text-amber-500 dark:text-amber-400" data-testid={`text-onix-deferred-item-${run.id}-${i}`}>

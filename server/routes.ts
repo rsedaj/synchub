@@ -1211,6 +1211,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/sync-runs/:id/export-deferred-csv", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(String(req.params.id));
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+
+      const details = (run as any).details as Record<string, any> | null;
+      const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> =
+        details?.deferredIncompleteIndexItems ?? details?.onixIndex?.deferredItems ?? [];
+
+      const BOM = '\uFEFF';
+      const rows: string[] = ['Record_Key;Ns_Number;Dovod'];
+      for (const d of deferredItems) {
+        const recordKey = (d.recordKey ?? '').replace(/;/g, ',');
+        const ns = (d.nsNumber ?? '').replace(/;/g, ',');
+        const reason = (d.reason ?? '').replace(/;/g, ',');
+        rows.push(`${recordKey};${ns};${reason}`);
+      }
+
+      const csv = BOM + rows.join('\r\n') + '\r\n';
+      const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : 'export';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="deferred-records-${startedAt}.csv"`);
+      return res.send(csv);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to generate deferred records CSV export" });
+    }
+  });
+
   app.get("/api/sync-runs/:id/progress", requireAuth, async (req, res) => {
     try {
       const run = await storage.getSyncRun(String(req.params.id));
