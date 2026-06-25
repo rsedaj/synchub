@@ -2810,6 +2810,27 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
             >
               <AlertTriangle className="h-3.5 w-3.5" />
               {t("syncDash.onixIndexDeferredFilterOnly")}
+              {(() => {
+                const deferredRunCount = runs.filter(r =>
+                  (filterStatus === "all" || r.status === filterStatus)
+                  && (!filterDuplicateRisk || ((r as any).details as Record<string, any> | null)?.onixIndex?.incomplete === true)
+                  && ((((r as any).details as Record<string, any> | null)?.onixIndex?.deferredCount ?? 0) > 0)
+                ).length;
+                if (deferredRunCount === 0) return null;
+                return (
+                  <span
+                    data-testid="badge-filter-deferred-count"
+                    title={t("syncDash.onixIndexDeferredFilterCountTooltip").replace("{count}", deferredRunCount.toLocaleString())}
+                    className={`inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-medium ${
+                      filterDeferredOnly
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {deferredRunCount.toLocaleString()}
+                  </span>
+                );
+              })()}
             </button>
           </div>
 
