@@ -12,7 +12,7 @@ env:
 
 jobs:
   test:
-    name: Field-mapping safety checks
+    name: API safety checks
     runs-on: ubuntu-latest
 
     services:
@@ -70,12 +70,12 @@ jobs:
           cat server.log >&2 || true
           exit 1
 
-      - name: Run field-mapping validation API tests
+      - name: Run API safety tests
         env:
           BASE_URL: http://127.0.0.1:5000
           TEST_USERNAME: admin
           TEST_PASSWORD: admin123
-        run: npx tsx --test tests/api/sync-config-mapping-validation.test.ts
+        run: npx tsx --test tests/api/*.test.ts
 
       - name: Dump server log on failure
         if: failure()
