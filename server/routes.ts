@@ -1533,11 +1533,11 @@ export async function registerRoutes(
 
       await storage.createSyncLog({
         moduleId: targetModule.id,
-        action: "manual_backup",
-        entity: "sync_backup",
+        direction: "export",
         status: "success",
-        details: { backupId: backup.id, recordCount: driveResult.totalRecords, fileName: driveResult.primaryFileName, totalFiles: driveResult.totalFiles },
-      } as any);
+        recordsProcessed: driveResult.totalRecords,
+        details: { type: "manual_backup", backupId: backup.id, recordCount: driveResult.totalRecords, fileName: driveResult.primaryFileName, totalFiles: driveResult.totalFiles },
+      });
 
       return res.json({ success: true, backup });
     } catch (err: any) {
