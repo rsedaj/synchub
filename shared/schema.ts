@@ -296,6 +296,16 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs, {
     })
     .nullable()
     .optional(),
+  onixFixedFields: z
+    .array(
+      z.object({
+        field: z.string(),
+        value: z.string(),
+        condition: z.enum(["always", "if_empty"]),
+      }),
+    )
+    .nullable()
+    .optional(),
 }).pick({
   name: true,
   targetModuleId: true,
@@ -312,6 +322,7 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs, {
   sourceFilters: true,
   hKodConfig: true,
   schedule: true,
+  onixFixedFields: true,
   notes: true,
   isEnabled: true,
   autoRetry: true,

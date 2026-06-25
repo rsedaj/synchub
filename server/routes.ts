@@ -102,6 +102,15 @@ const onixFixedFieldsSchema = z.array(z.object({
   condition: z.enum(["always", "if_empty"]),
 })).nullable().optional();
 
+const hKodConfigSchema = z.object({
+  enabled: z.boolean(),
+  prefix: z.string(),
+  nextNumber: z.number().int().min(0),
+  field: z.string(),
+  detectionPrefix: z.string().optional(),
+  padding: z.number().optional(),
+}).nullable().optional();
+
 // Rejects configs that set the same non-empty ONIX fixed field name on more than
 // one row. During sync only the first occurrence (higher row) wins, so silently
 // persisting duplicates via the API, import, or seed would drop the lower rows.
@@ -191,11 +200,7 @@ const createSyncConfigSchema = z.object({
     operator: z.string(),
     value: z.string(),
   })).nullable().optional(),
-  hKodConfig: z.object({
-    enabled: z.boolean(),
-    prefix: z.string(),
-    nextNumber: z.number().int().min(0),
-  }).nullable().optional(),
+  hKodConfig: hKodConfigSchema,
   onixFixedFields: onixFixedFieldsSchema,
   autoRetry: z.boolean().optional(),
   retryDelayMin: z.number().int().min(1).max(120).optional(),
@@ -237,11 +242,7 @@ const updateSyncConfigSchema = z.object({
     operator: z.string(),
     value: z.string(),
   })).nullable().optional(),
-  hKodConfig: z.object({
-    enabled: z.boolean(),
-    prefix: z.string(),
-    nextNumber: z.number().int().min(0),
-  }).nullable().optional(),
+  hKodConfig: hKodConfigSchema,
   onixFixedFields: onixFixedFieldsSchema,
   autoRetry: z.boolean().optional(),
   retryDelayMin: z.number().int().min(1).max(120).optional(),
@@ -846,7 +847,7 @@ export async function registerRoutes(
         ...parsed.data,
         createdBy: req.user!.id,
       };
-      const config = await storage.createSyncConfig(data as any);
+      const config = await storage.createSyncConfig(data);
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "create",
@@ -868,7 +869,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
       }
       const beforeConfig = await storage.getSyncConfig(String(req.params.id));
-      const config = await storage.updateSyncConfig(String(req.params.id), parsed.data as any);
+      const config = await storage.updateSyncConfig(String(req.params.id), parsed.data);
       if (!config) return res.status(404).json({ message: "Sync config not found" });
       const changedFields: string[] = [];
       const beforeValues: Record<string, any> = {};
