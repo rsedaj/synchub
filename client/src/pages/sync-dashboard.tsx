@@ -1826,6 +1826,19 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                             </div>
                           )}
 
+                          {(cs.totalDeferredIncompleteIndex || 0) > 0 && (
+                            <div className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md border border-amber-500/30 bg-amber-500/5" data-testid="panel-deferred">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                              <span className="text-muted-foreground">{t("syncDash.deferred")}:</span>
+                              <span className="font-semibold text-amber-700 dark:text-amber-400" data-testid="text-summary-deferred">{cs.totalDeferredIncompleteIndex.toLocaleString()}</span>
+                              <span className="text-muted-foreground text-[10px]">
+                                {language === "sk"
+                                  ? `(odložené pre neúplný ONIX index — znovu sa skúsia pri ďalšom behu s úplným indexom)`
+                                  : `(deferred due to incomplete ONIX index — retried on the next run with a complete index)`}
+                              </span>
+                            </div>
+                          )}
+
                           {/* Visual breakdown bar */}
                           <ResultBreakdownBar
                             created={cs.totalCreated || 0}

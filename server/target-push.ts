@@ -29,7 +29,7 @@ export interface VATTransformEntry {
 export interface PushRecordResult {
   sourceIndex: number;
   target_id: number | null;
-  status: "created" | "updated" | "error" | "skipped";
+  status: "created" | "updated" | "error" | "skipped" | "deferred";
   matchType?: "matchFields" | "hkod_fallback";
   errorMsg?: string;
   nsNumber?: string;
@@ -60,6 +60,8 @@ export interface PushResult {
   skippedCount?: number;
   // Subset of skippedCount: records deferred specifically because the ONIX index
   // was known-incomplete (duplicate-prevention defer), distinct from other skips.
+  // Their delta baseline hash is suppressed so the next complete-index run
+  // automatically re-attempts them.
   incompleteIndexSkippedCount?: number;
   errors: Array<{ index: number; message: string }>;
   records: PushRecordResult[];
@@ -1444,7 +1446,7 @@ async function pushToOnix(
             const expected = onixIndex.expectedCount ?? "?";
             return {
               created: 0, updated: 0, error: 0,
-              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Neúplný ONIX index (${onixIndex.recordCount}/${expected} kariet) — záznam nenájdený (${lookupDesc}), nový sa nevytvára (riziko duplikátu existujúcej karty). Preskočené.`, nsNumber: nsNum, recordKey: _snapKey, deferredIncompleteIndex: true },
+              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Neúplný ONIX index (${onixIndex.recordCount}/${expected} kariet) — záznam nenájdený (${lookupDesc}), nový sa nevytvára (riziko duplikátu existujúcej karty). Odložené na ďalší beh s úplným indexom.`, nsNumber: nsNum, recordKey: _snapKey, deferredIncompleteIndex: true },
               latency: 0,
             };
           }
@@ -1900,7 +1902,7 @@ async function pushToOnix(
   const avgLatency = latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0;
   const errorRate = records.length > 0 ? errorCount / records.length : 0;
   const warnOverload = errorRate > 0.3 && errorCount > 3;
-  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} skipped=${skippedCount} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%)` : ""}`);
+  console.log(`[target-push] ONIX ${source} batch ${batchIndex}: created=${created} updated=${updated} skipped=${skippedCount} deferred=${incompleteIndexSkippedCount} errors=${errorCount} avgLatency=${avgLatency}ms min=${minLatencyMs === Infinity ? 0 : minLatencyMs}ms max=${maxLatencyMs}ms${warnOverload ? ` ⚠️ HIGH ERROR RATE (${Math.round(errorRate * 100)}%)` : ""}`);
 
   return {
     success: errorCount === 0,

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Database, X, ChevronLeft, ChevronRight, Tag, AlertTriangle, CheckCircle2, SkipForward, RefreshCcw, Download } from "lucide-react";
+import { Search, Database, X, ChevronLeft, ChevronRight, Tag, AlertTriangle, CheckCircle2, SkipForward, RefreshCcw, Download, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -44,6 +44,7 @@ const STATUS_BADGES: Record<string, { label: string; icon: React.ReactNode; cls:
   updated: { label: "Updated", icon: <RefreshCcw className="h-3 w-3" />, cls: "border border-current" },
   error: { label: "Error", icon: <AlertTriangle className="h-3 w-3" />, cls: "border border-current text-red-600 dark:text-red-400" },
   skipped: { label: "Skipped", icon: <SkipForward className="h-3 w-3" />, cls: "border border-current opacity-60" },
+  deferred: { label: "Deferred", icon: <Clock className="h-3 w-3" />, cls: "border border-current text-amber-600 dark:text-amber-400" },
 };
 
 function StatusBadge({ status, t }: { status: string; t: (k: string) => string }) {
@@ -273,6 +274,7 @@ export default function SyncRecordsPage() {
                   <SelectItem value="updated" data-testid="option-status-updated">{t("syncRecords.updated")}</SelectItem>
                   <SelectItem value="error" data-testid="option-status-error">{t("syncRecords.errors")}</SelectItem>
                   <SelectItem value="skipped" data-testid="option-status-skipped">{t("syncRecords.skipped")}</SelectItem>
+                  <SelectItem value="deferred" data-testid="option-status-deferred">{t("syncRecords.deferred")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

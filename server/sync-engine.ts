@@ -722,6 +722,10 @@ async function executeAsync(
     let totalSkippedByMatch = resumeFrom?.totalSkippedByMatch ?? 0;
     let totalDeferredIncompleteIndex = resumeFrom?.totalDeferredIncompleteIndex ?? 0;
     let totalFallbackHits = 0;
+    // Record keys deferred this run because the ONIX index was incomplete. Their delta
+    // baseline hash must NOT be persisted, so the next delta run re-detects them as
+    // "changed" and re-attempts them once a complete index can be built.
+    const deferredRecordKeys = new Set<string>();
     let onixIndexIncomplete = false;
     let onixIndexRecordCount = 0;
     let onixIndexExpectedCount: number | null = null;
@@ -893,6 +897,22 @@ async function executeAsync(
             if (r.status === "skipped" && r.deferredIncompleteIndex && deferredIncompleteIndexItems.length < 10000) {
               deferredIncompleteIndexItems.push({ recordKey: r.recordKey || "", nsNumber: r.nsNumber || "", reason: r.errorMsg || "Neúplný ONIX index" });
             }
+            // Deferred record (incomplete ONIX index): do NOT advance its delta baseline
+            // hash. Nulling the batchable entry means (a) the snapshot below stores an
+            // empty fieldHash so the baseline is not overwritten, and (b) the per-batch
+            // baseline flush skips it. Tracking the key also drops it from the final
+            // flush. Result: the next delta run re-detects it as "changed" and re-attempts it
+            // once a complete ONIX index can be built.
+            if (r.status === "skipped" && r.deferredIncompleteIndex) {
+              if (r.recordKey && r.recordKey.trim() !== '') {
+                deferredRecordKeys.add(r.recordKey);
+              }
+              const bIdx = r.sourceIndex - (currentBatch - 1) * BATCH_SIZE;
+              const gIdx = i + bIdx;
+              if (gIdx >= 0 && gIdx < batchableBaselines.length) {
+                batchableBaselines[gIdx] = null;
+              }
+            }
           }
           // Write record snapshots to sync_baselines
           if (pushResult.records.length > 0) {
@@ -908,7 +928,7 @@ async function executeAsync(
                   hCode: r.hCode,
                   onixNsNumber: r.onixNsNumber,
                   onixRecordId: r.onixRecordId,
-                  syncStatus: r.status,
+                  syncStatus: (r.status === "skipped" && r.deferredIncompleteIndex) ? "deferred" : r.status,
                   errorMessage: r.errorMsg,
                 };
               });
@@ -1266,12 +1286,20 @@ async function executeAsync(
       },
     }, "completion");
 
-    log(`=== COMPLETE === vytvorené=${totalCreated} aktualizované=${totalUpdated} preskočené(nenájdené)=${totalSkippedByMatch} chyby=${totalFailed} delta_bez_zmeny=${totalSkipped} trvanie=${duration}ms`);
+    log(`=== COMPLETE === vytvorené=${totalCreated} aktualizované=${totalUpdated} preskočené(nenájdené)=${totalSkippedByMatch} odložené(neúplný index)=${totalDeferredIncompleteIndex} chyby=${totalFailed} delta_bez_zmeny=${totalSkipped} trvanie=${duration}ms`);
 
-    if (baselineUpdates.length > 0) {
+    // Drop deferred records from the final baseline flush so their delta hash is not
+    // advanced — this is what lets the next complete-index run re-attempt them.
+    const baselinesToFlush = deferredRecordKeys.size > 0
+      ? baselineUpdates.filter(b => !deferredRecordKeys.has(b.recordKey))
+      : baselineUpdates;
+    if (deferredRecordKeys.size > 0) {
+      log(`Odložených ${deferredRecordKeys.size} záznamov (neúplný ONIX index) — ich delta baseline sa neukladá, znovu sa skúsia pri ďalšom behu s úplným indexom`);
+    }
+    if (baselinesToFlush.length > 0) {
       try {
-        await storage.upsertBaselines(config.id, baselineUpdates);
-        log(`Saved ${baselineUpdates.length} baseline entries`);
+        await storage.upsertBaselines(config.id, baselinesToFlush);
+        log(`Saved ${baselinesToFlush.length} baseline entries`);
       } catch (err: any) {
         log(`Failed to save baselines: ${err.message}`);
       }
