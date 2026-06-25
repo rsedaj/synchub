@@ -2879,6 +2879,16 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   {t("syncDash.onixIndexBadge")}
                                 </span>
                               )}
+                              {deferredCount > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0 text-[10px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap cursor-help"
+                                  title={t("syncDash.onixIndexDeferredBadgeTooltip").replace("{count}", deferredCount.toLocaleString())}
+                                  data-testid={`badge-onix-index-deferred-${run.id}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  {t("syncDash.onixIndexDeferredBadge").replace("{count}", deferredCount.toLocaleString())}
+                                </span>
+                              )}
                             </span>
                             <span className="text-muted-foreground shrink-0">{isExpLog ? "▲" : "▼"}</span>
                           </button>
