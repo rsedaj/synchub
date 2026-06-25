@@ -29,6 +29,23 @@ These rules must be respected with every change, without exception:
 - Changing only the Drizzle schema in `shared/schema.ts` without a corresponding migration is NOT sufficient — the running database will not reflect the change.
 - Migrations must be idempotent (safe to run multiple times on a database that already has the change applied).
 
+## Automated Checks
+
+There is ONE canonical command for the automated test gate — use it instead of
+remembering individual test files:
+
+- `bash scripts/run-tests.sh --backend-only` — the automated "test" validation
+  step. Runs the offline backend tests (`tests/server/**`) AND the black-box API
+  tests (`tests/api/**`, against a live server) and skips the `tsc` type-check.
+- `bash scripts/run-tests.sh` — full suite (adds the `tsc --noEmit` type-check).
+- `bash scripts/run-tests.sh --no-api` — skip the live-server API phase (for
+  environments with no database/server).
+
+The API phase is delegated to `scripts/run-api-tests.sh`, which reuses a server
+already serving `/api/health` or boots `npm run dev` itself, waits for readiness,
+runs the tests, and tears down only a server it started. The same API tests also
+run in CI (`.github/workflows/deploy.yml`) before the Docker image is built.
+
 ## System Architecture
 
 SyncHub is built with a modern web stack, featuring a React 18 frontend with TypeScript and Vite, utilizing Shadcn/ui and Tailwind CSS for UI components. The backend is an Express.js application also written in TypeScript, connected to a PostgreSQL database managed with Drizzle ORM. Session-based authentication is handled by Passport.js and bcrypt.
