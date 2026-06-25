@@ -25,6 +25,17 @@
  *   - The stub returns `@odata.count` GREATER than the page it serves to force the
  *     "incomplete index" branch, and EQUAL to force the "complete index" branch.
  *
+ * Cases 4 & 5 exercise the THIRD pagination branch in `buildOnixIndex`: the non-OData
+ * `$skip/$top` fallback (server/target-push.ts ~lines 762-806), reached when the first page
+ * carries NEITHER `@odata.count` NOR `@odata.nextLink` but is non-empty. Case 4 models an
+ * ONIX endpoint that IGNORES `$skip` and re-serves the same first page — the walker's
+ * "same first record ID" guard must stop after one probe so the duplicate page is neither
+ * looped on nor double-counted (the core duplicate-creation risk this family guards). Case 5
+ * models an endpoint that DOES honour paging (full page → short page) and asserts every
+ * record across the walk is indexed. Because the fallback never sees an `@odata.count`, the
+ * expected count is unknowable, so `onixIndexComplete` stays true and `onixIndexExpectedCount`
+ * is null in both — the duplicate-risk signal here is correct termination, not a count mismatch.
+ *
  * Case 3 additionally exercises the OTHER pagination branch in `buildOnixIndex`:
  * `@odata.nextLink` page-walking (server/target-push.ts ~lines 721-737). A real OData
  * v4 first response carries BOTH `@odata.count` (the true total) AND `@odata.nextLink`
@@ -122,6 +133,94 @@ function installNextLinkFetchStub(odataCount: number) {
   return calls;
 }
 
+/**
+ * Install a fetch stub for the THIRD pagination branch in `buildOnixIndex`: the
+ * non-OData `$skip/$top` fallback (server/target-push.ts ~lines 762-806), reached when
+ * the first page carries NEITHER `@odata.count` NOR `@odata.nextLink` but is non-empty.
+ *
+ * This variant models an ONIX endpoint that IGNORES `$skip` and re-serves the same first
+ * page forever. The fallback walker compares the follow-up page's first record ID to the
+ * first page's; when they match it concludes "single-response endpoint" and stops, so the
+ * SAME records are never pushed twice. We re-serve the identical first page on every
+ * `$skip=` request — a naive walker would loop/duplicate; the guard must stop after one.
+ */
+function installFallbackIgnoredSkipStub() {
+  const calls: string[] = [];
+  const firstPage = [
+    { Id: 1, Ns_Number: "AAA" },
+    { Id: 2, Ns_Number: "BBB" },
+  ];
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? String(input);
+    calls.push(url);
+    // NB: the fallback page URL is `...?$count=true&$skip=N&$top=M`, so it ALSO contains
+    // `$count=true` — the `$skip=` check MUST come first to classify it correctly.
+    if (url.includes("$skip=")) {
+      // ONIX ignores $skip: re-serve the identical first page (same first record Id=1).
+      return new Response(JSON.stringify({ value: firstPage }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    // First index page: two cards, NO @odata.count, NO @odata.nextLink → fallback branch.
+    if (url.includes("$count=true")) {
+      return new Response(JSON.stringify({ value: firstPage }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch in test (no writes expected): ${url}`);
+  }) as typeof fetch;
+  return calls;
+}
+
+/**
+ * Install a fetch stub for the SAME `$skip/$top` fallback branch, but modelling an ONIX
+ * endpoint that DOES honour paging: the first page (no `@odata.count`, no `@odata.nextLink`)
+ * is followed by a full-size page, then a short page that ends the walk. The walker must
+ * collect every record across all pages so the index is built from the FULL set.
+ *
+ * Page plan (PAGE_SIZE = first page length = 2):
+ *   first page  → Id 1,2 (no count/nextLink)
+ *   $skip=2     → Id 3,4 (full page → keep going)
+ *   $skip=4     → Id 5   (short page → last page, stop)
+ * Total indexed = 5. Any `$skip` beyond 4 means the walker failed to stop, so we throw.
+ */
+function installFallbackGrowingPagesStub() {
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? String(input);
+    calls.push(url);
+    if (url.includes("$skip=")) {
+      const skip = Number(url.match(/\$skip=(\d+)/)?.[1] ?? "-1");
+      if (skip === 2) {
+        // Full-size page (length === PAGE_SIZE) → walker continues.
+        return new Response(
+          JSON.stringify({ value: [{ Id: 3, Ns_Number: "CCC" }, { Id: 4, Ns_Number: "DDD" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (skip === 4) {
+        // Short page (length < PAGE_SIZE) → last page, walker stops after pushing it.
+        return new Response(JSON.stringify({ value: [{ Id: 5, Ns_Number: "EEE" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected $skip=${skip} — walker should have stopped at the short page`);
+    }
+    // First index page: two cards, NO @odata.count, NO @odata.nextLink → fallback branch.
+    if (url.includes("$count=true")) {
+      return new Response(
+        JSON.stringify({ value: [{ Id: 1, Ns_Number: "AAA" }, { Id: 2, Ns_Number: "BBB" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    throw new Error(`Unexpected fetch in test (no writes expected): ${url}`);
+  }) as typeof fetch;
+  return calls;
+}
+
 function restoreFetch() {
   globalThis.fetch = realFetch;
 }
@@ -202,6 +301,70 @@ async function run() {
   assert.equal(result.onixIndexExpectedCount, 5, "onixIndexExpectedCount must be the @odata.count (5)");
   assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
   console.log("✓ incomplete nextLink chain → onixIndexComplete=false, recordCount=2, expectedCount=5");
+
+  // --- Case 4: $skip/$top FALLBACK where ONIX ignores $skip (single-response endpoint) ---
+  // First page has no @odata.count and no @odata.nextLink, so the fallback walker runs and
+  // probes with $skip. ONIX re-serves the SAME first page (first record Id matches), which the
+  // walker must detect and stop on — WITHOUT looping or double-counting the re-served records.
+  clearOnixIndexCache();
+  calls = installFallbackIgnoredSkipStub();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  const skipProbes = calls.filter((u) => u.includes("$skip=")).length;
+  assert.equal(
+    skipProbes,
+    1,
+    `ignored-$skip detection must stop after a single probe, not loop (saw ${skipProbes} $skip fetches)`,
+  );
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true")),
+    false,
+    "expected only ONIX index fetches (no per-record write/lookup; record should be skipped)",
+  );
+  // No @odata.count was served, so completeness is unknowable → treated as complete (not flagged).
+  assert.equal(result.onixIndexComplete, true, "single-response fallback must surface onixIndexComplete=true");
+  assert.equal(
+    result.onixIndexRecordCount,
+    2,
+    "the re-served duplicate page must NOT be counted — index holds only the original 2 cards",
+  );
+  assert.equal(result.onixIndexExpectedCount, null, "no @odata.count served → onixIndexExpectedCount must be null");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ fallback ignored-$skip → stops after 1 probe, onixIndexComplete=true, recordCount=2 (no duplicates)");
+
+  // --- Case 5: $skip/$top FALLBACK where ONIX honours paging (full set indexed) ---
+  // First page (no count/nextLink) → full page → short page ends the walk. The walker must
+  // collect every record across all pages so the index reflects the FULL set (5 cards).
+  clearOnixIndexCache();
+  calls = installFallbackGrowingPagesStub();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => /\$skip=2(\b|&)/.test(u)),
+    true,
+    "expected the fallback walker to fetch the second page ($skip=2)",
+  );
+  assert.equal(
+    calls.some((u) => /\$skip=4(\b|&)/.test(u)),
+    true,
+    "expected the fallback walker to fetch the third (short) page ($skip=4)",
+  );
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true")),
+    false,
+    "expected only ONIX index fetches (no per-record write/lookup; record should be skipped)",
+  );
+  assert.equal(result.onixIndexComplete, true, "paged fallback (no @odata.count) must surface onixIndexComplete=true");
+  assert.equal(
+    result.onixIndexRecordCount,
+    5,
+    "all cards across the fallback page walk must be indexed (2 + 2 + 1 = 5)",
+  );
+  assert.equal(result.onixIndexExpectedCount, null, "no @odata.count served → onixIndexExpectedCount must be null");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ fallback paged walk → onixIndexComplete=true, recordCount=5 (full set indexed)");
 
   console.log("\nALL TESTS PASSED");
 }
