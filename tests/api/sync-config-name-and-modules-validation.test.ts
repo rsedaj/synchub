@@ -52,6 +52,41 @@ async function countConfigs(): Promise<number> {
   return configs.length;
 }
 
+async function createConfig(): Promise<{
+  id: string;
+  name: string;
+  sourceModuleId: string;
+  targetModuleId: string;
+}> {
+  const res = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(baseConfig()),
+  });
+  assert.equal(res.status, 201, "Failed to create a config to PATCH against");
+  const created = (await res.json()) as {
+    id: string;
+    name: string;
+    sourceModuleId: string;
+    targetModuleId: string;
+  };
+  createdConfigIds.push(created.id);
+  return created;
+}
+
+async function getConfig(id: string): Promise<{
+  name: string;
+  sourceModuleId: string;
+  targetModuleId: string;
+}> {
+  const res = await api(`/api/sync-configs/${id}`);
+  assert.equal(res.status, 200, `Failed to fetch config ${id}`);
+  return (await res.json()) as {
+    name: string;
+    sourceModuleId: string;
+    targetModuleId: string;
+  };
+}
+
 before(async () => {
   const loginRes = await api("/api/auth/login", {
     method: "POST",
@@ -198,4 +233,91 @@ test("POST accepts a config with all required fields and returns 201", async () 
   const created = (await res.json()) as { id: string };
   assert.ok(created.id, "Created config should have an id");
   createdConfigIds.push(created.id);
+});
+
+test("PATCH rejects blanking the name with 400 and persists nothing", async () => {
+  const created = await createConfig();
+  const res = await api(`/api/sync-configs/${created.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name: "" }),
+  });
+  assert.equal(res.status, 400, "PATCH with an empty name should be rejected");
+  const body = await res.json();
+  const nameErrors = (body?.errors?.name ?? []) as string[];
+  assert.ok(
+    nameErrors.length > 0,
+    `Expected a name validation error, got: ${JSON.stringify(body.errors)}`,
+  );
+  const after = await getConfig(created.id);
+  assert.equal(after.name, created.name, "The name must not be blanked out");
+});
+
+test("PATCH rejects blanking sourceModuleId with 400 and persists nothing", async () => {
+  const created = await createConfig();
+  const res = await api(`/api/sync-configs/${created.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sourceModuleId: "" }),
+  });
+  assert.equal(
+    res.status,
+    400,
+    "PATCH with an empty sourceModuleId should be rejected",
+  );
+  const body = await res.json();
+  const sourceErrors = (body?.errors?.sourceModuleId ?? []) as string[];
+  assert.ok(
+    sourceErrors.length > 0,
+    `Expected a sourceModuleId validation error, got: ${JSON.stringify(body.errors)}`,
+  );
+  const after = await getConfig(created.id);
+  assert.equal(
+    after.sourceModuleId,
+    created.sourceModuleId,
+    "The sourceModuleId must not be blanked out",
+  );
+});
+
+test("PATCH rejects blanking targetModuleId with 400 and persists nothing", async () => {
+  const created = await createConfig();
+  const res = await api(`/api/sync-configs/${created.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ targetModuleId: "" }),
+  });
+  assert.equal(
+    res.status,
+    400,
+    "PATCH with an empty targetModuleId should be rejected",
+  );
+  const body = await res.json();
+  const targetErrors = (body?.errors?.targetModuleId ?? []) as string[];
+  assert.ok(
+    targetErrors.length > 0,
+    `Expected a targetModuleId validation error, got: ${JSON.stringify(body.errors)}`,
+  );
+  const after = await getConfig(created.id);
+  assert.equal(
+    after.targetModuleId,
+    created.targetModuleId,
+    "The targetModuleId must not be blanked out",
+  );
+});
+
+test("PATCH accepts valid name and modules and returns 200", async () => {
+  const created = await createConfig();
+  const newName = `${created.name}_renamed`;
+  const res = await api(`/api/sync-configs/${created.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: newName,
+      sourceModuleId: created.sourceModuleId,
+      targetModuleId: created.targetModuleId,
+    }),
+  });
+  assert.equal(
+    res.status,
+    200,
+    "PATCH with a valid name and both modules should be accepted",
+  );
+  const after = await getConfig(created.id);
+  assert.equal(after.name, newName, "The valid name should persist");
 });
