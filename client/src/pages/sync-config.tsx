@@ -2294,6 +2294,13 @@ export default function SyncConfigPage() {
                             onDragEnd={() => { dragFixedFieldIdx.current = null; setDragOverFixedFieldIdx(null); }}
                           >
                             <span
+                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-medium text-muted-foreground tabular-nums"
+                              title={language === "sk" ? "Poradie" : "Order"}
+                              data-testid={`rank-fixed-field-${idx}`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <span
                               className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
                               title={language === "sk" ? "Presunúť" : "Drag to reorder"}
                               data-testid={`handle-fixed-field-${idx}`}
