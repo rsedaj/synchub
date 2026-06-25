@@ -57,6 +57,7 @@ import {
   Percent,
   RefreshCw,
   FileText,
+  GripVertical,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { ApiModule, SyncConfig } from "@shared/schema";
@@ -1144,6 +1145,8 @@ export default function SyncConfigPage() {
   const [showValidation, setShowValidation] = useState(false);
   const [highlightedFixedFields, setHighlightedFixedFields] = useState<Set<number>>(new Set());
   const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+  const dragFixedFieldIdx = useRef<number | null>(null);
+  const [dragOverFixedFieldIdx, setDragOverFixedFieldIdx] = useState<number | null>(null);
 
   const suggestions = useMemo(() => {
     if (!fieldsReady) return [];
@@ -2251,8 +2254,52 @@ export default function SyncConfigPage() {
                       <div className="space-y-2">
                         {editor.onixFixedFields.map((ff, idx) => {
                           const isHighlighted = highlightedFixedFields.has(idx);
+                          const isDragOver = dragOverFixedFieldIdx === idx;
                           return (
-                          <div key={idx} className="flex items-center gap-2 flex-wrap" data-testid={`row-fixed-field-${idx}`}>
+                          <div
+                            key={idx}
+                            className={`flex items-center gap-2 flex-wrap transition-opacity${isDragOver ? " opacity-50" : ""}`}
+                            data-testid={`row-fixed-field-${idx}`}
+                            draggable
+                            onDragStart={() => { dragFixedFieldIdx.current = idx; }}
+                            onDragOver={e => { e.preventDefault(); setDragOverFixedFieldIdx(idx); }}
+                            onDragLeave={() => setDragOverFixedFieldIdx(null)}
+                            onDrop={() => {
+                              const from = dragFixedFieldIdx.current;
+                              setDragOverFixedFieldIdx(null);
+                              dragFixedFieldIdx.current = null;
+                              if (from === null || from === idx) return;
+                              setEditor(prev => {
+                                const arr = [...prev.onixFixedFields];
+                                const [moved] = arr.splice(from, 1);
+                                arr.splice(idx, 0, moved);
+                                return { ...prev, onixFixedFields: arr };
+                              });
+                              setHighlightedFixedFields(prev => {
+                                const next = new Set<number>();
+                                prev.forEach(i => {
+                                  if (i === from) {
+                                    next.add(idx);
+                                  } else if (from < idx) {
+                                    if (i > from && i <= idx) next.add(i - 1);
+                                    else next.add(i);
+                                  } else {
+                                    if (i >= idx && i < from) next.add(i + 1);
+                                    else next.add(i);
+                                  }
+                                });
+                                return next;
+                              });
+                            }}
+                            onDragEnd={() => { dragFixedFieldIdx.current = null; setDragOverFixedFieldIdx(null); }}
+                          >
+                            <span
+                              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+                              title={language === "sk" ? "Presunúť" : "Drag to reorder"}
+                              data-testid={`handle-fixed-field-${idx}`}
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </span>
                             <Button
                               variant="ghost"
                               size="icon"
