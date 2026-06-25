@@ -799,6 +799,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterDuplicateRisk, setFilterDuplicateRisk] = useState<boolean>(false);
+  const [filterDeferredOnly, setFilterDeferredOnly] = useState<boolean>(false);
   const [selectedConfigs, setSelectedConfigs] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
   const [backupError, setBackupError] = useState<{ type: BackupOp; message: string; targetId?: string } | null>(null);
@@ -2783,6 +2784,20 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
               <AlertTriangle className="h-3.5 w-3.5" />
               {t("syncDash.onixIndexFilterOnly")}
             </button>
+            <button
+              type="button"
+              onClick={() => setFilterDeferredOnly(v => !v)}
+              title={t("syncDash.onixIndexDeferredFilterOnlyTooltip")}
+              data-testid="button-filter-deferred-only"
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors shrink-0 ${
+                filterDeferredOnly
+                  ? "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {t("syncDash.onixIndexDeferredFilterOnly")}
+            </button>
           </div>
 
           <Card>
@@ -2791,6 +2806,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                 const logRuns = [...runs]
                   .filter(r => filterStatus === "all" || r.status === filterStatus)
                   .filter(r => !filterDuplicateRisk || ((r as any).details as Record<string, any> | null)?.onixIndex?.incomplete === true)
+                  .filter(r => !filterDeferredOnly || (((r as any).details as Record<string, any> | null)?.onixIndex?.deferredCount ?? 0) > 0)
                   .sort((a, b) => new Date(b.startedAt ?? 0).getTime() - new Date(a.startedAt ?? 0).getTime());
 
                 if (logRuns.length === 0) {
