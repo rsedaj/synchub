@@ -797,6 +797,34 @@ async function run() {
   assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
   console.log("✓ fallback page throws → stops after 1 probe, onixIndexComplete=true, recordCount=2 (no loop, no escaping throw)");
 
+  // --- Case 14: CREATE config + AND-match no-match against a KNOWN-INCOMPLETE index ---
+  // This is the create/force gap Task #117 closes. Unlike Cases 11/12 (onMissing:"skip",
+  // where the record is skipped anyway), here onMissing is the DEFAULT "create": the existing
+  // code would have fallen through to the create path and POSTed a new ONIX card — duplicating
+  // an existing card that was merely missing from the partial index. With the fix, a
+  // known-incomplete index turns the unreliable "not found" into a clean skip:
+  //   - NO write/lookup fetch fires (only index fetches) — nothing is created.
+  //   - createdCount === 0 and the record is skipped (skippedCount === 1).
+  //   - The skip reason is the auditable "Neúplný ONIX index …" message.
+  // A regression that auto-creates here would re-introduce the duplicate-creation risk.
+  clearOnixIndexCache();
+  calls = installFetchStub(5);
+  const createMatchOptions = { ...matchOptions, onMissing: "create" as const };
+  cap = captureLogs();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, createMatchOptions);
+  cap.restore();
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true")),
+    false,
+    "no write/lookup fetch may fire — an incomplete-index AND-match miss must NOT create a card even with onMissing:create",
+  );
+  assert.equal(result.createdCount, 0, "incomplete-index AND-match no-match must create ZERO cards under onMissing:create");
+  assert.equal(result.skippedCount, 1, "the unmatched record must be skipped (deferred), not created");
+  assert.equal(result.onixIndexComplete, false, "index must be reported incomplete so the create-skip guard is reachable");
+  console.log("✓ incomplete index + AND-match miss + onMissing:create → 0 created, skipped (duplicate-creation gap closed)");
+
   console.log("\nALL TESTS PASSED");
 }
 

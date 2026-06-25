@@ -1420,6 +1420,29 @@ async function pushToOnix(
             }
           }
 
+          // ONIX duplicate prevention (cause 6): when the ONIX index is KNOWN-INCOMPLETE,
+          // an AND-match "not found" is unreliable — the existing card may simply be missing
+          // from the partial index. Auto-creating off that uncertain miss is exactly how a
+          // duplicate card gets made while the amber duplicate-risk banner is showing. So do
+          // NOT create here: skip/defer the record with a clear, auditable reason regardless
+          // of onMissing being the default "create". ("force" never reaches this block — it
+          // is gated out at the top by `onMissing !== "force"` — so an explicit force config
+          // still overrides and creates, by design.)
+          if (!isUpdate && onixIndex && !onixIndex.complete) {
+            const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
+            const src = sourceRecords?.[i];
+            const lookupDesc = matchTargetByMappingsRaw.map(m => {
+              const val = src ? src[m.sourceField] : undefined;
+              return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
+            }).join(", ");
+            const expected = onixIndex.expectedCount ?? "?";
+            return {
+              created: 0, updated: 0, error: 0,
+              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Neúplný ONIX index (${onixIndex.recordCount}/${expected} kariet) — záznam nenájdený (${lookupDesc}), nový sa nevytvára (riziko duplikátu existujúcej karty). Preskočené.`, nsNumber: nsNum, recordKey: _snapKey },
+              latency: 0,
+            };
+          }
+
           // If still not found and onMissing === "skip", skip cleanly
           if (!isUpdate && onMissing === "skip") {
             const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
