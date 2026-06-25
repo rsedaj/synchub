@@ -851,7 +851,7 @@ export async function registerRoutes(
         action: "create",
         entity: "sync_config",
         entityId: config.id,
-        details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId, direction: (config as any).direction },
+        details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId },
         ipAddress: req.ip || null,
       });
       return res.status(201).json(config);
@@ -1574,11 +1574,9 @@ export async function registerRoutes(
           targetModuleId: c.targetModuleId,
           fieldMappings: c.fieldMappings,
           schedule: c.schedule,
-          isActive: (c as any).isActive,
-          syncMode: (c as any).syncMode,
-          batchSize: (c as any).batchSize,
-          retryAttempts: (c as any).retryAttempts,
-          backupBeforeSync: (c as any).backupBeforeSync,
+          isEnabled: c.isEnabled,
+          autoRetry: c.autoRetry,
+          retryDelayMin: c.retryDelayMin,
         })),
         modules: modules.map(m => ({
           id: m.id,
@@ -1728,12 +1726,10 @@ export async function registerRoutes(
                 targetModuleId: remappedTargetId,
                 fieldMappings: imp.fieldMappings,
                 schedule: imp.schedule,
-                isActive: imp.isActive,
-                syncMode: imp.syncMode,
-                batchSize: imp.batchSize,
-                retryAttempts: imp.retryAttempts,
-                backupBeforeSync: imp.backupBeforeSync,
-              } as any);
+                isEnabled: imp.isEnabled,
+                autoRetry: imp.autoRetry,
+                retryDelayMin: imp.retryDelayMin,
+              });
               results.syncConfigs++;
             } else {
               const currentModules = await storage.getAllModules();
@@ -1746,12 +1742,10 @@ export async function registerRoutes(
                   targetModuleId: remappedTargetId,
                   fieldMappings: imp.fieldMappings,
                   schedule: imp.schedule,
-                  isActive: imp.isActive ?? true,
-                  syncMode: imp.syncMode || "full",
-                  batchSize: imp.batchSize || 50,
-                  retryAttempts: imp.retryAttempts || 3,
-                  backupBeforeSync: imp.backupBeforeSync ?? true,
-                } as any);
+                  isEnabled: imp.isEnabled ?? true,
+                  autoRetry: imp.autoRetry ?? false,
+                  retryDelayMin: imp.retryDelayMin ?? 3,
+                });
                 results.syncConfigs++;
               } else {
                 results.skipped.push(`Sync config "${imp.name}": source or target module not found after ID remap`);
