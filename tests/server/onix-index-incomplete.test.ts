@@ -65,6 +65,17 @@
  * Because no `@odata.count` was ever served the expected total is unknowable, so the index
  * stays `onixIndexComplete=true` with `onixIndexExpectedCount=null` (unlike Cases 6-9): the
  * duplicate-risk signal here is correct termination, not a count mismatch.
+ *
+ * Case 13 covers the sibling FAILURE path of the same non-OData `$skip/$top` fallback walker:
+ * the follow-up `$skip` page THROWS (rejected promise — a dropped connection, abort, or
+ * timeout) rather than returning a bad HTTP status. The fallback's thrown-error guard
+ * (server/target-push.ts ~line 799 `catch (e2)`) must set `pageFailed` so the `while
+ * (!pageFailed ...)` loop terminates after a single probe, leaving ONLY the first-page
+ * records indexed — no loop, no throw escaping `pushToTarget`, no double-counting. As in
+ * Case 10, no `@odata.count` was ever served so the expected total is unknowable and the
+ * index stays `onixIndexComplete=true` with `onixIndexExpectedCount=null`. A regression that
+ * swallowed or retried indefinitely on a thrown error could turn a transient network blip
+ * into a partial or looping index build — the duplicate-creation risk this family guards.
  */
 
 import assert from "node:assert/strict";
@@ -353,6 +364,46 @@ function installFallbackPageErrorStub() {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    // First index page: two cards, NO @odata.count, NO @odata.nextLink → fallback branch.
+    if (url.includes("$count=true")) {
+      return new Response(JSON.stringify({ value: firstPage }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch in test (no writes expected): ${url}`);
+  }) as typeof fetch;
+  return calls;
+}
+
+/**
+ * Install a fetch stub for the non-OData `$skip/$top` fallback branch, modelling a DROPPED
+ * CONNECTION on the follow-up page: the first page (no `@odata.count`, no `@odata.nextLink`,
+ * non-empty) triggers the fallback walker, and the first `$skip` probe REJECTS (throws) — the
+ * shape of a network drop, abort, or timeout rather than a clean HTTP error response.
+ *
+ * The walker's thrown-error guard (server/target-push.ts ~line 799 `catch (e2)`) must set
+ * `pageFailed` so the `while (!pageFailed ...)` loop terminates after a single probe, leaving
+ * ONLY the first-page records indexed — no loop, no throw escaping `pushToTarget`, no
+ * double-counting. A regression that swallowed or retried indefinitely on a thrown error would
+ * turn a transient blip into a partial/looping index build, feeding the duplicate-creation risk
+ * this family guards against. We throw on EVERY `$skip=` request so a walker that failed to stop
+ * would keep probing (and the single-probe assertion below would catch it).
+ */
+function installFallbackPageThrowStub() {
+  const calls: string[] = [];
+  const firstPage = [
+    { Id: 1, Ns_Number: "AAA" },
+    { Id: 2, Ns_Number: "BBB" },
+  ];
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? String(input);
+    calls.push(url);
+    // Follow-up page: dropped connection. The `$skip=` check MUST come first because the
+    // fallback page URL is `...?$count=true&$skip=N&$top=M` and also contains `$count=true`.
+    if (url.includes("$skip=")) {
+      throw new Error("simulated dropped connection on fallback $skip page");
     }
     // First index page: two cards, NO @odata.count, NO @odata.nextLink → fallback branch.
     if (url.includes("$count=true")) {
@@ -713,6 +764,38 @@ async function run() {
     "a complete index must NOT take the cautious incomplete-index classification",
   );
   console.log("✓ complete index + same miss → confident create classification (proves completeness drives caution)");
+
+  // --- Case 13: $skip/$top FALLBACK where the follow-up page THROWS (dropped connection) ---
+  // First page (no count/nextLink) triggers the fallback walker; the first $skip probe REJECTS
+  // (network drop / abort / timeout). The walker's thrown-error guard (catch (e2)) must set
+  // pageFailed so the loop terminates after a single probe, leaving ONLY the first-page records
+  // indexed — no loop, no throw escaping pushToTarget, no double-counting of a failed page.
+  clearOnixIndexCache();
+  calls = installFallbackPageThrowStub();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  restoreFetch();
+
+  const throwProbes = calls.filter((u) => u.includes("$skip=")).length;
+  assert.equal(
+    throwProbes,
+    1,
+    `thrown-error guard must stop after a single failed probe, not loop (saw ${throwProbes} $skip fetches)`,
+  );
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true")),
+    false,
+    "expected only ONIX index fetches (no per-record write/lookup; record should be skipped)",
+  );
+  // No @odata.count was served, so completeness is unknowable → treated as complete (not flagged).
+  assert.equal(result.onixIndexComplete, true, "thrown-follow-up-page fallback must surface onixIndexComplete=true");
+  assert.equal(
+    result.onixIndexRecordCount,
+    2,
+    "the thrown page must NOT be counted — index holds only the original 2 first-page cards",
+  );
+  assert.equal(result.onixIndexExpectedCount, null, "no @odata.count served → onixIndexExpectedCount must be null");
+  assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
+  console.log("✓ fallback page throws → stops after 1 probe, onixIndexComplete=true, recordCount=2 (no loop, no escaping throw)");
 
   console.log("\nALL TESTS PASSED");
 }
