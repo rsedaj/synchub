@@ -2812,7 +2812,9 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       const batchErrors: Array<{ batch?: number; index?: number; message: string }> = det?.batchErrors ?? [];
                       const skippedItems: Array<{ nsNumber: string; reason: string }> = det?.skippedItems ?? [];
                       const completionSummary: string | undefined = det?.completionSummary;
-                      const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null } | undefined = det?.onixIndex;
+                      const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null; deferredCount?: number; deferredItems?: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> } | undefined = det?.onixIndex;
+                      const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> = onixIndexInfo?.deferredItems ?? [];
+                      const deferredCount: number = onixIndexInfo?.deferredCount ?? deferredItems.length;
                       const isExpLog = expandedLogRunId === run.id;
                       const duration = run.startedAt && run.completedAt
                         ? Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
@@ -2923,6 +2925,30 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                         .replace("{indexed}", (onixIndexInfo.recordCount ?? 0).toLocaleString())
                                         .replace("{expected}", onixIndexInfo.expectedCount != null ? onixIndexInfo.expectedCount.toLocaleString() : "?")}
                                     </p>
+                                    {deferredCount > 0 && (
+                                      <p
+                                        className="mt-1 font-semibold text-amber-700/90 dark:text-amber-300/90"
+                                        data-testid={`text-onix-deferred-count-${run.id}`}
+                                      >
+                                        {t("syncDash.onixIndexDeferredCount").replace("{count}", deferredCount.toLocaleString())}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Records deferred specifically due to incomplete ONIX index */}
+                              {deferredItems.length > 0 && (
+                                <div data-testid={`section-onix-deferred-${run.id}`}>
+                                  <p className="text-muted-foreground mb-1">
+                                    # {t("syncDash.onixIndexDeferredListTitle")} ({deferredCount.toLocaleString()}{deferredItems.length > 50 ? `, ${language === "sk" ? "zobrazených prvých 50" : "showing first 50"}` : ""}):
+                                  </p>
+                                  <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                                    {deferredItems.slice(0, 50).map((d, i) => (
+                                      <p key={i} className="text-amber-500 dark:text-amber-400" data-testid={`text-onix-deferred-item-${run.id}-${i}`}>
+                                        <span className="text-amber-400 dark:text-amber-300">[{d.nsNumber || d.recordKey || "—"}]</span> {d.reason}
+                                      </p>
+                                    ))}
                                   </div>
                                 </div>
                               )}

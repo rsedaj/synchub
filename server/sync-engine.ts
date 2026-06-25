@@ -17,6 +17,7 @@ export interface CheckpointData {
   totalUpdated: number;
   totalFailed: number;
   totalSkippedByMatch: number;
+  totalDeferredIncompleteIndex?: number;
   errors: Array<{ batch: number; index: number; message: string }>;
   savedAt: string;
 }
@@ -719,6 +720,7 @@ async function executeAsync(
     let totalUpdated = resumeFrom?.totalUpdated ?? 0;
     let totalFailed = resumeFrom?.totalFailed ?? 0;
     let totalSkippedByMatch = resumeFrom?.totalSkippedByMatch ?? 0;
+    let totalDeferredIncompleteIndex = resumeFrom?.totalDeferredIncompleteIndex ?? 0;
     let totalFallbackHits = 0;
     let onixIndexIncomplete = false;
     let onixIndexRecordCount = 0;
@@ -727,6 +729,7 @@ async function executeAsync(
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
     const allSkippedItems: Array<{ nsNumber: string; reason: string }> = [];
+    const deferredIncompleteIndexItems: Array<{ recordKey: string; nsNumber: string; reason: string }> = [];
     const syncedRecords: PushRecordResult[] = [];
     let allLatencyMs = 0;
     let allLatencyCount = 0;
@@ -756,6 +759,7 @@ async function executeAsync(
         totalUpdated,
         totalFailed,
         totalSkippedByMatch,
+        totalDeferredIncompleteIndex,
         errors: [],
         savedAt: new Date().toISOString(),
       };
@@ -857,6 +861,7 @@ async function executeAsync(
           totalUpdated += pushResult.updatedCount;
           totalFailed += pushResult.errorCount;
           totalSkippedByMatch += pushResult.skippedCount || 0;
+          totalDeferredIncompleteIndex += pushResult.incompleteIndexSkippedCount || 0;
           totalFallbackHits += pushResult.records.filter(r => r.matchType === "hkod_fallback").length;
           if (pushResult.onixIndexComplete === false) {
             onixIndexIncomplete = true;
@@ -884,6 +889,9 @@ async function executeAsync(
             }
             if (r.status === "skipped" && r.nsNumber && allSkippedItems.length < 10000) {
               allSkippedItems.push({ nsNumber: r.nsNumber, reason: r.errorMsg || "Preskočené" });
+            }
+            if (r.status === "skipped" && r.deferredIncompleteIndex && deferredIncompleteIndexItems.length < 10000) {
+              deferredIncompleteIndexItems.push({ recordKey: r.recordKey || "", nsNumber: r.nsNumber || "", reason: r.errorMsg || "Neúplný ONIX index" });
             }
           }
           // Write record snapshots to sync_baselines
@@ -1085,6 +1093,7 @@ async function executeAsync(
           totalUpdated,
           totalFailed,
           totalSkippedByMatch,
+          totalDeferredIncompleteIndex,
           batchErrors: allErrors.slice(-20),
           liveBatch: {
             batchNumber: currentBatch,
@@ -1124,6 +1133,7 @@ async function executeAsync(
           totalUpdated,
           totalFailed,
           totalSkippedByMatch,
+          totalDeferredIncompleteIndex,
           errors: allErrors.slice(-100),
           savedAt: new Date().toISOString(),
         };
@@ -1193,6 +1203,7 @@ async function executeAsync(
       totalUpdated,
       totalFailed,
       totalSkippedByMatch,
+      totalDeferredIncompleteIndex,
       totalFallbackHits,
       totalProcessed: processedOk,
       sourceRecordCount: totalRecords,
@@ -1236,13 +1247,21 @@ async function executeAsync(
         totalUpdated,
         totalFailed,
         totalSkippedByMatch,
+        totalDeferredIncompleteIndex,
         totalFallbackHits,
         batchErrors: allErrors,
         skippedItems: allSkippedItems,
+        deferredIncompleteIndexItems,
         syncedRecords,
         completionSummary,
         onixIndex: onixIndexIncomplete
-          ? { incomplete: true, recordCount: onixIndexRecordCount, expectedCount: onixIndexExpectedCount }
+          ? {
+              incomplete: true,
+              recordCount: onixIndexRecordCount,
+              expectedCount: onixIndexExpectedCount,
+              deferredCount: totalDeferredIncompleteIndex,
+              deferredItems: deferredIncompleteIndexItems.slice(0, 200),
+            }
           : undefined,
       },
     }, "completion");

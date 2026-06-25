@@ -38,6 +38,9 @@ export interface PushRecordResult {
   hCode?: string;
   onixNsNumber?: string;
   onixRecordId?: string;
+  // True when this record was deferred (skipped) specifically because the ONIX
+  // index was known-incomplete and creating a new card would risk a duplicate.
+  deferredIncompleteIndex?: boolean;
 }
 
 export interface HKodDecision {
@@ -55,6 +58,9 @@ export interface PushResult {
   updatedCount: number;
   errorCount: number;
   skippedCount?: number;
+  // Subset of skippedCount: records deferred specifically because the ONIX index
+  // was known-incomplete (duplicate-prevention defer), distinct from other skips.
+  incompleteIndexSkippedCount?: number;
   errors: Array<{ index: number; message: string }>;
   records: PushRecordResult[];
   avgLatencyMs?: number;
@@ -1438,7 +1444,7 @@ async function pushToOnix(
             const expected = onixIndex.expectedCount ?? "?";
             return {
               created: 0, updated: 0, error: 0,
-              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Neúplný ONIX index (${onixIndex.recordCount}/${expected} kariet) — záznam nenájdený (${lookupDesc}), nový sa nevytvára (riziko duplikátu existujúcej karty). Preskočené.`, nsNumber: nsNum, recordKey: _snapKey },
+              recResult: { sourceIndex: globalIndex, target_id: null, status: "skipped", errorMsg: `Neúplný ONIX index (${onixIndex.recordCount}/${expected} kariet) — záznam nenájdený (${lookupDesc}), nový sa nevytvára (riziko duplikátu existujúcej karty). Preskočené.`, nsNumber: nsNum, recordKey: _snapKey, deferredIncompleteIndex: true },
               latency: 0,
             };
           }
@@ -1866,11 +1872,15 @@ async function pushToOnix(
 
   let loggedErrors = 0;
   let skippedCount = 0;
+  let incompleteIndexSkippedCount = 0;
   for (const { result } of sortedResults) {
     created += result.created;
     updated += result.updated;
     errorCount += result.error;
-    if (result.recResult.status === "skipped") skippedCount++;
+    if (result.recResult.status === "skipped") {
+      skippedCount++;
+      if (result.recResult.deferredIncompleteIndex) incompleteIndexSkippedCount++;
+    }
     if (result.errEntry) {
       errors.push(result.errEntry);
       if (loggedErrors < 5) {
@@ -1898,6 +1908,7 @@ async function pushToOnix(
     updatedCount: updated,
     errorCount,
     skippedCount,
+    incompleteIndexSkippedCount,
     errors: errors.slice(0, 20),
     records: recordResults,
     avgLatencyMs: avgLatency,
