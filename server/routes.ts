@@ -1462,6 +1462,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/backups/manual/:configId", requireRole("admin", "operator"), async (req, res) => {
+    let backupTargetModuleId: string | null = null;
     try {
       const config = await storage.getSyncConfig(String(req.params.configId));
       if (!config) return res.status(404).json({ message: "Config not found" });
@@ -1469,6 +1470,7 @@ export async function registerRoutes(
       const modules = await storage.getAllModules();
       const targetModule = modules.find(m => m.id === config.targetModuleId);
       if (!targetModule) return res.status(400).json({ message: "Target module not found" });
+      backupTargetModuleId = targetModule.id;
 
       let backupData: any[] = [];
       try {
@@ -1541,6 +1543,17 @@ export async function registerRoutes(
 
       return res.json({ success: true, backup });
     } catch (err: any) {
+      if (backupTargetModuleId) {
+        try {
+          await storage.createSyncLog({
+            moduleId: backupTargetModuleId,
+            direction: "export",
+            status: "error",
+            errorMessage: err.message,
+            details: { type: "manual_backup" },
+          });
+        } catch {}
+      }
       return res.status(500).json({ message: `Manual backup failed: ${err.message}` });
     }
   });
