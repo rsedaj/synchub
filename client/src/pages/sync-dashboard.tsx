@@ -2849,6 +2849,18 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                               {updated > 0 && <span className="text-blue-600 dark:text-blue-400 whitespace-nowrap">↻{updated.toLocaleString()} upd</span>}
                               {skipped > 0 && <span className="text-amber-500 dark:text-amber-400 whitespace-nowrap">⊘{skipped.toLocaleString()} skip</span>}
                               {failed > 0 && <span className="text-red-500 dark:text-red-400 whitespace-nowrap">✗{failed.toLocaleString()} err</span>}
+                              {onixIndexInfo?.incomplete && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0 text-[10px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap cursor-help"
+                                  title={t("syncDash.onixIndexBadgeTooltip")
+                                    .replace("{indexed}", (onixIndexInfo.recordCount ?? 0).toLocaleString())
+                                    .replace("{expected}", onixIndexInfo.expectedCount != null ? onixIndexInfo.expectedCount.toLocaleString() : "?")}
+                                  data-testid={`badge-onix-index-incomplete-${run.id}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  {t("syncDash.onixIndexBadge")}
+                                </span>
+                              )}
                             </span>
                             <span className="text-muted-foreground shrink-0">{isExpLog ? "▲" : "▼"}</span>
                           </button>
