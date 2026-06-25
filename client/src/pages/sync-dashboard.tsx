@@ -2790,11 +2790,13 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                 return (
                   <div className="divide-y font-mono text-xs">
                     {logRuns.map((run) => {
+                      const config = configMap[run.syncConfigId];
                       const det = (run as any).details as Record<string, any> | null;
                       const phaseHistory: Record<string, string> = det?.phaseHistory ?? {};
                       const batchErrors: Array<{ batch?: number; index?: number; message: string }> = det?.batchErrors ?? [];
                       const skippedItems: Array<{ nsNumber: string; reason: string }> = det?.skippedItems ?? [];
                       const completionSummary: string | undefined = det?.completionSummary;
+                      const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null } | undefined = det?.onixIndex;
                       const isExpLog = expandedLogRunId === run.id;
                       const duration = run.startedAt && run.completedAt
                         ? Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
@@ -2875,6 +2877,24 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                         <span className="text-green-500 dark:text-green-400 font-semibold">✓ DONE</span>
                                       </span>
                                     ) : null}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Incomplete ONIX index warning — duplicate-prevention risk */}
+                              {onixIndexInfo?.incomplete && (
+                                <div
+                                  className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                                  data-testid={`warning-onix-index-incomplete-${run.id}`}
+                                >
+                                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500 dark:text-amber-400" />
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-amber-600 dark:text-amber-400">{t("syncDash.onixIndexIncompleteTitle")}</p>
+                                    <p className="text-amber-700/90 dark:text-amber-300/90 whitespace-pre-wrap">
+                                      {t("syncDash.onixIndexIncompleteDesc")
+                                        .replace("{indexed}", (onixIndexInfo.recordCount ?? 0).toLocaleString())
+                                        .replace("{expected}", onixIndexInfo.expectedCount != null ? onixIndexInfo.expectedCount.toLocaleString() : "?")}
+                                    </p>
                                   </div>
                                 </div>
                               )}

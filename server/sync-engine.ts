@@ -720,6 +720,9 @@ async function executeAsync(
     let totalFailed = resumeFrom?.totalFailed ?? 0;
     let totalSkippedByMatch = resumeFrom?.totalSkippedByMatch ?? 0;
     let totalFallbackHits = 0;
+    let onixIndexIncomplete = false;
+    let onixIndexRecordCount = 0;
+    let onixIndexExpectedCount: number | null = null;
     let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
@@ -855,6 +858,11 @@ async function executeAsync(
           totalFailed += pushResult.errorCount;
           totalSkippedByMatch += pushResult.skippedCount || 0;
           totalFallbackHits += pushResult.records.filter(r => r.matchType === "hkod_fallback").length;
+          if (pushResult.onixIndexComplete === false) {
+            onixIndexIncomplete = true;
+            onixIndexRecordCount = pushResult.onixIndexRecordCount ?? 0;
+            onixIndexExpectedCount = pushResult.onixIndexExpectedCount ?? null;
+          }
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
           if (pushResult.avgLatencyMs != null && pushResult.avgLatencyMs > 0) {
@@ -1233,6 +1241,9 @@ async function executeAsync(
         skippedItems: allSkippedItems,
         syncedRecords,
         completionSummary,
+        onixIndex: onixIndexIncomplete
+          ? { incomplete: true, recordCount: onixIndexRecordCount, expectedCount: onixIndexExpectedCount }
+          : undefined,
       },
     }, "completion");
 

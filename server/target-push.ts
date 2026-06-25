@@ -62,6 +62,12 @@ export interface PushResult {
   maxLatencyMs?: number;
   hKodNextNumber?: number;
   hKodDecisions?: HKodDecision[];
+  // ONIX duplicate-prevention diagnostics: when the in-memory ONIX index used for
+  // match lookups indexed fewer cards than ONIX reported, existing cards may have
+  // been missed → new cards risk being created as duplicates.
+  onixIndexComplete?: boolean;
+  onixIndexRecordCount?: number;
+  onixIndexExpectedCount?: number | null;
 }
 
 async function sleep(ms: number) {
@@ -1876,5 +1882,8 @@ async function pushToOnix(
     maxLatencyMs,
     hKodNextNumber: hKodCfg ? hKodCounter : undefined,
     hKodDecisions: hKodDecisions.length > 0 ? hKodDecisions : undefined,
+    onixIndexComplete: onixIndex ? onixIndex.complete : undefined,
+    onixIndexRecordCount: onixIndex ? onixIndex.recordCount : undefined,
+    onixIndexExpectedCount: onixIndex ? onixIndex.expectedCount : undefined,
   };
 }
