@@ -124,6 +124,32 @@ test("POST rejects an empty sourceField with 400", async () => {
   assert.equal(res.status, 400, "Empty sourceField should be rejected");
 });
 
+test("POST rejects an empty fieldMappings array with 400", async () => {
+  const res = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(baseConfig({ fieldMappings: [] })),
+  });
+  assert.equal(
+    res.status,
+    400,
+    "A config with zero field mappings should be rejected",
+  );
+});
+
+test("POST rejects a config with missing fieldMappings with 400", async () => {
+  const config = baseConfig();
+  delete (config as Record<string, unknown>).fieldMappings;
+  const res = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+  assert.equal(
+    res.status,
+    400,
+    "A config with no fieldMappings property should be rejected",
+  );
+});
+
 test("POST accepts a config with distinct targets and returns 201", async () => {
   const res = await api("/api/sync-configs", {
     method: "POST",
