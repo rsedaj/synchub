@@ -964,7 +964,7 @@ export default function SyncConfigPage() {
 
     setShowValidation(true);
 
-    if (duplicateFixedFieldIndices.size > 0) {
+    if (duplicateFixedFieldIndices.size > 0 || mappingOverlapFixedFieldIndices.size > 0) {
       setShowDuplicateFixedWarning(true);
       return;
     }
@@ -1182,6 +1182,22 @@ export default function SyncConfigPage() {
     });
     return dups;
   }, [editor.onixFixedFields]);
+
+  const mappingOverlapFixedFieldIndices = useMemo(() => {
+    const mappedTargets = new Set<string>();
+    editor.fieldMappings.forEach(m => {
+      if (m.sourceField && m.targetField) {
+        const t = m.targetField.trim().toLowerCase();
+        if (t) mappedTargets.add(t);
+      }
+    });
+    const overlap = new Set<number>();
+    editor.onixFixedFields.forEach((ff, idx) => {
+      const name = ff.field.trim().toLowerCase();
+      if (name && mappedTargets.has(name)) overlap.add(idx);
+    });
+    return overlap;
+  }, [editor.onixFixedFields, editor.fieldMappings]);
 
   function handleAutoMap() {
     if (!fieldsReady) return;
@@ -2281,6 +2297,8 @@ export default function SyncConfigPage() {
                           const isHighlighted = highlightedFixedFields.has(idx);
                           const isDragOver = dragOverFixedFieldIdx === idx;
                           const isDuplicate = duplicateFixedFieldIndices.has(idx);
+                          const isMappingOverlap = mappingOverlapFixedFieldIndices.has(idx);
+                          const hasNameConflict = isDuplicate || isMappingOverlap;
                           return (
                           <div
                             key={idx}
@@ -2357,10 +2375,16 @@ export default function SyncConfigPage() {
                               <Plus className="h-3.5 w-3.5" />
                             </Button>
                             <Input
-                              className={`h-8 text-xs font-mono w-44${isDuplicate ? " border-destructive ring-1 ring-destructive" : ""}`}
+                              className={`h-8 text-xs font-mono w-44${hasNameConflict ? " border-destructive ring-1 ring-destructive" : ""}`}
                               placeholder="Ns_Code"
                               value={ff.field}
-                              title={isDuplicate ? (language === "sk" ? "Toto pole je nastavené viackrát" : "This field is set more than once") : undefined}
+                              title={
+                                isDuplicate
+                                  ? (language === "sk" ? "Toto pole je nastavené viackrát" : "This field is set more than once")
+                                  : isMappingOverlap
+                                    ? (language === "sk" ? "Toto pole už vypĺňa mapovanie" : "This field is already filled by a mapping")
+                                    : undefined
+                              }
                               onChange={e => setEditor(prev => {
                                 const arr = [...prev.onixFixedFields];
                                 arr[idx] = { ...arr[idx], field: e.target.value };
@@ -2448,6 +2472,19 @@ export default function SyncConfigPage() {
                               {language === "sk"
                                 ? "Niektoré polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť."
                                 : "Some fields are set more than once. The higher row (lower number) takes precedence."}
+                            </span>
+                          </div>
+                        )}
+                        {mappingOverlapFixedFieldIndices.size > 0 && (
+                          <div
+                            className="flex items-start gap-1.5 text-xs text-destructive mt-1"
+                            data-testid="hint-fixed-field-mapping-overlap"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              {language === "sk"
+                                ? "Niektoré pevné polia majú rovnaký názov ako cieľové pole vypĺňané mapovaním. Pevné pole môže prepísať namapovanú hodnotu."
+                                : "Some fixed fields share a name with a target field filled by a mapping. The fixed field may override the mapped value."}
                             </span>
                           </div>
                         )}
@@ -3194,10 +3231,26 @@ export default function SyncConfigPage() {
             <AlertDialogTitle>
               {language === "sk" ? "Konflikt pevných polí" : "Conflicting fixed fields"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {language === "sk"
-                ? "Niektoré pevné polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť, nižší riadok bude pri synchronizácii ignorovaný. Chcete konfiguráciu uložiť aj tak?"
-                : "Some fixed fields are set more than once. The higher row (lower number) takes precedence; the lower row will be ignored during sync. Do you want to save the configuration anyway?"}
+            <AlertDialogDescription className="space-y-2">
+              {duplicateFixedFieldIndices.size > 0 && (
+                <span className="block">
+                  {language === "sk"
+                    ? "Niektoré pevné polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť, nižší riadok bude pri synchronizácii ignorovaný."
+                    : "Some fixed fields are set more than once. The higher row (lower number) takes precedence; the lower row will be ignored during sync."}
+                </span>
+              )}
+              {mappingOverlapFixedFieldIndices.size > 0 && (
+                <span className="block">
+                  {language === "sk"
+                    ? "Niektoré pevné polia majú rovnaký názov ako cieľové pole, ktoré už vypĺňa mapovanie. Pevné pole môže prepísať namapovanú hodnotu (podľa podmienky)."
+                    : "Some fixed fields have the same name as a target field already filled by a field mapping. The fixed field may override the mapped value (depending on its condition)."}
+                </span>
+              )}
+              <span className="block">
+                {language === "sk"
+                  ? "Chcete konfiguráciu uložiť aj tak?"
+                  : "Do you want to save the configuration anyway?"}
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
