@@ -10,6 +10,7 @@ import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resume
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
+import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup } from "./config-backup";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
@@ -1595,17 +1596,7 @@ export async function registerRoutes(
       const configData = {
         version: "2.0",
         appVersion: (await import("@shared/version")).APP_VERSION,
-        syncConfigs: configs.map(c => ({
-          id: c.id,
-          name: c.name,
-          sourceModuleId: c.sourceModuleId,
-          targetModuleId: c.targetModuleId,
-          fieldMappings: c.fieldMappings,
-          schedule: c.schedule,
-          isEnabled: c.isEnabled,
-          autoRetry: c.autoRetry,
-          retryDelayMin: c.retryDelayMin,
-        })),
+        syncConfigs: configs.map(mapSyncConfigForBackup),
         modules: modules.map(m => ({
           id: m.id,
           code: m.code,
@@ -1740,49 +1731,17 @@ export async function registerRoutes(
       }
 
       if (data.syncConfigs && Array.isArray(data.syncConfigs)) {
-        const existingConfigs = await storage.getAllSyncConfigs();
-        for (const imp of data.syncConfigs) {
-          try {
-            const remappedSourceId = moduleIdMap[imp.sourceModuleId] || imp.sourceModuleId;
-            const remappedTargetId = moduleIdMap[imp.targetModuleId] || imp.targetModuleId;
-
-            const existing = existingConfigs.find(c => c.id === imp.id || c.name === imp.name);
-            if (existing) {
-              await storage.updateSyncConfig(existing.id, {
-                name: imp.name,
-                sourceModuleId: remappedSourceId,
-                targetModuleId: remappedTargetId,
-                fieldMappings: imp.fieldMappings,
-                schedule: imp.schedule,
-                isEnabled: imp.isEnabled,
-                autoRetry: imp.autoRetry,
-                retryDelayMin: imp.retryDelayMin,
-              });
-              results.syncConfigs++;
-            } else {
-              const currentModules = await storage.getAllModules();
-              const sourceExists = currentModules.find(m => m.id === remappedSourceId);
-              const targetExists = currentModules.find(m => m.id === remappedTargetId);
-              if (sourceExists && targetExists) {
-                await storage.createSyncConfig({
-                  name: imp.name,
-                  sourceModuleId: remappedSourceId,
-                  targetModuleId: remappedTargetId,
-                  fieldMappings: imp.fieldMappings,
-                  schedule: imp.schedule,
-                  isEnabled: imp.isEnabled ?? true,
-                  autoRetry: imp.autoRetry ?? false,
-                  retryDelayMin: imp.retryDelayMin ?? 3,
-                });
-                results.syncConfigs++;
-              } else {
-                results.skipped.push(`Sync config "${imp.name}": source or target module not found after ID remap`);
-              }
-            }
-          } catch (e: any) {
-            results.errors.push(`Sync config "${imp.name}": ${e.message}`);
-          }
-        }
+        await restoreSyncConfigsFromBackup(
+          data.syncConfigs,
+          moduleIdMap,
+          {
+            getAllSyncConfigs: () => storage.getAllSyncConfigs(),
+            getAllModules: () => storage.getAllModules(),
+            createSyncConfig: (d) => storage.createSyncConfig(d as any),
+            updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d as any),
+          },
+          results,
+        );
       }
 
       if (data.users && Array.isArray(data.users)) {
