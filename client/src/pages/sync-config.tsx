@@ -2958,6 +2958,28 @@ export default function SyncConfigPage() {
                             </Badge>
                           )}
                           {(() => {
+                            const counts = new Map<string, number>();
+                            ((config as any).onixFixedFields as OnixFixedField[] || []).forEach(ff => {
+                              const name = (ff?.field || "").trim();
+                              if (name) counts.set(name, (counts.get(name) || 0) + 1);
+                            });
+                            const hasDuplicate = Array.from(counts.values()).some(c => c > 1);
+                            if (!hasDuplicate) return null;
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] gap-1 text-destructive border-destructive/40"
+                                title={language === "sk"
+                                  ? "Niektoré pevné polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť."
+                                  : "Some fixed fields are set more than once. The higher row (lower number) takes precedence."}
+                                data-testid={`badge-duplicate-fixed-field-${config.id}`}
+                              >
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {language === "sk" ? "Konflikt polí" : "Field conflict"}
+                              </Badge>
+                            );
+                          })()}
+                          {(() => {
                             const rate = config.successRate ?? 100;
                             const colorClass = rate >= 95
                               ? "border-green-500/40 text-green-700 dark:text-green-400"
