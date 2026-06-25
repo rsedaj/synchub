@@ -964,6 +964,16 @@ export default function SyncConfigPage() {
 
     setShowValidation(true);
 
+    if (duplicateFixedFieldIndices.size > 0) {
+      setShowDuplicateFixedWarning(true);
+      return;
+    }
+
+    performSave();
+  }
+
+  function performSave() {
+    const validMappings = editor.fieldMappings.filter(m => m.sourceField && m.targetField);
     const payload = {
       name: editor.name.trim(),
       targetModuleId: editor.targetModuleId,
@@ -1144,6 +1154,7 @@ export default function SyncConfigPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
   const [highlightedFixedFields, setHighlightedFixedFields] = useState<Set<number>>(new Set());
+  const [showDuplicateFixedWarning, setShowDuplicateFixedWarning] = useState(false);
   const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
   const dragFixedFieldIdx = useRef<number | null>(null);
   const [dragOverFixedFieldIdx, setDragOverFixedFieldIdx] = useState<number | null>(null);
@@ -3176,6 +3187,35 @@ export default function SyncConfigPage() {
           </div>
         )}
       </div>
+
+      <AlertDialog open={showDuplicateFixedWarning} onOpenChange={setShowDuplicateFixedWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {language === "sk" ? "Konflikt pevných polí" : "Conflicting fixed fields"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === "sk"
+                ? "Niektoré pevné polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť, nižší riadok bude pri synchronizácii ignorovaný. Chcete konfiguráciu uložiť aj tak?"
+                : "Some fixed fields are set more than once. The higher row (lower number) takes precedence; the lower row will be ignored during sync. Do you want to save the configuration anyway?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-duplicate-fixed">
+              {language === "sk" ? "Späť a opraviť" : "Go back and fix"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowDuplicateFixedWarning(false);
+                performSave();
+              }}
+              data-testid="button-confirm-duplicate-fixed"
+            >
+              {language === "sk" ? "Uložiť aj tak" : "Save anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
