@@ -370,6 +370,30 @@ function restoreFetch() {
   globalThis.fetch = realFetch;
 }
 
+/**
+ * Capture everything written to `console.log` / `console.warn` while `pushToTarget`
+ * runs so the test can assert WHICH no-match classification path executed. The
+ * consumer-side guard is observable here: `classifyNoMatch` (server/target-push.ts
+ * ~line 1168) emits `PRÍČINA: neúplný ONIX index …` (the CAUTIOUS, cause-6 path) when
+ * the index is known-incomplete, versus `PRÍČINA: … vytvorí sa nový záznam` (the
+ * CONFIDENT create path) when the index is complete. Restore the originals via the
+ * returned `restore()` immediately after the call so the test's own logs are unaffected.
+ */
+function captureLogs() {
+  const realLog = console.log;
+  const realWarn = console.warn;
+  const lines: string[] = [];
+  console.log = (...args: any[]) => { lines.push(args.map(String).join(" ")); };
+  console.warn = (...args: any[]) => { lines.push(args.map(String).join(" ")); };
+  return {
+    lines,
+    restore() {
+      console.log = realLog;
+      console.warn = realWarn;
+    },
+  };
+}
+
 const onixModule = {
   id: "test-onix",
   code: "ONIX",
@@ -623,6 +647,72 @@ async function run() {
   assert.equal(result.onixIndexExpectedCount, null, "no @odata.count served → onixIndexExpectedCount must be null");
   assert.equal(result.skippedCount, 1, "the unmatched record should be skipped, not created");
   console.log("✓ fallback page HTTP 500 → stops after 1 probe, onixIndexComplete=true, recordCount=2 (no loop/throw)");
+
+  // --- Case 11: CONSUMER guard — AND-match no-match against a KNOWN-INCOMPLETE index ---
+  // This is the actual safety payoff the whole completeness chain exists for. The index is
+  // incomplete (indexed 1 < @odata.count 5) AND the source value ("ZZZ") is absent from the
+  // partial index. The record MUST NOT be blindly created off a possibly-stale "not found":
+  //   - NO write/lookup fetch fires (only index fetches) — nothing is created.
+  //   - createdCount === 0 and the record is skipped instead.
+  //   - The no-match is classified via the CAUTIOUS cause-6 path ("neúplný ONIX index …"),
+  //     NOT the CONFIDENT create path ("… vytvorí sa nový záznam"). That classification is
+  //     the observable guard: a regression that treats an incomplete-index miss as a
+  //     confident "card doesn't exist → create" would re-introduce duplicate-creation risk.
+  clearOnixIndexCache();
+  calls = installFetchStub(5);
+  let cap = captureLogs();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  cap.restore();
+  restoreFetch();
+
+  assert.equal(
+    calls.some((u) => !u.includes("$count=true")),
+    false,
+    "no write/lookup fetch may fire — an incomplete-index AND-match miss must NOT create a card",
+  );
+  assert.equal(result.createdCount, 0, "incomplete-index AND-match no-match must create ZERO cards");
+  assert.equal(result.skippedCount, 1, "the unmatched record must be skipped, not created");
+  assert.equal(result.onixIndexComplete, false, "index must be reported incomplete so the cautious path is reachable");
+  assert.equal(
+    cap.lines.some((l) => l.includes("PRÍČINA:") && l.includes("neúplný ONIX index")),
+    true,
+    "no-match against an incomplete index must be classified via the CAUTIOUS cause-6 path",
+  );
+  assert.equal(
+    cap.lines.some((l) => l.includes("PRÍČINA:") && l.includes("vytvorí sa nový záznam")),
+    false,
+    "an incomplete index must NOT take the CONFIDENT create classification",
+  );
+  console.log("✓ incomplete index + AND-match miss → 0 created, skipped, classified cautiously (no confident create)");
+
+  // --- Case 12: CONTRAST — same config + same absent value, but a COMPLETE index ---
+  // Only the index completeness differs (indexed 1 === @odata.count 1). Holding everything
+  // else constant proves it is the completeness flag — not merely the absent value — that
+  // drives the cautious classification. With a complete index the same miss is classified
+  // via the CONFIDENT create path ("… vytvorí sa nový záznam"); under onMissing:"skip" the
+  // record is still skipped, so no card is created in EITHER branch (the guard's job is the
+  // classification, which downstream onMissing:"create"/"force" configs act on).
+  clearOnixIndexCache();
+  calls = installFetchStub(1);
+  cap = captureLogs();
+  result = await pushToTarget(onixModule, "stockitems", records, 0, sourceRecords, matchOptions);
+  cap.restore();
+  restoreFetch();
+
+  assert.equal(result.createdCount, 0, "onMissing:skip still creates no card with a complete index");
+  assert.equal(result.skippedCount, 1, "the unmatched record is skipped under onMissing:skip");
+  assert.equal(result.onixIndexComplete, true, "index must be reported complete in the contrast case");
+  assert.equal(
+    cap.lines.some((l) => l.includes("PRÍČINA:") && l.includes("vytvorí sa nový záznam")),
+    true,
+    "no-match against a COMPLETE index must be classified via the CONFIDENT create path",
+  );
+  assert.equal(
+    cap.lines.some((l) => l.includes("PRÍČINA:") && l.includes("neúplný ONIX index")),
+    false,
+    "a complete index must NOT take the cautious incomplete-index classification",
+  );
+  console.log("✓ complete index + same miss → confident create classification (proves completeness drives caution)");
 
   console.log("\nALL TESTS PASSED");
 }
