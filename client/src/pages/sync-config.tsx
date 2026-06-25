@@ -224,6 +224,22 @@ interface OnixFixedField {
   condition: "always" | "if_empty";
 }
 
+interface MatchNormalization {
+  stripLeadingZeros: boolean;
+  caseInsensitive: boolean;
+  stripDiacritics: boolean;
+  collapseWhitespace: boolean;
+  normalizeDecimals: boolean;
+}
+
+const emptyMatchNormalization: MatchNormalization = {
+  stripLeadingZeros: false,
+  caseInsensitive: false,
+  stripDiacritics: false,
+  collapseWhitespace: false,
+  normalizeDecimals: false,
+};
+
 interface EditorState {
   id?: string;
   name: string;
@@ -235,6 +251,7 @@ interface EditorState {
   fieldMappings: FieldMapping[];
   matchFields: string[];
   matchOperator: "and" | "or";
+  matchNormalization: MatchNormalization;
   onMissing: "create" | "skip" | "force";
   targetStock: string;
   sourceFilters: SourceFilter[];
@@ -258,6 +275,7 @@ const emptyEditor: EditorState = {
   fieldMappings: [],
   matchFields: [],
   matchOperator: "and",
+  matchNormalization: { ...emptyMatchNormalization },
   onMissing: "create",
   targetStock: "",
   sourceFilters: [],
@@ -891,6 +909,7 @@ export default function SyncConfigPage() {
       fieldMappings: (config.fieldMappings || []) as FieldMapping[],
       matchFields: (config as any).matchFields || [],
       matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
+      matchNormalization: { ...emptyMatchNormalization, ...((config as any).matchNormalization || {}) },
       onMissing: ((config as any).onMissing as "create" | "skip") || "create",
       targetStock: (config as any).targetStock || "",
       sourceFilters: (config as any).sourceFilters || [],
@@ -984,6 +1003,7 @@ export default function SyncConfigPage() {
       fieldMappings: validMappings,
       matchFields: editor.matchFields.filter(f => f && f.trim()),
       matchOperator: editor.matchOperator,
+      matchNormalization: editor.matchNormalization,
       onMissing: editor.onMissing,
       targetStock: editor.targetStock || null,
       sourceFilters: editor.sourceFilters.filter(f => f.field && f.value),
@@ -2274,6 +2294,40 @@ export default function SyncConfigPage() {
                           </div>
                         </div>
                       </label>
+                    </div>
+                  </div>
+
+                  <div className="mt-4" data-testid="section-match-normalization">
+                    <Label className="text-xs mb-1 block">
+                      {language === "sk" ? "Normalizácia párovacích hodnôt" : "Match value normalization"}
+                    </Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {language === "sk"
+                        ? "Aplikuje sa rovnako na zdrojové aj cieľové hodnoty pri párovaní — zabraňuje vzniku duplicít z rozdielov, ktoré nesúvisia s identitou produktu. Orezanie medzier je vždy aktívne."
+                        : "Applied identically to source and target values during matching — prevents duplicates caused by differences unrelated to product identity. Whitespace trimming is always on."}
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      {([
+                        ["stripLeadingZeros", language === "sk" ? "Ignorovať vedúce nuly" : "Ignore leading zeros", "0012345 = 12345"],
+                        ["caseInsensitive", language === "sk" ? "Ignorovať veľkosť písmen" : "Case-insensitive", "ABC-1 = abc-1"],
+                        ["stripDiacritics", language === "sk" ? "Ignorovať diakritiku" : "Ignore diacritics", "Čierna = Cierna"],
+                        ["collapseWhitespace", language === "sk" ? "Zhutniť vnútorné medzery" : "Collapse inner whitespace", "AB   12 = AB 12"],
+                        ["normalizeDecimals", language === "sk" ? "Normalizovať desatinné čísla" : "Normalize decimals", "12.50 = 12,5"],
+                      ] as [keyof MatchNormalization, string, string][]).map(([key, label, example]) => (
+                        <label key={key} className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editor.matchNormalization[key]}
+                            onChange={e => setEditor(prev => ({ ...prev, matchNormalization: { ...prev.matchNormalization, [key]: e.target.checked } }))}
+                            className="mt-1"
+                            data-testid={`checkbox-norm-${key}`}
+                          />
+                          <div className="text-sm">
+                            <div>{label}</div>
+                            <div className="text-xs text-muted-foreground font-mono">{example}</div>
+                          </div>
+                        </label>
+                      ))}
                     </div>
                   </div>
                 </div>

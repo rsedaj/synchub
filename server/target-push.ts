@@ -142,6 +142,7 @@ export interface MatchOptions {
   hKodConfig?: { enabled: boolean; prefix: string; nextNumber: number; field: string } | null;
   onixFixedFields?: Array<{ field: string; value: string; condition: "always" | "if_empty" }> | null;
   prevHkodAssignments?: Map<string, string>;
+  matchNormalization?: MatchNormalizationOpts | null;
 }
 
 export async function pushToTarget(
@@ -505,6 +506,15 @@ interface OnixIndexEntry {
   idToNsNumber: Map<number, string>;
   // Map IdRecord → configured H kód field value (when field ≠ Ns_Number)
   idToHKodFieldVal: Map<number, string>;
+  // Index completeness verification (ONIX duplicate prevention — cause 6).
+  // expectedCount = @odata.count reported by ONIX (null when not provided).
+  // complete = false when fewer records were indexed than ONIX reported, meaning
+  // a genuine card may be missing from the index → AND-match could falsely create.
+  expectedCount: number | null;
+  complete: boolean;
+  // Per match field: how many indexed records had a non-empty value (cause 2 —
+  // distinguishes "field never populated on ONIX cards" from "value not found").
+  fieldNonEmptyCount: Map<string, number>;
 }
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
@@ -540,13 +550,89 @@ function findCustomColumn(customColumns: any, colName: string): any {
   }) ?? null;
 }
 
+// ── Match value normalization (ONIX duplicate prevention — cause 1) ──────────
+// Configurable per-sync. Applied IDENTICALLY when building the ONIX index keys
+// and when looking up the source value, so the index key and the lookup value
+// always agree. trim() is always applied (matches legacy behaviour); the other
+// transforms are opt-in so existing exact matches are never broken.
+export interface MatchNormalizationOpts {
+  caseInsensitive?: boolean;
+  collapseWhitespace?: boolean;
+  stripLeadingZeros?: boolean;
+  normalizeDecimals?: boolean;
+  stripDiacritics?: boolean;
+}
+
+function stripDiacriticsStr(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+export function normalizeMatchValue(raw: any, opts?: MatchNormalizationOpts | null): string {
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  if (!s) return "";
+  if (!opts) return s;
+  if (opts.collapseWhitespace) s = s.replace(/\s+/g, " ");
+  if (opts.stripDiacritics) s = stripDiacriticsStr(s);
+  if (opts.caseInsensitive) s = s.toLowerCase();
+  if (opts.normalizeDecimals) {
+    // Treat "12,50" and "12.50" and "12.5" as the same value.
+    const candidate = s.replace(",", ".");
+    if (/^-?\d+(\.\d+)?$/.test(candidate)) {
+      const num = parseFloat(candidate);
+      if (!isNaN(num)) s = String(num);
+    }
+  }
+  if (opts.stripLeadingZeros) {
+    // Only strip when the (remaining) value is purely numeric, to avoid
+    // mangling alphanumeric codes like "00AB".
+    if (/^0\d*$/.test(s)) {
+      const stripped = s.replace(/^0+/, "");
+      s = stripped === "" ? "0" : stripped;
+    }
+  }
+  return s;
+}
+
+// Aggressive normalization used ONLY for diagnostics — detects whether a source
+// value exists in the index under a *different format* (cause 1) even when the
+// configured normalization did not unify them. Never used for actual matching.
+export function looseMatchValue(raw: any): string {
+  if (raw == null) return "";
+  let s = stripDiacriticsStr(String(raw).trim().toLowerCase());
+  const asNum = s.replace(",", ".");
+  if (/^-?\d+(\.\d+)?$/.test(asNum)) {
+    const n = parseFloat(asNum);
+    if (!isNaN(n)) return String(n);
+  }
+  return s.replace(/[^a-z0-9]/g, "").replace(/^0+(?=\d)/, "");
+}
+
+// Canonical stable record key derivation (ONIX duplicate prevention — cause 4).
+// MUST be used identically wherever a source record is keyed (delta baselines,
+// H kód decisions, prevHkodAssignments lookup) so the same source record maps to
+// the same key across runs regardless of which match field happens to be filled.
+export function deriveRecordKey(record: Record<string, any>, matchFields?: string[]): string | null {
+  if (matchFields && matchFields.length > 0) {
+    for (const mf of matchFields) {
+      const v = record[mf];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+  }
+  return record.id || record.code || record.sku || record.gtin ||
+    record.Code || record.SKU || record.product_id ||
+    record.externalId || record.productId || record.item_id ||
+    record.article_number || record.articleNumber || null;
+}
+
 async function buildOnixIndex(
   baseUrl: string,
   endpoint: string,
   hdrs: Record<string, string>,
   targetFields: string[],
   targetStock?: string,
-  hKodField?: string
+  hKodField?: string,
+  normOpts?: MatchNormalizationOpts | null
 ): Promise<OnixIndexEntry | null> {
   // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
   // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
@@ -565,7 +651,13 @@ async function buildOnixIndex(
     : `${baseUrl}${endpoint}?$count=true`;
   // databasePath is included so prod and test ONIX environments never share the same index.
   const _dbPathForKey = hdrs["DatabasePath"] ?? "";
-  const cacheKey = `${fetchUrl}:db=${_dbPathForKey}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}`;
+  // Normalization opts are part of the cache key — different normalization produces
+  // different index keys, so two configs with different normalization must not share an index.
+  const _normKey = normOpts ? JSON.stringify({
+    c: !!normOpts.caseInsensitive, w: !!normOpts.collapseWhitespace,
+    z: !!normOpts.stripLeadingZeros, d: !!normOpts.normalizeDecimals, x: !!normOpts.stripDiacritics,
+  }) : "none";
+  const cacheKey = `${fetchUrl}:db=${_dbPathForKey}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}:norm=${_normKey}`;
 
   const existing = _onixIndexCache.get(cacheKey);
   if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
@@ -614,8 +706,10 @@ async function buildOnixIndex(
     }
 
     // OData pagination: follow @odata.nextLink or use @odata.count to fetch remaining pages
+    let indexExpectedCount: number | null = null;
     {
       const oDataCount = typeof data?.['@odata.count'] === 'number' ? (data['@odata.count'] as number) : null;
+      indexExpectedCount = oDataCount;
       let nextLink: string | null = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : null;
 
       if (nextLink) {
@@ -723,6 +817,7 @@ async function buildOnixIndex(
     const idToRecExtId = new Map<number, string>();
     const idToNsNumber = new Map<number, string>();
     const idToHKodFieldVal = new Map<number, string>();
+    const fieldNonEmptyCount = new Map<string, number>();
 
     let filteredByStock = 0;
     for (const item of arr) {
@@ -767,8 +862,11 @@ async function buildOnixIndex(
           value = item[tf];
         }
         if (value == null) continue;
-        const normalized = String(value).trim();
+        // Apply the SAME normalization here as in pickMatchValue so the index key
+        // and the looked-up source value always agree (ONIX duplicate prevention — cause 1).
+        const normalized = normalizeMatchValue(value, normOpts);
         if (!normalized) continue;
+        fieldNonEmptyCount.set(tf, (fieldNonEmptyCount.get(tf) ?? 0) + 1);
         const vMap = fieldMap.get(tf)!;
         const existing = vMap.get(normalized);
         if (existing) {
@@ -780,7 +878,14 @@ async function buildOnixIndex(
     }
 
     const indexedCount = arr.length - filteredByStock;
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber, idToHKodFieldVal };
+    // Completeness check (cause 6): ONIX reported @odata.count but we indexed fewer
+    // records → a real card may be missing. AND-match against an incomplete index
+    // risks a false "not found" → duplicate creation, so flag it loudly.
+    const complete = indexExpectedCount == null ? true : arr.length >= indexExpectedCount;
+    if (!complete) {
+      console.warn(`[target-push] ⚠ ONIX index INCOMPLETE: fetched ${arr.length}/${indexExpectedCount} records (@odata.count). Matching may miss existing cards → risk of duplicate creation. AND-match no-match will be treated cautiously.`);
+    }
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber, idToHKodFieldVal, expectedCount: indexExpectedCount, complete, fieldNonEmptyCount };
     _onixIndexCache.set(cacheKey, entry);
     console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
@@ -927,6 +1032,7 @@ async function pushToOnix(
   const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
   const matchOperator: "and" | "or" = (matchOptions?.matchOperator as "and" | "or") || "and";
   const onMissing = (matchOptions?.onMissing as "create" | "skip" | "force") || "create";
+  const normOpts = matchOptions?.matchNormalization ?? null;
 
   const hKodCfg = matchOptions?.hKodConfig?.enabled && matchOptions.hKodConfig.prefix ? matchOptions.hKodConfig : null;
   let hKodCounter = hKodCfg ? hKodCfg.nextNumber : 0;
@@ -967,7 +1073,7 @@ async function pushToOnix(
   const targetFieldsForIndex = matchTargetByMappingsRaw.map(m => m.targetField).filter((v, i, a) => a.indexOf(v) === i);
   let onixIndex: OnixIndexEntry | null = null;
   if (targetFieldsForIndex.length > 0) {
-    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock, hKodCfg?.field || "Ns_Number");
+    onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock, hKodCfg?.field || "Ns_Number", normOpts);
     if (onixIndex) {
       console.log(`[target-push] ONIX index ready: ${onixIndex.recordCount} records cached, batch ${batchIndex}`);
     }
@@ -979,7 +1085,9 @@ async function pushToOnix(
     const candidates = [mappedVal, sourceVal];
     for (const c of candidates) {
       if (c == null) continue;
-      const s = String(c).trim();
+      // Apply the SAME normalization used when building the index (cause 1) so the
+      // looked-up value and the index key always agree.
+      const s = normalizeMatchValue(c, normOpts);
       if (s.length > 0) return s;
     }
     return "";
@@ -1031,7 +1139,7 @@ async function pushToOnix(
             const cc = findCustomColumn(r.CustomColumns, colName);
             actual = cc?.Value;
           }
-          if (String(actual ?? "").trim() !== ev.value) return false;
+          if (normalizeMatchValue(actual, normOpts) !== ev.value) return false;
         }
         return true;
       });
@@ -1046,10 +1154,44 @@ async function pushToOnix(
     }
   }
 
-  type MatchLookupResult = { id: number | null; ambiguous: boolean };
+  // reason describes WHY no existing ONIX card was matched (ONIX duplicate prevention —
+  // step 1: log the specific cause whenever a new record is about to be created).
+  type MatchLookupResult = { id: number | null; ambiguous: boolean; reason?: string };
+
+  // Classify the no-match cause for diagnostics + audit (causes 1, 2, 3, 6).
+  function classifyNoMatch(fieldValues: Array<{ targetField: string; value: string }>, emptyFields: string[]): string {
+    if (emptyFields.length > 0) {
+      return `prázdna match hodnota v zdroji pre pole: ${emptyFields.join(", ")} (záznam nedá sa spoľahlivo spárovať)`;
+    }
+    if (onixIndex && !onixIndex.complete) {
+      return `neúplný ONIX index (${onixIndex.recordCount}/${onixIndex.expectedCount} kariet) — existujúca karta mohla chýbať v indexe`;
+    }
+    if (onixIndex) {
+      // cause 2: a match field is never populated on ONIX cards at all
+      for (const fv of fieldValues) {
+        const pop = onixIndex.fieldNonEmptyCount.get(fv.targetField) ?? 0;
+        if (pop === 0) {
+          return `pole "${fv.targetField}" nie je vyplnené na žiadnej ONIX karte — párovanie podľa tohto poľa nikdy neuspeje`;
+        }
+      }
+      // cause 1: value exists under a different format (normalization mismatch)
+      for (const fv of fieldValues) {
+        const vMap = onixIndex.fieldMap.get(fv.targetField);
+        if (vMap && !vMap.has(fv.value)) {
+          const loose = looseMatchValue(fv.value);
+          for (const k of vMap.keys()) {
+            if (looseMatchValue(k) === loose) {
+              return `nesúlad formátu hodnoty pre "${fv.targetField}": zdroj="${fv.value}" vs ONIX="${k}" — zapnite normalizáciu párovania`;
+            }
+          }
+        }
+      }
+    }
+    return `hodnota sa nenašla v ONIX-e (karta zrejme ešte neexistuje) — vytvorí sa nový záznam`;
+  }
 
   async function findOnixIdByMatch(record: Record<string, any>, sourceRec: Record<string, any> | undefined): Promise<MatchLookupResult> {
-    if (matchFields.length === 0 || matchTargetByMappingsRaw.length === 0) return { id: null, ambiguous: false };
+    if (matchFields.length === 0 || matchTargetByMappingsRaw.length === 0) return { id: null, ambiguous: false, reason: "žiadne match polia nie sú nakonfigurované" };
 
     if (matchOperator === "or") {
       // OR: try each match field independently, return first hit
@@ -1067,17 +1209,26 @@ async function pushToOnix(
         if (result.ambiguous) return { id: null, ambiguous: true };
         if (result.id !== null) return { id: result.id, ambiguous: false };
       }
-      return { id: null, ambiguous: false };
+      return { id: null, ambiguous: false, reason: "OR párovanie: žiadne z polí sa nezhodovalo s existujúcou ONIX kartou" };
     }
 
     // AND (default): all fields must match — use index if available
     const cacheKey: string[] = [];
     const fieldValues: Array<{ targetField: string; value: string }> = [];
+    const emptyFields: string[] = [];
     for (const m of matchTargetByMappingsRaw) {
       const value = pickMatchValue(record, sourceRec, m);
-      if (!value) return { id: null, ambiguous: false };
+      if (!value) {
+        // cause 3: an AND match value is empty — protect against creating a duplicate
+        // off a partial key. Record which field is empty so the cause is auditable.
+        emptyFields.push(m.targetField);
+        continue;
+      }
       cacheKey.push(`${m.targetField}=${value}`);
       fieldValues.push({ targetField: m.targetField, value });
+    }
+    if (emptyFields.length > 0) {
+      return { id: null, ambiguous: false, reason: classifyNoMatch(fieldValues, emptyFields) };
     }
     const ck = cacheKey.sort().join("|");
     if (matchCache.has(ck)) {
@@ -1122,6 +1273,9 @@ async function pushToOnix(
         console.log(`[target-push] NO-MATCH #${_noMatchDebugCount}: ${debugParts.join(" AND ")}`);
       }
       matchCache.set(ck, result);
+      if (result === null) {
+        return { id: null, ambiguous: false, reason: classifyNoMatch(fieldValues, []) };
+      }
       return { id: result, ambiguous: false };
     }
 
@@ -1159,7 +1313,7 @@ async function pushToOnix(
             const cc = findCustomColumn(r.CustomColumns, colName);
             actual = cc?.Value;
           }
-          if (String(actual ?? "").trim() !== ev.value) return false;
+          if (normalizeMatchValue(actual, normOpts) !== ev.value) return false;
         }
         return true;
       });
@@ -1171,11 +1325,14 @@ async function pushToOnix(
       }
       const numericId = extractOnixId(matches[0]);
       matchCache.set(ck, numericId);
+      if (numericId === null) {
+        return { id: null, ambiguous: false, reason: "API vyhľadávanie nevrátilo žiadnu zhodnú ONIX kartu (karta zrejme ešte neexistuje)" };
+      }
       return { id: numericId, ambiguous: false };
     } catch (err: any) {
       console.warn(`[target-push] ONIX match lookup failed: ${err.message}`);
       matchCache.set(ck, null);
-      return { id: null, ambiguous: false };
+      return { id: null, ambiguous: false, reason: `chyba pri API vyhľadávaní v ONIX-e: ${err.message}` };
     }
   }
 
@@ -1188,20 +1345,17 @@ async function pushToOnix(
     const record = records[i];
     const globalIndex = batchIndex * 50 + i;
 
-    let _snapKey = '';
     let _snapHCode: string | undefined;
     let _snapNsNum: string | undefined;
     let _snapRecId: string | undefined;
     let _usedHkodFallback = false;
-    {
-      const src = sourceRecords?.[i];
-      if (src && matchFields.length > 0) {
-        for (const mf of matchFields) {
-          const v = src[mf];
-          if (v != null && String(v).trim() !== '') { _snapKey = String(v).trim(); break; }
-        }
-      }
-    }
+    let _noMatchReason: string | undefined;
+    // Stable record key (ONIX duplicate prevention — cause 4): derived ONCE via the
+    // canonical deriveRecordKey (matchFields first, then id/code/sku fallbacks), the
+    // SAME logic used for delta baselines and H kód decisions. This makes the key the
+    // same source record produces stable across runs, so prevHkodAssignments lookups
+    // and hkod_decisions writes always agree → no re-assigned H kód → no duplicate card.
+    let _snapKey = (sourceRecords?.[i] ? deriveRecordKey(sourceRecords[i], matchFields) : null) ?? '';
 
     try {
       let onixId: any = record._onix_id || record[writeDef.idField] || record.Id || record.id;
@@ -1225,14 +1379,17 @@ async function pushToOnix(
           onixId = lookup.id;
           isUpdate = true;
         } else if (!lookup.ambiguous) {
-          // matchFields lookup returned no result. Log what was tried (first 3 failures).
+          // matchFields lookup returned no result. Capture the classified cause so it
+          // can be logged + audited when (if) a new record ends up being created.
+          _noMatchReason = lookup.reason;
+          // Log what was tried (first 3 failures).
           if (_noMatchDebugCount <= 3) {
             const src = sourceRecords?.[i];
             const lookupDesc = matchTargetByMappingsRaw.map(m => {
               const val = src ? src[m.sourceField] : undefined;
               return `${m.targetField}=${val != null ? JSON.stringify(String(val)) : "?"}`;
             }).join(", ");
-            console.log(`[target-push] matchFields ZLYHALO (záznam ${globalIndex}, key=${_snapKey || "–"}): hľadané: ${lookupDesc || "(žiadne matchFields)"}`);
+            console.log(`[target-push] matchFields ZLYHALO (záznam ${globalIndex}, key=${_snapKey || "–"}): hľadané: ${lookupDesc || "(žiadne matchFields)"} | PRÍČINA: ${_noMatchReason || "neznáma"}`);
           }
 
           // H kód fallback: if this record was previously assigned an H kód in a prior sync run,
@@ -1332,8 +1489,10 @@ async function pushToOnix(
             } else {
               const _hkNum = hKodCounter++;
               body[hkField] = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
-              console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (genPfx="${hKodCfg.prefix}", pad=${_hkPad}, ${isUpdate ? "update-bez-hkod" : "nový záznam"}, existingNs="${existingFieldVal ?? "–"}", key=${_hkRecKey})`);
-              hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: isUpdate ? 'update-no-hkod' : 'new-record' });
+              console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (genPfx="${hKodCfg.prefix}", pad=${_hkPad}, ${isUpdate ? "update-bez-hkod" : "nový záznam"}, existingNs="${existingFieldVal ?? "–"}", key=${_hkRecKey}${!isUpdate && _noMatchReason ? `, príčina: ${_noMatchReason}` : ""})`);
+              // Audit the SPECIFIC cause for a brand-new card so duplicate root causes are traceable (step 7).
+              const _newReason = isUpdate ? 'update-no-hkod' : `new-record: ${_noMatchReason || 'karta nenájdená v ONIX-e'}`;
+              hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: body[hkField], reason: _newReason });
             }
           }
         } else {
@@ -1503,7 +1662,10 @@ async function pushToOnix(
         body.Default_Price_Vat = isNaN(dpv) ? 0 : dpv;
       }
 
-      _snapKey = extId || autoId;
+      // Keep the stable key derived at the top (cause 4). Only fall back to autoId
+      // when no stable source identifier exists at all — never overwrite a good key,
+      // otherwise the snapshot/hkod key would diverge from prevHkodAssignments.
+      _snapKey = _snapKey || extId || autoId;
       _snapHCode = hKodCfg && body[hKodCfg.field || "Ns_Number"] != null ? String(body[hKodCfg.field || "Ns_Number"]) : undefined;
       _snapNsNum = body.Ns_Number != null ? String(body.Ns_Number) : undefined;
       _snapRecId = body.RecordExternalIdentificator != null ? String(body.RecordExternalIdentificator) : undefined;

@@ -581,6 +581,114 @@ StockItemPartners, StockItemMeasureUnits, Enclosures`}</CodeBlock>
           </div>
         </section>
 
+        {/* PREVENCIA DUPLICÍT */}
+        <section data-testid="section-help-duplicates">
+          <h2 className="text-lg font-semibold border-b pb-2 mb-3">Prevencia duplicitných kariet (ONIX)</h2>
+
+          <p className="text-sm leading-relaxed text-muted-foreground mb-4">
+            ONIX upsertuje karty podľa <code className="text-xs bg-muted px-1 rounded">Ns_Number</code>. Ak SyncHub
+            pri synchronizácii nedokáže nájsť už existujúcu kartu, ONIX dostane nový <strong className="text-foreground">H kód</strong> a
+            vytvorí <strong className="text-foreground">duplicitnú kartu</strong>. Nájdenie existujúcej karty závisí od správne
+            nastavených <em>párovacích polí</em> a od toho, či sa hodnoty z oboch strán (zdroj aj ONIX) porovnávajú rovnako.
+          </p>
+
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Najčastejšie príčiny vzniku duplicít</h3>
+              <Table
+                headers={["Príčina", "Prejav", "Riešenie"]}
+                rows={[
+                  ["Rozdielny formát hodnôt", "Zdroj má \"0012345\", ONIX má \"12345\" — porovnanie zlyhá", "Zapnúť normalizáciu (vedúce nuly, medzery)"],
+                  ["Veľkosť písmen / diakritika", "\"ABC-1\" vs \"abc-1\", \"Č\" vs \"C\"", "Zapnúť normalizáciu veľkosti písmen / diakritiky"],
+                  ["Prázdne párovacie pole", "Záznam nemá hodnotu v párovacom poli → spáruje sa s čímkoľvek alebo s ničím", "Záznam sa preskočí / chráni podľa nastavenia 'Pri chýbajúcom'"],
+                  ["Neúplný index ONIX", "Načítala sa len časť kariet (chyba stránkovania)", "Index sa porovná s @odata.count, pri nezhode varovanie"],
+                  ["Chýbajúci SupplierCode", "Nová karta bez dodávateľa sa neobjaví v nákupnom cenníku", "Preflight zastaví sync, kým nie je SupplierCode nastavený"],
+                  ["Nestabilný kľúč záznamu", "Rovnaký produkt dostane v ďalšom behu iný H kód", "Kľúč sa odvodzuje rovnako vo všetkých behoch"],
+                ]}
+              />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Normalizácia párovacích hodnôt</h3>
+              <p className="text-sm text-muted-foreground mb-2">
+                Per-konfigurácia sa dá zapnúť normalizácia, ktorá sa aplikuje <strong className="text-foreground">rovnako</strong> pri
+                budovaní indexu ONIX aj pri vyhľadávaní záznamu. Tým sa odstránia rozdiely, ktoré nesúvisia s identitou produktu:
+              </p>
+              <Table
+                headers={["Možnosť", "Čo robí", "Príklad"]}
+                rows={[
+                  ["Orezanie medzier", "Odstráni medzery na začiatku a konci (vždy aktívne)", "\" 12345 \" → \"12345\""],
+                  ["Vedúce nuly", "Odstráni nuly na začiatku", "\"0012345\" → \"12345\""],
+                  ["Veľkosť písmen", "Porovnáva bez ohľadu na veľkosť písmen", "\"ABC-1\" = \"abc-1\""],
+                  ["Diakritika", "Odstráni diakritiku", "\"Čierna\" → \"Cierna\""],
+                  ["Vnútorné medzery", "Zhutní viacnásobné medzery na jednu", "\"AB   12\" → \"AB 12\""],
+                  ["Desatinné čísla", "Normalizuje číselný zápis", "\"12.50\" = \"12,5\""],
+                ]}
+              />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Logika hľadania existujúcej karty</h3>
+              <CodeBlock>{`Pre každý záznam pri pushi do ONIX:
+
+1. Odvodí sa stabilný kľúč záznamu (párovacie polia → id/kód/sku).
+   → Rovnaký vo všetkých behoch = rovnaký H kód = žiadny duplikát.
+
+2. Hľadá sa zhoda v indexe ONIX (s normalizáciou hodnôt).
+   → Nájdená karta: aktualizuje sa (žiadny nový H kód).
+
+3. Zhoda zlyhala → zaznamená sa KONKRÉTNA príčina:
+   - prázdne párovacie pole
+   - žiadna zhoda v indexe / cez API
+   → Príčina sa zapíše do logu aj do auditu (hkod_decisions).
+
+4. Vytvorenie novej karty (podľa nastavenia 'Pri chýbajúcom'):
+   - create  → vytvorí kartu + pridelí H kód
+   - skip    → záznam sa preskočí (žiadny duplikát)`}</CodeBlock>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">SupplierCode pri nových kartách</h3>
+              <p className="text-sm text-muted-foreground">
+                Ak konfigurácia môže vytvárať nové karty v ONIX <code className="text-xs bg-muted px-1 rounded">stockitems</code>,
+                musí mať nastavený <strong className="text-foreground">SupplierCode</strong> — buď ako pevnú hodnotu
+                (sekcia <em>Pevné hodnoty polí</em>) alebo cez mapovanie polí. Bez neho by nové karty nemali priradeného
+                dodávateľa a neobjavili by sa v nákupnom cenníku. Preflight sync v takom prípade zastaví s jasnou chybou.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Audit rozhodnutí</h3>
+              <p className="text-sm text-muted-foreground">
+                Každé rozhodnutie o H kóde (priradený, zachovaný, preskočený, opätovne použitý) sa zapisuje do tabuľky
+                <code className="text-xs bg-muted px-1 rounded ml-1">hkod_decisions</code> spolu s príčinou. Pri vytvorení novej karty
+                obsahuje audit konkrétny dôvod, prečo sa existujúca karta nenašla — to umožňuje spätne dohľadať pôvod každej duplicity.
+              </p>
+              <div className="mt-2 p-3 rounded-md bg-muted border text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground">Príklad záznamu auditu</p>
+                <p>
+                  decision = <code className="font-mono">assigned</code>, hCodeValue = <code className="font-mono">H2045120</code>,
+                  reason = <code className="font-mono">new-record: žiadna zhoda v indexe</code>
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Kde sa nastavenie ukladá</h3>
+              <p className="text-sm text-muted-foreground">
+                Normalizácia párovacích hodnôt je uložená v stĺpci <code className="text-xs bg-muted px-1 rounded">match_normalization</code> (typ JSONB) v tabuľke <code className="text-xs bg-muted px-1 rounded">sync_configs</code>:
+              </p>
+              <CodeBlock>{`{
+  "stripLeadingZeros": true,
+  "caseInsensitive": true,
+  "stripDiacritics": false,
+  "collapseWhitespace": true,
+  "normalizeDecimals": false
+}`}</CodeBlock>
+            </div>
+          </div>
+        </section>
+
         {/* ZÁLOHY */}
         <section data-testid="section-help-backups">
           <h2 className="text-lg font-semibold border-b pb-2 mb-3">Zálohovanie a obnova</h2>

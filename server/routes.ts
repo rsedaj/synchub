@@ -149,6 +149,13 @@ const createSyncConfigSchema = z.object({
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
   matchOperator: z.enum(["and", "or"]).optional(),
+  matchNormalization: z.object({
+    caseInsensitive: z.boolean().optional(),
+    collapseWhitespace: z.boolean().optional(),
+    stripLeadingZeros: z.boolean().optional(),
+    normalizeDecimals: z.boolean().optional(),
+    stripDiacritics: z.boolean().optional(),
+  }).nullable().optional(),
   onMissing: z.enum(["create", "skip", "force"]).optional(),
   targetStock: z.string().nullable().optional(),
   sourceFilters: z.array(z.object({
@@ -188,6 +195,13 @@ const updateSyncConfigSchema = z.object({
   isEnabled: z.boolean().optional(),
   matchFields: z.array(z.string()).optional(),
   matchOperator: z.enum(["and", "or"]).optional(),
+  matchNormalization: z.object({
+    caseInsensitive: z.boolean().optional(),
+    collapseWhitespace: z.boolean().optional(),
+    stripLeadingZeros: z.boolean().optional(),
+    normalizeDecimals: z.boolean().optional(),
+    stripDiacritics: z.boolean().optional(),
+  }).nullable().optional(),
   onMissing: z.enum(["create", "skip", "force"]).optional(),
   targetStock: z.string().nullable().optional(),
   sourceFilters: z.array(z.object({

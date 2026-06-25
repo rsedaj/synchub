@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
-import { pushToTarget, clearOnixIndexCache } from "./target-push";
+import { pushToTarget, clearOnixIndexCache, deriveRecordKey } from "./target-push";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult, VATTransformEntry } from "./target-push";
@@ -224,17 +224,11 @@ function computeRecordHash(record: Record<string, any>, mappings: Array<{ source
   return createHash("md5").update(vals.join("|")).digest("hex");
 }
 
+// Delegates to the canonical key derivation in target-push so delta baselines,
+// H kód decisions, and prevHkodAssignments all use the IDENTICAL stable key
+// (ONIX duplicate prevention — cause 4).
 function getRecordKey(record: Record<string, any>, matchFields?: string[]): string | null {
-  if (matchFields && matchFields.length > 0) {
-    for (const mf of matchFields) {
-      const v = record[mf];
-      if (v != null && String(v).trim() !== "") return String(v).trim();
-    }
-  }
-  return record.id || record.code || record.sku || record.gtin ||
-    record.Code || record.SKU || record.product_id ||
-    record.externalId || record.productId || record.item_id ||
-    record.article_number || record.articleNumber || null;
+  return deriveRecordKey(record, matchFields);
 }
 
 export async function executeSyncRun(
@@ -849,6 +843,7 @@ async function executeAsync(
                 : null,
               onixFixedFields: (config as any).onixFixedFields?.length ? (config as any).onixFixedFields : null,
               prevHkodAssignments,
+              matchNormalization: (config as any).matchNormalization || null,
             }
           );
           if (pushResult.hKodNextNumber !== undefined) {

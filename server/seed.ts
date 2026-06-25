@@ -442,6 +442,14 @@ export async function runMigrations() {
     log("Schema m011: sync_configs.notes migration skipped", "seed");
   }
 
+  // Schema migration m012: match_normalization column on sync_configs (ONIX duplicate prevention)
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS match_normalization jsonb`);
+    log("Schema m012: sync_configs.match_normalization added", "seed");
+  } catch (_e) {
+    log("Schema m012: sync_configs.match_normalization migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 
