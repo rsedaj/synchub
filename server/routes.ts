@@ -48,7 +48,7 @@ async function checkAutoRetries() {
   try {
     const allConfigs = await storage.getAllSyncConfigs();
     for (const config of allConfigs) {
-      if (!(config as any).autoRetry) continue;
+      if (!config.autoRetry) continue;
       if (retrySchedule.has(config.id)) continue;
       const runs = await storage.getSyncRuns(config.id, 1);
       const latest = runs[0];
@@ -56,7 +56,7 @@ async function checkAutoRetries() {
       const msg = latest.errorMessage || "";
       if (msg.includes("cancel") || msg.includes("Cancel")) continue;
       const failedAt = latest.completedAt ? new Date(latest.completedAt).getTime() : now;
-      const delayMs = ((config as any).retryDelayMin || 3) * 60 * 1000;
+      const delayMs = (config.retryDelayMin || 3) * 60 * 1000;
       const fireAt = failedAt + delayMs;
       if (now - failedAt > 60 * 60 * 1000) continue; // Ignore failures older than 1h
       retrySchedule.set(config.id, { fireAt, failedRunId: latest.id });
@@ -95,21 +95,6 @@ const updateModuleSchema = z.object({
   status: z.enum(["connected", "disconnected", "error", "configuring"]).optional(),
   config: z.record(z.any()).optional(),
 });
-
-const onixFixedFieldsSchema = z.array(z.object({
-  field: z.string(),
-  value: z.string(),
-  condition: z.enum(["always", "if_empty"]),
-})).nullable().optional();
-
-const hKodConfigSchema = z.object({
-  enabled: z.boolean(),
-  prefix: z.string(),
-  nextNumber: z.number().int().min(0),
-  field: z.string(),
-  detectionPrefix: z.string().optional(),
-  padding: z.number().optional(),
-}).nullable().optional();
 
 // Rejects configs that set the same non-empty ONIX fixed field name on more than
 // one row. During sync only the first occurrence (higher row) wins, so silently
@@ -164,89 +149,39 @@ function refineNoDuplicateMappingTargets(
   }
 }
 
-const createSyncConfigSchema = z.object({
+// Derived from the canonical insertSyncConfigSchema so the route validation can
+// never drift from the DB-backed shape. We only layer on the route-specific
+// requirements (createdBy comes from the session, plus stricter scalar rules and
+// enums) instead of re-declaring every nested object shape.
+const baseSyncConfigSchema = insertSyncConfigSchema.omit({ createdBy: true }).extend({
   name: z.string().min(1),
   targetModuleId: z.string().min(1),
   sourceModuleId: z.string().min(1),
-  targetDataSource: z.string().nullable().optional(),
-  sourceDataSource: z.string().nullable().optional(),
+  sourceRecordLimit: z.number().int().min(0).optional(),
+  fieldMappings: z.array(z.object({
+    sourceField: z.string().min(1),
+    targetField: z.string().min(1),
+    transform: z.string().optional(),
+  })),
+  matchOperator: z.enum(["and", "or"]).optional(),
+  onMissing: z.enum(["create", "skip", "force"]).optional(),
+  autoRetry: z.boolean().optional(),
+  retryDelayMin: z.number().int().min(1).max(120).optional(),
+});
+
+const createSyncConfigSchema = baseSyncConfigSchema.extend({
   sourceRecordLimit: z.number().int().min(0).optional().default(120000),
   fieldMappings: z.array(z.object({
     sourceField: z.string().min(1),
     targetField: z.string().min(1),
     transform: z.string().optional(),
   })).min(1),
-  schedule: z.object({
-    enabled: z.boolean(),
-    frequency: z.string(),
-    timeOfDay: z.string().optional(),
-    dayOfWeek: z.string().optional(),
-    backupBeforeSync: z.boolean().optional(),
-  }).optional(),
-  isEnabled: z.boolean().optional(),
-  matchFields: z.array(z.string()).optional(),
-  matchOperator: z.enum(["and", "or"]).optional(),
-  matchNormalization: z.object({
-    caseInsensitive: z.boolean().optional(),
-    collapseWhitespace: z.boolean().optional(),
-    stripLeadingZeros: z.boolean().optional(),
-    normalizeDecimals: z.boolean().optional(),
-    stripDiacritics: z.boolean().optional(),
-  }).nullable().optional(),
-  onMissing: z.enum(["create", "skip", "force"]).optional(),
-  targetStock: z.string().nullable().optional(),
-  sourceFilters: z.array(z.object({
-    field: z.string(),
-    operator: z.string(),
-    value: z.string(),
-  })).nullable().optional(),
-  hKodConfig: hKodConfigSchema,
-  onixFixedFields: onixFixedFieldsSchema,
-  autoRetry: z.boolean().optional(),
-  retryDelayMin: z.number().int().min(1).max(120).optional(),
 }).superRefine(refineNoDuplicateFixedFields).superRefine(refineNoDuplicateMappingTargets);
 
-const updateSyncConfigSchema = z.object({
-  name: z.string().min(1).optional(),
-  targetModuleId: z.string().min(1).optional(),
-  sourceModuleId: z.string().min(1).optional(),
-  targetDataSource: z.string().nullable().optional(),
-  sourceDataSource: z.string().nullable().optional(),
-  sourceRecordLimit: z.number().int().min(0).optional(),
-  fieldMappings: z.array(z.object({
-    sourceField: z.string().min(1),
-    targetField: z.string().min(1),
-    transform: z.string().optional(),
-  })).optional(),
-  schedule: z.object({
-    enabled: z.boolean(),
-    frequency: z.string(),
-    timeOfDay: z.string().optional(),
-    dayOfWeek: z.string().optional(),
-    backupBeforeSync: z.boolean().optional(),
-  }).optional(),
-  isEnabled: z.boolean().optional(),
-  matchFields: z.array(z.string()).optional(),
-  matchOperator: z.enum(["and", "or"]).optional(),
-  matchNormalization: z.object({
-    caseInsensitive: z.boolean().optional(),
-    collapseWhitespace: z.boolean().optional(),
-    stripLeadingZeros: z.boolean().optional(),
-    normalizeDecimals: z.boolean().optional(),
-    stripDiacritics: z.boolean().optional(),
-  }).nullable().optional(),
-  onMissing: z.enum(["create", "skip", "force"]).optional(),
-  targetStock: z.string().nullable().optional(),
-  sourceFilters: z.array(z.object({
-    field: z.string(),
-    operator: z.string(),
-    value: z.string(),
-  })).nullable().optional(),
-  hKodConfig: hKodConfigSchema,
-  onixFixedFields: onixFixedFieldsSchema,
-  autoRetry: z.boolean().optional(),
-  retryDelayMin: z.number().int().min(1).max(120).optional(),
-}).superRefine(refineNoDuplicateFixedFields).superRefine(refineNoDuplicateMappingTargets);
+const updateSyncConfigSchema = baseSyncConfigSchema
+  .partial()
+  .superRefine(refineNoDuplicateFixedFields)
+  .superRefine(refineNoDuplicateMappingTargets);
 
 const updateUserSchema = z.object({
   fullName: z.string().min(1).optional(),
@@ -1020,8 +955,8 @@ export async function registerRoutes(
       };
       if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
 
-      const matchFields: string[] = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
-      const mappings: Array<{ sourceField: string; targetField: string }> = (config as any).fieldMappings || [];
+      const matchFields: string[] = (config.matchFields || []).filter((f: string) => f && f.trim());
+      const mappings: Array<{ sourceField: string; targetField: string }> = config.fieldMappings || [];
       const targetMatchFields = matchFields
         .map(sf => mappings.find(m => m.sourceField === sf)?.targetField)
         .filter(Boolean) as string[];
@@ -1504,7 +1439,7 @@ export async function registerRoutes(
 
       let backupData: any[] = [];
       try {
-        const targetResult = await fetchModuleData(targetModule, 0, (config as any).targetDataSource || undefined);
+        const targetResult = await fetchModuleData(targetModule, 0, config.targetDataSource || undefined);
         if (targetResult.success && targetResult.preview) {
           backupData = targetResult.preview;
         } else if (!targetResult.success) {
