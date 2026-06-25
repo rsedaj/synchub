@@ -95,6 +95,38 @@ const updateModuleSchema = z.object({
   config: z.record(z.any()).optional(),
 });
 
+const onixFixedFieldsSchema = z.array(z.object({
+  field: z.string(),
+  value: z.string(),
+  condition: z.enum(["always", "if_empty"]),
+})).nullable().optional();
+
+// Rejects configs that set the same non-empty ONIX fixed field name on more than
+// one row. During sync only the first occurrence (higher row) wins, so silently
+// persisting duplicates via the API, import, or seed would drop the lower rows.
+function refineNoDuplicateFixedFields(
+  data: { onixFixedFields?: Array<{ field: string }> | null },
+  ctx: z.RefinementCtx,
+) {
+  const fields = data.onixFixedFields;
+  if (!Array.isArray(fields)) return;
+  const counts = new Map<string, number>();
+  for (const ff of fields) {
+    const name = (ff.field || "").trim();
+    if (name) counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const duplicates = Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([name]) => name);
+  if (duplicates.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["onixFixedFields"],
+      message: `Duplicate fixed fields are not allowed; each field may be set only once. The higher row takes precedence. Duplicates: ${duplicates.join(", ")}`,
+    });
+  }
+}
+
 const createSyncConfigSchema = z.object({
   name: z.string().min(1),
   targetModuleId: z.string().min(1),
@@ -124,7 +156,15 @@ const createSyncConfigSchema = z.object({
     operator: z.string(),
     value: z.string(),
   })).nullable().optional(),
-});
+  hKodConfig: z.object({
+    enabled: z.boolean(),
+    prefix: z.string(),
+    nextNumber: z.number().int().min(0),
+  }).nullable().optional(),
+  onixFixedFields: onixFixedFieldsSchema,
+  autoRetry: z.boolean().optional(),
+  retryDelayMin: z.number().int().min(1).max(120).optional(),
+}).superRefine(refineNoDuplicateFixedFields);
 
 const updateSyncConfigSchema = z.object({
   name: z.string().min(1).optional(),
@@ -160,14 +200,10 @@ const updateSyncConfigSchema = z.object({
     prefix: z.string(),
     nextNumber: z.number().int().min(0),
   }).nullable().optional(),
-  onixFixedFields: z.array(z.object({
-    field: z.string(),
-    value: z.string(),
-    condition: z.enum(["always", "if_empty"]),
-  })).nullable().optional(),
+  onixFixedFields: onixFixedFieldsSchema,
   autoRetry: z.boolean().optional(),
   retryDelayMin: z.number().int().min(1).max(120).optional(),
-});
+}).superRefine(refineNoDuplicateFixedFields);
 
 const updateUserSchema = z.object({
   fullName: z.string().min(1).optional(),
