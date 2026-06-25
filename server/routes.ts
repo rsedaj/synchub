@@ -127,6 +127,33 @@ function refineNoDuplicateFixedFields(
   }
 }
 
+// Rejects configs whose field mappings point two or more rows at the same target
+// field. During sync each target should be written once; persisting duplicate
+// targets via the API, import, or seed (bypassing the editor's validateMappings)
+// would make the effective mapping ambiguous. Mirrors the client-side check.
+function refineNoDuplicateMappingTargets(
+  data: { fieldMappings?: Array<{ sourceField?: string; targetField?: string }> },
+  ctx: z.RefinementCtx,
+) {
+  const mappings = data.fieldMappings;
+  if (!Array.isArray(mappings)) return;
+  const counts = new Map<string, number>();
+  for (const m of mappings) {
+    const target = (m.targetField || "").trim();
+    if (target) counts.set(target, (counts.get(target) || 0) + 1);
+  }
+  const duplicates = Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([name]) => name);
+  if (duplicates.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["fieldMappings"],
+      message: `Duplicate target fields are not allowed; each target field may be mapped only once. Duplicates: ${duplicates.join(", ")}`,
+    });
+  }
+}
+
 const createSyncConfigSchema = z.object({
   name: z.string().min(1),
   targetModuleId: z.string().min(1),
@@ -171,7 +198,7 @@ const createSyncConfigSchema = z.object({
   onixFixedFields: onixFixedFieldsSchema,
   autoRetry: z.boolean().optional(),
   retryDelayMin: z.number().int().min(1).max(120).optional(),
-}).superRefine(refineNoDuplicateFixedFields);
+}).superRefine(refineNoDuplicateFixedFields).superRefine(refineNoDuplicateMappingTargets);
 
 const updateSyncConfigSchema = z.object({
   name: z.string().min(1).optional(),
@@ -217,7 +244,7 @@ const updateSyncConfigSchema = z.object({
   onixFixedFields: onixFixedFieldsSchema,
   autoRetry: z.boolean().optional(),
   retryDelayMin: z.number().int().min(1).max(120).optional(),
-}).superRefine(refineNoDuplicateFixedFields);
+}).superRefine(refineNoDuplicateFixedFields).superRefine(refineNoDuplicateMappingTargets);
 
 const updateUserSchema = z.object({
   fullName: z.string().min(1).optional(),
