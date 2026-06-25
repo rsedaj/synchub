@@ -1158,6 +1158,20 @@ export default function SyncConfigPage() {
     return validateMappings(editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing);
   }, [editor.fieldMappings, editor.targetDataSource, sourceFields, targetFields, editor.onixFixedFields, editor.onMissing, showValidation]);
 
+  const duplicateFixedFieldIndices = useMemo(() => {
+    const counts = new Map<string, number>();
+    editor.onixFixedFields.forEach(ff => {
+      const name = ff.field.trim();
+      if (name) counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    const dups = new Set<number>();
+    editor.onixFixedFields.forEach((ff, idx) => {
+      const name = ff.field.trim();
+      if (name && (counts.get(name) || 0) > 1) dups.add(idx);
+    });
+    return dups;
+  }, [editor.onixFixedFields]);
+
   function handleAutoMap() {
     if (!fieldsReady) return;
     const mapped = autoMapFields(sourceFields, targetFields);
@@ -2255,6 +2269,7 @@ export default function SyncConfigPage() {
                         {editor.onixFixedFields.map((ff, idx) => {
                           const isHighlighted = highlightedFixedFields.has(idx);
                           const isDragOver = dragOverFixedFieldIdx === idx;
+                          const isDuplicate = duplicateFixedFieldIndices.has(idx);
                           return (
                           <div
                             key={idx}
@@ -2331,9 +2346,10 @@ export default function SyncConfigPage() {
                               <Plus className="h-3.5 w-3.5" />
                             </Button>
                             <Input
-                              className="h-8 text-xs font-mono w-44"
+                              className={`h-8 text-xs font-mono w-44${isDuplicate ? " border-destructive ring-1 ring-destructive" : ""}`}
                               placeholder="Ns_Code"
                               value={ff.field}
+                              title={isDuplicate ? (language === "sk" ? "Toto pole je nastavené viackrát" : "This field is set more than once") : undefined}
                               onChange={e => setEditor(prev => {
                                 const arr = [...prev.onixFixedFields];
                                 arr[idx] = { ...arr[idx], field: e.target.value };
@@ -2411,6 +2427,19 @@ export default function SyncConfigPage() {
                           </div>
                           );
                         })}
+                        {duplicateFixedFieldIndices.size > 0 && (
+                          <div
+                            className="flex items-start gap-1.5 text-xs text-destructive mt-1"
+                            data-testid="hint-fixed-field-duplicate"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              {language === "sk"
+                                ? "Niektoré polia sú nastavené viackrát. Vyšší riadok (nižšie číslo) má prednosť."
+                                : "Some fields are set more than once. The higher row (lower number) takes precedence."}
+                            </span>
+                          </div>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
