@@ -3,6 +3,7 @@ import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
 import { pushToTarget, clearOnixIndexCache, deriveRecordKey } from "./target-push";
+import { computeEffectiveFullSync, restrictToDeferredSet } from "./deferred-rerun";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun } from "@shared/schema";
 import type { PushRecordResult, VATTransformEntry } from "./target-push";
@@ -265,7 +266,7 @@ export async function executeSyncRun(
     : undefined;
   // A deferred re-run only re-attempts a known set of records; it must bypass delta
   // (their baselines were already updated in the original run) so force a full sync.
-  const effectiveFullSync = (restrictSet || restrictNsSet) ? true : fullSync;
+  const effectiveFullSync = computeEffectiveFullSync(fullSync, restrictSet, restrictNsSet);
 
   executeAsync(run.id, config, sourceModule, targetModule, runState, effectiveFullSync, undefined, restrictSet, restrictNsSet).catch((err) => {
     console.error(`[sync-engine] Fatal error for run ${run.id}:`, err);
@@ -634,22 +635,15 @@ async function executeAsync(
       const nsTargetField = ((config as any).hKodConfig?.field || "Ns_Number") as string;
       const nsSourceField = ((config.fieldMappings || []) as Array<{ sourceField: string; targetField: string }>)
         .find((m) => m.targetField === nsTargetField)?.sourceField;
-      const keySet = restrictToRecordKeys;
-      const nsSet = restrictToNsNumbers;
       const beforeRestrict = allFetchedRecords.length;
-      allFetchedRecords = allFetchedRecords.filter((rec: any) => {
-        if (keySet && keySet.size > 0) {
-          const k = getRecordKey(rec, cfgMatchFields);
-          if (k != null && keySet.has(String(k))) return true;
-        }
-        if (nsSet && nsSet.size > 0 && nsSourceField) {
-          const ns = rec?.[nsSourceField];
-          if (ns != null && String(ns).trim() !== "" && nsSet.has(String(ns).trim())) return true;
-        }
-        return false;
+      allFetchedRecords = restrictToDeferredSet(allFetchedRecords, {
+        restrictToRecordKeys,
+        restrictToNsNumbers,
+        matchFields: cfgMatchFields,
+        nsSourceField,
       });
-      const keyCount = keySet?.size ?? 0;
-      const nsCount = nsSet?.size ?? 0;
+      const keyCount = restrictToRecordKeys?.size ?? 0;
+      const nsCount = restrictToNsNumbers?.size ?? 0;
       log(`Targeted deferred re-run: ${allFetchedRecords.length}/${beforeRestrict} fetched records matched the deferred set (${keyCount} key(s), ${nsCount} Ns_Number(s))`);
     }
 

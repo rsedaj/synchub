@@ -8,6 +8,7 @@ import { seedData, runMigrations } from "./seed";
 import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields, ONIX_KNOWN_TARGET_FIELDS } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resumeSyncRun } from "./sync-engine";
 import { checkOnixIndexComplete } from "./target-push";
+import { deriveDeferredScope, evaluateIndexGate } from "./deferred-rerun";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
@@ -1101,18 +1102,9 @@ export async function registerRoutes(
       const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> =
         details?.deferredIncompleteIndexItems ?? details?.onixIndex?.deferredItems ?? [];
 
-      const recordKeys = Array.from(new Set(
-        deferredItems
-          .map((d) => (d.recordKey ?? "").trim())
-          .filter((k) => k !== "")
-      ));
       // Fallback scoping: deferred items that have an assigned Ns_Number but no
       // resolvable recordKey can still be targeted by their number.
-      const nsNumbers = Array.from(new Set(
-        deferredItems
-          .map((d) => (d.nsNumber ?? "").trim())
-          .filter((n) => n !== "")
-      ));
+      const { recordKeys, nsNumbers } = deriveDeferredScope(deferredItems);
 
       if (recordKeys.length === 0 && nsNumbers.length === 0) {
         return res.status(400).json({
@@ -1146,21 +1138,9 @@ export async function registerRoutes(
         forceRefresh: true,
       });
 
-      if (!indexCheck.available) {
-        return res.status(409).json({
-          message: indexCheck.message || "The ONIX index could not be validated.",
-          indexAvailable: false,
-          indexComplete: false,
-        });
-      }
-      if (!indexCheck.complete) {
-        return res.status(409).json({
-          message: "The ONIX index is still incomplete. Wait until a full index is available before re-running deferred records.",
-          indexAvailable: true,
-          indexComplete: false,
-          recordCount: indexCheck.recordCount,
-          expectedCount: indexCheck.expectedCount,
-        });
+      const gate = evaluateIndexGate(indexCheck);
+      if (!gate.ok) {
+        return res.status(gate.status).json(gate.body);
       }
 
       const runId = await executeSyncRun(run.syncConfigId, req.user!.id, true, recordKeys, nsNumbers);
