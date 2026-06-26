@@ -142,13 +142,15 @@ test("create branch: round trip preserves every setting on a new config", async 
 });
 
 test("create branch: falsy settings are preserved, not replaced by defaults", async () => {
-  // isEnabled:false, autoRetry:false, retryDelayMin:0 are all falsy; the restore
-  // create branch uses `?? default` so these MUST survive rather than flip to
-  // the true/false/3 defaults a `||` would have forced.
+  // isEnabled:false and autoRetry:false are falsy booleans; the restore create
+  // branch uses `?? default` so these MUST survive rather than flip to the
+  // true/false defaults a `||` would have forced. retryDelayMin is kept at a
+  // valid non-default value (1) to prove a provided value is not overwritten by
+  // the 3 default (0 is rejected by the canonical schema's min(1) rule).
   const stored = makeStoredConfig({
     isEnabled: false,
     autoRetry: false,
-    retryDelayMin: 0,
+    retryDelayMin: 1,
     schedule: { enabled: false, frequency: "daily", backupBeforeSync: false },
   });
   const backupEntry = mapSyncConfigForBackup(stored);
@@ -162,6 +164,61 @@ test("create branch: falsy settings are preserved, not replaced by defaults", as
   const data = created[0];
   assert.equal(data.isEnabled, false, "isEnabled=false must not flip to default true");
   assert.equal(data.autoRetry, false, "autoRetry=false preserved");
-  assert.equal(data.retryDelayMin, 0, "retryDelayMin=0 must not flip to default 3");
+  assert.equal(data.retryDelayMin, 1, "retryDelayMin=1 must not flip to default 3");
   assert.equal((data.schedule as { backupBeforeSync?: boolean }).backupBeforeSync, false);
+});
+
+test("create branch: duplicate mapping targets are rejected, not persisted", async () => {
+  // A backup that points two rows at the same target field must be caught by the
+  // same refineNoDuplicateMappingTargets check the POST route uses, instead of
+  // being written straight to the DB.
+  const stored = makeStoredConfig({
+    id: "dup-mapping",
+    name: "Dup mapping",
+    fieldMappings: [
+      { sourceField: "a", targetField: "Stav" },
+      { sourceField: "b", targetField: "Stav" },
+    ],
+  });
+  const backupEntry = mapSyncConfigForBackup(stored);
+
+  const { deps, created } = makeFakeStorage([]);
+  const results = emptyResults();
+
+  await restoreSyncConfigsFromBackup([backupEntry], {}, deps, results);
+
+  assert.equal(created.length, 0, "invalid config must NOT be created");
+  assert.equal(results.syncConfigs, 0, "invalid config must not count as restored");
+  assert.equal(results.errors.length, 1, "one validation error should be reported");
+  assert.match(results.errors[0], /Dup mapping/);
+  assert.match(results.errors[0], /Duplicate target fields/);
+});
+
+test("update branch: duplicate fixed fields are rejected, not persisted", async () => {
+  // The update branch must enforce the same refineNoDuplicateFixedFields rule as
+  // the PATCH route, so a backup can't overwrite an existing config with a shape
+  // that silently drops fixed-field rows during sync.
+  const stored = makeStoredConfig({
+    id: "dup-fixed",
+    name: "Dup fixed",
+    onixFixedFields: [
+      { field: "Sklad", value: "1", condition: "always" },
+      { field: "Sklad", value: "2", condition: "always" },
+    ],
+  });
+  const backupEntry = {
+    ...mapSyncConfigForBackup(stored),
+    onixFixedFields: stored.onixFixedFields,
+  };
+
+  const { deps, updated } = makeFakeStorage([{ id: stored.id, name: stored.name }]);
+  const results = emptyResults();
+
+  await restoreSyncConfigsFromBackup([backupEntry], {}, deps, results);
+
+  assert.equal(updated.length, 0, "invalid config must NOT be updated");
+  assert.equal(results.syncConfigs, 0, "invalid config must not count as restored");
+  assert.equal(results.errors.length, 1, "one validation error should be reported");
+  assert.match(results.errors[0], /Dup fixed/);
+  assert.match(results.errors[0], /Duplicate fixed fields/);
 });

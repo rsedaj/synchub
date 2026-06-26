@@ -12,9 +12,10 @@ import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackup
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
 import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup } from "./config-backup";
+import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-validation";
 import passport from "passport";
 import bcrypt from "bcryptjs";
-import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, insertSyncConfigSchema, loginSchema } from "@shared/schema";
+import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
 
 // Auto-retry schedule: configId → { fireAt, failedRunId }
@@ -96,93 +97,6 @@ const updateModuleSchema = z.object({
   status: z.enum(["connected", "disconnected", "error", "configuring"]).optional(),
   config: z.record(z.any()).optional(),
 });
-
-// Rejects configs that set the same non-empty ONIX fixed field name on more than
-// one row. During sync only the first occurrence (higher row) wins, so silently
-// persisting duplicates via the API, import, or seed would drop the lower rows.
-function refineNoDuplicateFixedFields(
-  data: { onixFixedFields?: Array<{ field: string }> | null },
-  ctx: z.RefinementCtx,
-) {
-  const fields = data.onixFixedFields;
-  if (!Array.isArray(fields)) return;
-  const counts = new Map<string, number>();
-  for (const ff of fields) {
-    const name = (ff.field || "").trim();
-    if (name) counts.set(name, (counts.get(name) || 0) + 1);
-  }
-  const duplicates = Array.from(counts.entries())
-    .filter(([, count]) => count > 1)
-    .map(([name]) => name);
-  if (duplicates.length > 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["onixFixedFields"],
-      message: `Duplicate fixed fields are not allowed; each field may be set only once. The higher row takes precedence. Duplicates: ${duplicates.join(", ")}`,
-    });
-  }
-}
-
-// Rejects configs whose field mappings point two or more rows at the same target
-// field. During sync each target should be written once; persisting duplicate
-// targets via the API, import, or seed (bypassing the editor's validateMappings)
-// would make the effective mapping ambiguous. Mirrors the client-side check.
-function refineNoDuplicateMappingTargets(
-  data: { fieldMappings?: Array<{ sourceField?: string; targetField?: string }> },
-  ctx: z.RefinementCtx,
-) {
-  const mappings = data.fieldMappings;
-  if (!Array.isArray(mappings)) return;
-  const counts = new Map<string, number>();
-  for (const m of mappings) {
-    const target = (m.targetField || "").trim();
-    if (target) counts.set(target, (counts.get(target) || 0) + 1);
-  }
-  const duplicates = Array.from(counts.entries())
-    .filter(([, count]) => count > 1)
-    .map(([name]) => name);
-  if (duplicates.length > 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["fieldMappings"],
-      message: `Duplicate target fields are not allowed; each target field may be mapped only once. Duplicates: ${duplicates.join(", ")}`,
-    });
-  }
-}
-
-// Derived from the canonical insertSyncConfigSchema so the route validation can
-// never drift from the DB-backed shape. We only layer on the route-specific
-// requirements (createdBy comes from the session, plus stricter scalar rules and
-// enums) instead of re-declaring every nested object shape.
-const baseSyncConfigSchema = insertSyncConfigSchema.omit({ createdBy: true }).extend({
-  name: z.string().min(1),
-  targetModuleId: z.string().min(1),
-  sourceModuleId: z.string().min(1),
-  sourceRecordLimit: z.number().int().min(0).optional(),
-  fieldMappings: z.array(z.object({
-    sourceField: z.string().min(1),
-    targetField: z.string().min(1),
-    transform: z.string().optional(),
-  })),
-  matchOperator: z.enum(["and", "or"]).optional(),
-  onMissing: z.enum(["create", "skip", "force"]).optional(),
-  autoRetry: z.boolean().optional(),
-  retryDelayMin: z.number().int().min(1).max(120).optional(),
-});
-
-const createSyncConfigSchema = baseSyncConfigSchema.extend({
-  sourceRecordLimit: z.number().int().min(0).optional().default(120000),
-  fieldMappings: z.array(z.object({
-    sourceField: z.string().min(1),
-    targetField: z.string().min(1),
-    transform: z.string().optional(),
-  })).min(1),
-}).superRefine(refineNoDuplicateFixedFields).superRefine(refineNoDuplicateMappingTargets);
-
-const updateSyncConfigSchema = baseSyncConfigSchema
-  .partial()
-  .superRefine(refineNoDuplicateFixedFields)
-  .superRefine(refineNoDuplicateMappingTargets);
 
 const updateUserSchema = z.object({
   fullName: z.string().min(1).optional(),
@@ -1780,8 +1694,8 @@ export async function registerRoutes(
           {
             getAllSyncConfigs: () => storage.getAllSyncConfigs(),
             getAllModules: () => storage.getAllModules(),
-            createSyncConfig: (d) => storage.createSyncConfig(d as any),
-            updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d as any),
+            createSyncConfig: (d) => storage.createSyncConfig(d),
+            updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
           },
           results,
         );
