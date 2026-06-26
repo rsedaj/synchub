@@ -791,6 +791,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
   const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs" | "analytics">(initialTab || "overview");
   const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
+  const [rerunBlocked, setRerunBlocked] = useState<Record<string, { recordCount?: number; expectedCount?: number | null; indexAvailable?: boolean }>>({});
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ type: string; id: string; name?: string } | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -1007,10 +1008,36 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
 
   const rerunDeferredMutation = useMutation({
     mutationFn: async (runId: string) => {
-      const res = await apiRequest("POST", `/api/sync-runs/${runId}/rerun-deferred`);
-      return res.json();
+      const res = await fetch(`/api/sync-runs/${runId}/rerun-deferred`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        return { ...data, sourceRunId: runId, blocked: true as const };
+      }
+      if (!res.ok) {
+        throw new Error(data?.message || `${res.status}`);
+      }
+      return { ...data, sourceRunId: runId, blocked: false as const };
     },
     onSuccess: (data) => {
+      if (data.blocked) {
+        setRerunBlocked((prev) => ({
+          ...prev,
+          [data.sourceRunId]: {
+            recordCount: data.recordCount,
+            expectedCount: data.expectedCount,
+            indexAvailable: data.indexAvailable,
+          },
+        }));
+        return;
+      }
+      setRerunBlocked((prev) => {
+        const next = { ...prev };
+        delete next[data.sourceRunId];
+        return next;
+      });
       toast({
         title: t("syncDash.onixIndexDeferredRerunStarted"),
         description: t("syncDash.onixIndexDeferredRerunStartedDesc").replace("{count}", String(data.deferredKeyCount ?? 0)),
@@ -3078,6 +3105,23 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                       </p>
                                     ))}
                                   </div>
+                                  {rerunBlocked[run.id] && (
+                                    <div
+                                      className="mt-2 px-2.5 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                      data-testid={`panel-rerun-blocked-${run.id}`}
+                                    >
+                                      <p className="font-semibold" data-testid={`text-rerun-blocked-status-${run.id}`}>
+                                        {rerunBlocked[run.id].indexAvailable === false
+                                          ? t("syncDash.onixIndexRerunBlockedUnavailable")
+                                          : t("syncDash.onixIndexRerunBlockedProgress")
+                                              .replace("{count}", (rerunBlocked[run.id].recordCount ?? 0).toLocaleString())
+                                              .replace("{expected}", rerunBlocked[run.id].expectedCount != null ? `~${(rerunBlocked[run.id].expectedCount as number).toLocaleString()}` : "?")}
+                                      </p>
+                                      <p className="text-amber-600/90 dark:text-amber-400/90 mt-0.5" data-testid={`text-rerun-blocked-hint-${run.id}`}>
+                                        {t("syncDash.onixIndexRerunBlockedHint")}
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
 
