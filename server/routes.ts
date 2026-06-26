@@ -1197,6 +1197,49 @@ export async function registerRoutes(
     }
   });
 
+  // Lightweight ONIX index status for a run's deferred-rerun panel. Lets the
+  // dashboard poll the live record/expected counts while the index is still
+  // building, without the admin repeatedly clicking "Re-run deferred".
+  app.get("/api/sync-runs/:id/onix-index-status", requireRole("admin"), async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(String(req.params.id));
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      if (!run.syncConfigId) return res.status(400).json({ message: "Run is not linked to a sync config" });
+
+      const config = await storage.getSyncConfig(run.syncConfigId);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+
+      const targetModule = await storage.getModule(config.targetModuleId);
+      if (!targetModule) return res.status(404).json({ message: "Target module not found" });
+
+      const matchFields = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
+      const mappings = (config.fieldMappings || []) as Array<{ sourceField: string; targetField: string }>;
+      const hKodCfg = (config as any).hKodConfig?.enabled
+        ? (config as any).hKodConfig
+        : null;
+      const indexCheck = await checkOnixIndexComplete(targetModule, config.targetDataSource || null, {
+        matchFields,
+        mappings,
+        targetStock: (config as any).targetStock || undefined,
+        hKodConfig: hKodCfg,
+        matchNormalization: (config as any).matchNormalization || null,
+        // Fresh view so the polled counts reflect real ONIX indexing progress
+        // (a previously cached INCOMPLETE index must not mask new progress).
+        forceRefresh: true,
+      });
+
+      return res.json({
+        indexAvailable: indexCheck.available,
+        indexComplete: indexCheck.available ? indexCheck.complete : false,
+        recordCount: indexCheck.recordCount,
+        expectedCount: indexCheck.expectedCount,
+        message: indexCheck.message,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message || "Failed to check ONIX index status" });
+    }
+  });
+
   app.get("/api/sync-runs/:id/progress", requireAuth, async (req, res) => {
     try {
       const run = await storage.getSyncRun(String(req.params.id));

@@ -783,6 +783,65 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
   );
 }
 
+type RerunBlockedInfo = { recordCount?: number; expectedCount?: number | null; indexAvailable?: boolean };
+
+type OnixIndexStatus = {
+  indexAvailable: boolean;
+  indexComplete: boolean;
+  recordCount: number;
+  expectedCount: number | null;
+  message?: string;
+};
+
+function RerunBlockedPanel({
+  runId,
+  info,
+  onComplete,
+}: {
+  runId: string;
+  info: RerunBlockedInfo;
+  onComplete: (runId: string, recordCount: number) => void;
+}) {
+  const { t } = useLanguage();
+
+  const { data, isFetching } = useQuery<OnixIndexStatus>({
+    queryKey: ["/api/sync-runs", runId, "onix-index-status"],
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
+  });
+
+  useEffect(() => {
+    if (data?.indexComplete) {
+      onComplete(runId, data.recordCount);
+    }
+  }, [data?.indexComplete, data?.recordCount, runId, onComplete]);
+
+  const recordCount = data ? data.recordCount : info.recordCount ?? 0;
+  const expectedCount = data ? data.expectedCount : info.expectedCount ?? null;
+  const indexAvailable = data ? data.indexAvailable : info.indexAvailable;
+
+  return (
+    <div
+      className="mt-2 px-2.5 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      data-testid={`panel-rerun-blocked-${runId}`}
+    >
+      <p className="font-semibold flex items-center gap-1.5" data-testid={`text-rerun-blocked-status-${runId}`}>
+        {indexAvailable === false
+          ? t("syncDash.onixIndexRerunBlockedUnavailable")
+          : t("syncDash.onixIndexRerunBlockedProgress")
+              .replace("{count}", (recordCount ?? 0).toLocaleString())
+              .replace("{expected}", expectedCount != null ? `~${(expectedCount as number).toLocaleString()}` : "?")}
+        {isFetching && <RotateCcw className="h-3 w-3 animate-spin shrink-0" />}
+      </p>
+      <p className="text-amber-600/90 dark:text-amber-400/90 mt-0.5" data-testid={`text-rerun-blocked-hint-${runId}`}>
+        {t("syncDash.onixIndexRerunBlockedHint")}
+        {" "}
+        <span className="opacity-80">{t("syncDash.onixIndexRerunBlockedRefreshing")}</span>
+      </p>
+    </div>
+  );
+}
+
 export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" | "analytics" }) {
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -1049,6 +1108,21 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
       toast({ title: t("syncDash.error"), description: err?.message || t("syncDash.onixIndexDeferredRerunIncomplete"), variant: "destructive" });
     },
   });
+
+  // When the polled ONIX index reaches completeness, clear the blocked panel
+  // (which also stops its auto-poll) and let the admin know they can re-run.
+  const handleRerunBlockedComplete = useCallback((runId: string, recordCount: number) => {
+    setRerunBlocked((prev) => {
+      if (!prev[runId]) return prev;
+      const next = { ...prev };
+      delete next[runId];
+      return next;
+    });
+    toast({
+      title: t("syncDash.onixIndexDeferredRerun"),
+      description: t("syncDash.onixIndexRerunReady").replace("{count}", recordCount.toLocaleString()),
+    });
+  }, [t, toast]);
 
   const restoreBackupMutation = useMutation({
     mutationFn: async (backupId: string) => {
@@ -3106,21 +3180,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                     ))}
                                   </div>
                                   {rerunBlocked[run.id] && (
-                                    <div
-                                      className="mt-2 px-2.5 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                      data-testid={`panel-rerun-blocked-${run.id}`}
-                                    >
-                                      <p className="font-semibold" data-testid={`text-rerun-blocked-status-${run.id}`}>
-                                        {rerunBlocked[run.id].indexAvailable === false
-                                          ? t("syncDash.onixIndexRerunBlockedUnavailable")
-                                          : t("syncDash.onixIndexRerunBlockedProgress")
-                                              .replace("{count}", (rerunBlocked[run.id].recordCount ?? 0).toLocaleString())
-                                              .replace("{expected}", rerunBlocked[run.id].expectedCount != null ? `~${(rerunBlocked[run.id].expectedCount as number).toLocaleString()}` : "?")}
-                                      </p>
-                                      <p className="text-amber-600/90 dark:text-amber-400/90 mt-0.5" data-testid={`text-rerun-blocked-hint-${run.id}`}>
-                                        {t("syncDash.onixIndexRerunBlockedHint")}
-                                      </p>
-                                    </div>
+                                    <RerunBlockedPanel
+                                      runId={run.id}
+                                      info={rerunBlocked[run.id]}
+                                      onComplete={handleRerunBlockedComplete}
+                                    />
                                   )}
                                 </div>
                               )}
