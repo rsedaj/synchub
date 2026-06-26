@@ -21,6 +21,14 @@
 #
 #   bash scripts/run-api-tests.sh
 #
+# By default it runs EVERY tests/api/**/*.test.ts file. Pass one or more
+# filename substrings to run only the matching files (server boot/teardown is
+# identical). This is what scripts/run-viewer-role-tests.sh uses to run just the
+# viewer-role permission suite:
+#
+#   bash scripts/run-api-tests.sh viewer-role-guard
+#   bash scripts/run-api-tests.sh sync-config sync-and-backup
+#
 # Configuration (all optional, sane defaults):
 #   BASE_URL        Base URL of the server under test (default http://127.0.0.1:5000)
 #   PORT            Port the booted dev server listens on (default 5000)
@@ -117,10 +125,29 @@ else
 fi
 
 # --- 2. Run the API tests --------------------------------------------------
-mapfile -t API_TEST_FILES < <(find tests/api -type f -name '*.test.ts' 2>/dev/null | sort)
+# Optional positional args narrow the run to files whose path contains ANY of
+# the given substrings (e.g. "viewer-role-guard"). With no args, run them all.
+mapfile -t ALL_API_TEST_FILES < <(find tests/api -type f -name '*.test.ts' 2>/dev/null | sort)
+
+if [ "$#" -eq 0 ]; then
+  API_TEST_FILES=("${ALL_API_TEST_FILES[@]}")
+else
+  API_TEST_FILES=()
+  for f in "${ALL_API_TEST_FILES[@]}"; do
+    for pattern in "$@"; do
+      case "$f" in
+        *"$pattern"*) API_TEST_FILES+=("$f"); break ;;
+      esac
+    done
+  done
+fi
 
 if [ "${#API_TEST_FILES[@]}" -eq 0 ]; then
-  echo "${RED}✗ No API test files found under tests/api/**/*.test.ts${RESET}"
+  if [ "$#" -gt 0 ]; then
+    echo "${RED}✗ No API test files under tests/api/**/*.test.ts matched: $*${RESET}"
+  else
+    echo "${RED}✗ No API test files found under tests/api/**/*.test.ts${RESET}"
+  fi
   exit 1
 fi
 

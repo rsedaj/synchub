@@ -46,6 +46,18 @@ already serving `/api/health` or boots `npm run dev` itself, waits for readiness
 runs the tests, and tears down only a server it started. The same API tests also
 run in CI (`.github/workflows/deploy.yml`) before the Docker image is built.
 
+`scripts/run-api-tests.sh` also accepts optional filename-substring filters, so
+you can run just a slice of the API suite without remembering each file:
+
+- `bash scripts/run-viewer-role-tests.sh` — run the WHOLE viewer-role
+  permission suite (every `tests/api/*viewer-role-guard*.test.ts`: sync-config,
+  modules/logs, sync+backup) in one pass against the dev server. New
+  `*viewer-role-guard*.test.ts` files are picked up automatically. Use this when
+  verifying any read-only/role-guard permission change.
+- `bash scripts/run-api-tests.sh <substring> [<substring>...]` — run only the
+  API test files whose path contains any of the given substrings (e.g.
+  `bash scripts/run-api-tests.sh viewer-role-guard`).
+
 ## System Architecture
 
 SyncHub is built with a modern web stack, featuring a React 18 frontend with TypeScript and Vite, utilizing Shadcn/ui and Tailwind CSS for UI components. The backend is an Express.js application also written in TypeScript, connected to a PostgreSQL database managed with Drizzle ORM. Session-based authentication is handled by Passport.js and bcrypt.
