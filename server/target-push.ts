@@ -157,6 +157,7 @@ export interface MatchOptions {
   onixFixedFields?: Array<{ field: string; value: string; condition: "always" | "if_empty" }> | null;
   prevHkodAssignments?: Map<string, string>;
   matchNormalization?: MatchNormalizationOpts | null;
+  forceRefresh?: boolean;
 }
 
 export async function pushToTarget(
@@ -646,7 +647,8 @@ async function buildOnixIndex(
   targetFields: string[],
   targetStock?: string,
   hKodField?: string,
-  normOpts?: MatchNormalizationOpts | null
+  normOpts?: MatchNormalizationOpts | null,
+  forceRefresh?: boolean
 ): Promise<OnixIndexEntry | null> {
   // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
   // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
@@ -673,12 +675,21 @@ async function buildOnixIndex(
   }) : "none";
   const cacheKey = `${fetchUrl}:db=${_dbPathForKey}:fields=${targetFields.slice().sort().join(",")}:stock=${targetStock ?? ""}:hkodField=${hKodField ?? ""}:norm=${_normKey}`;
 
-  const existing = _onixIndexCache.get(cacheKey);
-  if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
-    const allFieldsPresent = targetFields.every(f => existing.fieldMap.has(f));
-    if (allFieldsPresent) {
-      console.log(`[target-push] ONIX index cache HIT: ${existing.recordCount} records (stock=${targetStock ?? "none"})`);
-      return existing;
+  if (forceRefresh) {
+    // The deferred re-run flow needs an authoritative, up-to-the-minute view of the
+    // ONIX index: a previous run may have cached an INCOMPLETE index, and we must not
+    // serve that stale (incomplete) entry when validating whether a full index is now
+    // available. Drop the cached entry so this build fetches fresh from ONIX.
+    _onixIndexCache.delete(cacheKey);
+    console.log(`[target-push] ONIX index forceRefresh: bypassing cache (stock=${targetStock ?? "none"})`);
+  } else {
+    const existing = _onixIndexCache.get(cacheKey);
+    if (existing && (Date.now() - existing.fetchedAt) < ONIX_INDEX_TTL_MS) {
+      const allFieldsPresent = targetFields.every(f => existing.fieldMap.has(f));
+      if (allFieldsPresent) {
+        console.log(`[target-push] ONIX index cache HIT: ${existing.recordCount} records (stock=${targetStock ?? "none"})`);
+        return existing;
+      }
     }
   }
 
@@ -933,6 +944,83 @@ async function buildOnixIndex(
     console.warn(`[target-push] ONIX index build failed: ${err.message}`);
     return null;
   }
+}
+
+// Build the ONIX match index and report whether it is complete (all cards ONIX
+// reports via @odata.count were actually fetched). Used by the deferred re-run
+// flow to validate that a FULL index is available before re-syncing records that
+// were previously deferred because of an incomplete index.
+export interface OnixIndexCheckResult {
+  available: boolean;
+  complete: boolean;
+  recordCount: number;
+  expectedCount: number | null;
+  message?: string;
+}
+
+export async function checkOnixIndexComplete(
+  targetModule: ApiModule,
+  targetDataSource: string | null,
+  matchOptions?: MatchOptions
+): Promise<OnixIndexCheckResult> {
+  if (targetModule.code.toUpperCase() !== "ONIX") {
+    return { available: true, complete: true, recordCount: 0, expectedCount: null, message: "Target is not ONIX; no index check required" };
+  }
+
+  const config = targetModule.config as Record<string, any> | null;
+  const { getOnixCreds } = await import("./onix-creds");
+  const creds = getOnixCreds(config);
+  const token = creds.token;
+  const databasePath = creds.databasePath;
+  if (!token) {
+    return { available: false, complete: false, recordCount: 0, expectedCount: null, message: `ONIX API token not configured for environment "${creds.environment}"` };
+  }
+
+  const source = (!targetDataSource || targetDataSource === "auto") ? "stockitems" : targetDataSource;
+  const writeDef = ONIX_WRITE_SOURCES[source];
+  if (!writeDef) {
+    return { available: false, complete: false, recordCount: 0, expectedCount: null, message: `ONIX data source '${source}' does not support write operations` };
+  }
+
+  const rawBase = targetModule.baseUrl || "https://onix-api.hauerland.sk/onix_api";
+  const baseUrl = rawBase.replace(/\/onix_api$/i, "/ONIX_API");
+  const ALLOWED_ONIX_HOSTS = new Set(["onix-api.hauerland.sk", "195.146.148.139"]);
+  try {
+    const parsedUrl = new URL(baseUrl);
+    if (!ALLOWED_ONIX_HOSTS.has(parsedUrl.hostname)) {
+      return { available: false, complete: false, recordCount: 0, expectedCount: null, message: `ONIX API host '${parsedUrl.hostname}' is not in the allowed hosts list` };
+    }
+  } catch {
+    return { available: false, complete: false, recordCount: 0, expectedCount: null, message: `Invalid ONIX API base URL: ${rawBase}` };
+  }
+
+  const hdrs: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": `Bearer ${token}`,
+    "User-Agent": "SyncHub/1.0",
+    "Connection": "keep-alive",
+  };
+  if (databasePath) hdrs["DatabasePath"] = databasePath;
+
+  const matchFields = (matchOptions?.matchFields || []).filter(f => f && f.trim());
+  const normOpts = matchOptions?.matchNormalization ?? null;
+  const hKodCfg = matchOptions?.hKodConfig?.enabled && matchOptions.hKodConfig.prefix ? matchOptions.hKodConfig : null;
+  const targetFieldsForIndex = (matchOptions?.mappings || [])
+    .filter(m => matchFields.includes(m.sourceField))
+    .map(m => m.targetField)
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  if (targetFieldsForIndex.length === 0) {
+    return { available: false, complete: false, recordCount: 0, expectedCount: null, message: "No match fields configured — cannot build the ONIX index to validate completeness" };
+  }
+
+  const onixIndex = await buildOnixIndex(baseUrl, writeDef.endpoint, hdrs, targetFieldsForIndex, matchOptions?.targetStock, hKodCfg?.field || "Ns_Number", normOpts, matchOptions?.forceRefresh);
+  if (!onixIndex) {
+    return { available: false, complete: false, recordCount: 0, expectedCount: null, message: "Failed to build the ONIX index (fetch error)" };
+  }
+
+  return { available: true, complete: onixIndex.complete, recordCount: onixIndex.recordCount, expectedCount: onixIndex.expectedCount };
 }
 
 function sanitizeOnixBody(body: Record<string, any>): Record<string, any> {

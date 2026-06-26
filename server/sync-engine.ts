@@ -235,7 +235,9 @@ function getRecordKey(record: Record<string, any>, matchFields?: string[]): stri
 export async function executeSyncRun(
   configId: string,
   triggeredBy?: string,
-  fullSync: boolean = false
+  fullSync: boolean = false,
+  restrictToRecordKeys?: string[],
+  restrictToNsNumbers?: string[]
 ): Promise<string> {
   const config = await storage.getSyncConfig(configId);
   if (!config) throw new Error("Sync config not found");
@@ -255,7 +257,17 @@ export async function executeSyncRun(
   const runState = { cancelled: false };
   activeRuns.set(run.id, runState);
 
-  executeAsync(run.id, config, sourceModule, targetModule, runState, fullSync).catch((err) => {
+  const restrictSet = restrictToRecordKeys && restrictToRecordKeys.length > 0
+    ? new Set(restrictToRecordKeys.map(String))
+    : undefined;
+  const restrictNsSet = restrictToNsNumbers && restrictToNsNumbers.length > 0
+    ? new Set(restrictToNsNumbers.map(String))
+    : undefined;
+  // A deferred re-run only re-attempts a known set of records; it must bypass delta
+  // (their baselines were already updated in the original run) so force a full sync.
+  const effectiveFullSync = (restrictSet || restrictNsSet) ? true : fullSync;
+
+  executeAsync(run.id, config, sourceModule, targetModule, runState, effectiveFullSync, undefined, restrictSet, restrictNsSet).catch((err) => {
     console.error(`[sync-engine] Fatal error for run ${run.id}:`, err);
     storage.updateSyncRun(run.id, {
       status: "error",
@@ -279,7 +291,9 @@ async function executeAsync(
   targetModule: any,
   runState: { cancelled: boolean },
   fullSync: boolean = false,
-  resumeFrom?: CheckpointData
+  resumeFrom?: CheckpointData,
+  restrictToRecordKeys?: Set<string>,
+  restrictToNsNumbers?: Set<string>
 ) {
   const startTime = Date.now();
   const isResume = !!resumeFrom;
@@ -582,7 +596,7 @@ async function executeAsync(
 
     const _srcFilters: Array<{ field: string; operator: string; value: string }> =
       ((config as any).sourceFilters || []).filter((f: any) => f?.field && f?.value != null && String(f.value).trim() !== "");
-    const allFetchedRecords = _srcFilters.length > 0
+    let allFetchedRecords = _srcFilters.length > 0
       ? _rawFetchedRecords.filter((rec: any) =>
           _srcFilters.every((f: any) => {
             const v = String(rec[f.field] ?? "").trim();
@@ -602,13 +616,47 @@ async function executeAsync(
     if (_srcFilters.length > 0) {
       log(`Source filters applied (${_srcFilters.length}): ${allFetchedRecords.length}/${_rawFetchedRecords.length} records passed (${_rawFetchedRecords.length - allFetchedRecords.length} filtered out)`);
     }
+    // Number of records dropped by source filters — captured before the deferred
+    // restriction below so the displayed "filtered out" count stays accurate.
+    const sourceFilteredOutCount = _rawFetchedRecords.length - allFetchedRecords.length;
+
+    const cfgMatchFields = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
+
+    // Deferred re-run: restrict the fetched set to ONLY the previously-deferred
+    // records. Primary scoping is by the canonical recordKey; as a fallback we also
+    // match by Ns_Number for deferred items that have an assigned number but no
+    // resolvable recordKey. Done before delta/full-sync and baseline computation so
+    // every downstream step operates on this subset.
+    if ((restrictToRecordKeys && restrictToRecordKeys.size > 0) || (restrictToNsNumbers && restrictToNsNumbers.size > 0)) {
+      // Resolve which source field feeds the ONIX Ns_Number target field (via the
+      // hKod field name, defaulting to "Ns_Number"), so we can read the nsNumber
+      // value off each SOURCE record for the fallback match.
+      const nsTargetField = ((config as any).hKodConfig?.field || "Ns_Number") as string;
+      const nsSourceField = ((config.fieldMappings || []) as Array<{ sourceField: string; targetField: string }>)
+        .find((m) => m.targetField === nsTargetField)?.sourceField;
+      const keySet = restrictToRecordKeys;
+      const nsSet = restrictToNsNumbers;
+      const beforeRestrict = allFetchedRecords.length;
+      allFetchedRecords = allFetchedRecords.filter((rec: any) => {
+        if (keySet && keySet.size > 0) {
+          const k = getRecordKey(rec, cfgMatchFields);
+          if (k != null && keySet.has(String(k))) return true;
+        }
+        if (nsSet && nsSet.size > 0 && nsSourceField) {
+          const ns = rec?.[nsSourceField];
+          if (ns != null && String(ns).trim() !== "" && nsSet.has(String(ns).trim())) return true;
+        }
+        return false;
+      });
+      const keyCount = keySet?.size ?? 0;
+      const nsCount = nsSet?.size ?? 0;
+      log(`Targeted deferred re-run: ${allFetchedRecords.length}/${beforeRestrict} fetched records matched the deferred set (${keyCount} key(s), ${nsCount} Ns_Number(s))`);
+    }
 
     let allRecords = allFetchedRecords;
     let totalSkipped = 0;
     const baselineUpdates: Array<{ recordKey: string; fieldHash: string; index: number }> = [];
     const batchableBaselines: Array<{ recordKey: string; fieldHash: string } | null> = [];
-
-    const cfgMatchFields = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
 
     if (!fullSync && !isResume) {
       log("=== DELTA MODE: comparing with baseline ===");
@@ -742,7 +790,7 @@ async function executeAsync(
     const batchSpeeds: number[] = [];
     const batchSpeedHistory: Array<{b: number; s: number}> = [];
     const vatSamples: VATTransformEntry[] = [];
-    const sourceFiltersApplied = _rawFetchedRecords.length - allFetchedRecords.length;
+    const sourceFiltersApplied = sourceFilteredOutCount;
     let hKodStartNumber: number | undefined;
     let globalMaxLatency = 0;
 

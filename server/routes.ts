@@ -7,6 +7,7 @@ import { setupAuth, requireAuth, requireRole } from "./auth";
 import { seedData, runMigrations } from "./seed";
 import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields, ONIX_KNOWN_TARGET_FIELDS } from "./data-fetcher";
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resumeSyncRun } from "./sync-engine";
+import { checkOnixIndexComplete } from "./target-push";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
@@ -1173,6 +1174,112 @@ export async function registerRoutes(
       return res.send(csv);
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to generate deferred records CSV export" });
+    }
+  });
+
+  app.post("/api/sync-runs/:id/rerun-deferred", requireRole("admin"), async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(String(req.params.id));
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      if (!run.syncConfigId) return res.status(400).json({ message: "Run is not linked to a sync config" });
+
+      const details = (run as any).details as Record<string, any> | null;
+      const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> =
+        details?.deferredIncompleteIndexItems ?? details?.onixIndex?.deferredItems ?? [];
+
+      const recordKeys = Array.from(new Set(
+        deferredItems
+          .map((d) => (d.recordKey ?? "").trim())
+          .filter((k) => k !== "")
+      ));
+      // Fallback scoping: deferred items that have an assigned Ns_Number but no
+      // resolvable recordKey can still be targeted by their number.
+      const nsNumbers = Array.from(new Set(
+        deferredItems
+          .map((d) => (d.nsNumber ?? "").trim())
+          .filter((n) => n !== "")
+      ));
+
+      if (recordKeys.length === 0 && nsNumbers.length === 0) {
+        return res.status(400).json({
+          message: "No deferred records with a resolvable record key or Ns_Number were found for this run.",
+        });
+      }
+
+      const config = await storage.getSyncConfig(run.syncConfigId);
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+
+      const targetModule = await storage.getModule(config.targetModuleId);
+      if (!targetModule) return res.status(404).json({ message: "Target module not found" });
+
+      // Validate a FULL ONIX index is now available before re-running the deferred
+      // records — re-syncing against a still-incomplete index would just defer them
+      // again (and risks creating duplicate cards).
+      const matchFields = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
+      const mappings = (config.fieldMappings || []) as Array<{ sourceField: string; targetField: string }>;
+      const hKodCfg = (config as any).hKodConfig?.enabled
+        ? (config as any).hKodConfig
+        : null;
+      const indexCheck = await checkOnixIndexComplete(targetModule, config.targetDataSource || null, {
+        matchFields,
+        mappings,
+        targetStock: (config as any).targetStock || undefined,
+        hKodConfig: hKodCfg,
+        matchNormalization: (config as any).matchNormalization || null,
+        // Force a fresh ONIX fetch: the original run may have cached an INCOMPLETE
+        // index, and serving that stale entry would keep blocking the re-run even
+        // after ONIX actually became complete.
+        forceRefresh: true,
+      });
+
+      if (!indexCheck.available) {
+        return res.status(409).json({
+          message: indexCheck.message || "The ONIX index could not be validated.",
+          indexAvailable: false,
+          indexComplete: false,
+        });
+      }
+      if (!indexCheck.complete) {
+        return res.status(409).json({
+          message: "The ONIX index is still incomplete. Wait until a full index is available before re-running deferred records.",
+          indexAvailable: true,
+          indexComplete: false,
+          recordCount: indexCheck.recordCount,
+          expectedCount: indexCheck.expectedCount,
+        });
+      }
+
+      const runId = await executeSyncRun(run.syncConfigId, req.user!.id, true, recordKeys, nsNumbers);
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "sync_run",
+        entity: "sync_run",
+        entityId: run.id,
+        details: {
+          kind: "rerun_deferred",
+          configId: config.id,
+          configName: config.name,
+          sourceRunId: run.id,
+          newRunId: runId,
+          deferredKeyCount: recordKeys.length,
+          deferredNsCount: nsNumbers.length,
+          indexRecordCount: indexCheck.recordCount,
+          indexExpectedCount: indexCheck.expectedCount,
+        },
+        ipAddress: req.ip || null,
+      });
+
+      const scopedCount = recordKeys.length + nsNumbers.length;
+      return res.json({
+        runId,
+        deferredKeyCount: scopedCount,
+        recordKeyCount: recordKeys.length,
+        nsNumberCount: nsNumbers.length,
+        message: `Re-running ${scopedCount} deferred record(s)`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message || "Failed to re-run deferred records" });
     }
   });
 

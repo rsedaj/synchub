@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/components/language-provider";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -785,6 +786,8 @@ function TimelineChart({ runs, dayCount }: { runs: SyncRun[]; dayCount: number }
 export default function SyncDashboardPage({ initialTab }: { initialTab?: "overview" | "backups" | "logs" | "analytics" }) {
   const { t, language } = useLanguage();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [activeTab, setActiveTab] = useState<"overview" | "backups" | "logs" | "analytics">(initialTab || "overview");
   const [timelineDays, setTimelineDays] = useState(7);
   const [trackingRunId, setTrackingRunId] = useState<string | null>(null);
@@ -999,6 +1002,24 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
     },
     onError: () => {
       toast({ title: "Chyba", description: "Nepodarilo sa obnoviť sync", variant: "destructive" });
+    },
+  });
+
+  const rerunDeferredMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", `/api/sync-runs/${runId}/rerun-deferred`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: t("syncDash.onixIndexDeferredRerunStarted"),
+        description: t("syncDash.onixIndexDeferredRerunStartedDesc").replace("{count}", String(data.deferredKeyCount ?? 0)),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-runs"] });
+      if (data.runId) setTrackingRunId(data.runId);
+    },
+    onError: (err: any) => {
+      toast({ title: t("syncDash.error"), description: err?.message || t("syncDash.onixIndexDeferredRerunIncomplete"), variant: "destructive" });
     },
   });
 
@@ -3004,34 +3025,51 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                     <p className="text-muted-foreground">
                                       # {t("syncDash.onixIndexDeferredListTitle")} ({deferredCount.toLocaleString()}{deferredItems.length > 50 ? `, ${language === "sk" ? "zobrazených prvých 50" : "showing first 50"}` : ""}):
                                     </p>
-                                    <button
-                                      data-testid={`button-onix-deferred-export-${run.id}`}
-                                      title={t("syncDash.onixIndexDeferredDownload")}
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        try {
-                                          const resp = await fetch(`/api/sync-runs/${run.id}/export-deferred-csv`, { credentials: "include" });
-                                          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                                          const blob = await resp.blob();
-                                          const url = URL.createObjectURL(blob);
-                                          const a = document.createElement("a");
-                                          const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
-                                          a.href = url;
-                                          a.download = `deferred-records-${startedAt}.csv`;
-                                          document.body.appendChild(a);
-                                          a.click();
-                                          document.body.removeChild(a);
-                                          URL.revokeObjectURL(url);
-                                        } catch (err) {
-                                          console.error("Deferred CSV export failed", err);
-                                          alert(language === "sk" ? "Export sa nepodaril." : "Export failed.");
-                                        }
-                                      }}
-                                      className="shrink-0 inline-flex items-center gap-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                                    >
-                                      <Download className="h-3 w-3" />
-                                      {t("syncDash.onixIndexDeferredDownload")}
-                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {isAdmin && (
+                                        <button
+                                          data-testid={`button-onix-deferred-rerun-${run.id}`}
+                                          title={t("syncDash.onixIndexDeferredRerunTooltip")}
+                                          disabled={rerunDeferredMutation.isPending}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            rerunDeferredMutation.mutate(run.id);
+                                          }}
+                                          className="inline-flex items-center gap-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                        >
+                                          <RotateCcw className={`h-3 w-3 ${rerunDeferredMutation.isPending && rerunDeferredMutation.variables === run.id ? "animate-spin" : ""}`} />
+                                          {t("syncDash.onixIndexDeferredRerun")}
+                                        </button>
+                                      )}
+                                      <button
+                                        data-testid={`button-onix-deferred-export-${run.id}`}
+                                        title={t("syncDash.onixIndexDeferredDownload")}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try {
+                                            const resp = await fetch(`/api/sync-runs/${run.id}/export-deferred-csv`, { credentials: "include" });
+                                            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                            const blob = await resp.blob();
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement("a");
+                                            const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
+                                            a.href = url;
+                                            a.download = `deferred-records-${startedAt}.csv`;
+                                            document.body.appendChild(a);
+                                            a.click();
+                                            document.body.removeChild(a);
+                                            URL.revokeObjectURL(url);
+                                          } catch (err) {
+                                            console.error("Deferred CSV export failed", err);
+                                            alert(language === "sk" ? "Export sa nepodaril." : "Export failed.");
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                      >
+                                        <Download className="h-3 w-3" />
+                                        {t("syncDash.onixIndexDeferredDownload")}
+                                      </button>
+                                    </div>
                                   </div>
                                   <div className="space-y-0.5 max-h-40 overflow-y-auto">
                                     {deferredItems.slice(0, 50).map((d, i) => (
