@@ -1,5 +1,6 @@
 import { build as esbuild } from "esbuild";
 import path from "path";
+import { COMMON_IMPORT_CHECK_OPTIONS, ROOT } from "./import-check-config.ts";
 
 // Fast, scoped import-resolution smoke check for the client (frontend) bundle.
 //
@@ -21,59 +22,20 @@ import path from "path";
 //   is actually missing/renamed.
 //
 // How it works:
-//   esbuild bundles client/src/main.tsx with `bundle: true` and
-//   `packages: "external"`, so every bare npm import (react, wouter, ...) is
-//   left alone and only LOCAL files (relative imports + the @ / @shared /
-//   @assets aliases) are followed and resolved. Output is discarded
-//   (`write: false`) — we only care about whether resolution succeeds.
-//
-//   Non-JS imports (CSS, images, fonts) are loaded as `empty` so esbuild does
-//   not try to parse/process their contents — we only care that the referenced
-//   files exist and the JSX/TSX module graph resolves.
-
-const ROOT = path.resolve(import.meta.dirname, "..");
+//   esbuild bundles client/src/main.tsx with the shared import-check options
+//   (see ./import-check-config.ts: bundle + packages:"external", so only LOCAL
+//   files are followed; the @ / @shared / @assets aliases; jsx:"automatic" to
+//   mirror @vitejs/plugin-react; resolvable extensions; and the empty CSS/asset
+//   loaders so Tailwind directives and image/font bytes are not parsed). Output
+//   is discarded — we only care that resolution succeeds. The only
+//   client-specific bits are the entry point and the browser platform.
 
 async function checkClientImports() {
   await esbuild({
+    ...COMMON_IMPORT_CHECK_OPTIONS,
     entryPoints: [path.join(ROOT, "client/src/main.tsx")],
     platform: "browser",
-    bundle: true,
-    format: "esm",
-    write: false,
     logLevel: "warning",
-    // Use the automatic JSX runtime (react/jsx-runtime) to mirror @vitejs/plugin-react.
-    jsx: "automatic",
-    // Leave all node_modules packages external — we only want to verify that the
-    // LOCAL client import graph resolves, not pull in third-party code.
-    packages: "external",
-    // Mirror the Vite/tsconfig path aliases so @/*, @shared/* and @assets/*
-    // resolve the same way they do in the real build.
-    alias: {
-      "@": path.join(ROOT, "client/src"),
-      "@shared": path.join(ROOT, "shared"),
-      "@assets": path.join(ROOT, "attached_assets"),
-    },
-    // The TS/TSX files in this project import each other with explicit
-    // extensions in some places (allowImportingTsExtensions), so make sure
-    // esbuild resolves the full set.
-    resolveExtensions: [".tsx", ".ts", ".jsx", ".js", ".json", ".css"],
-    // We only verify resolution, not asset processing: treat CSS and binary
-    // assets as empty so esbuild doesn't parse Tailwind directives or try to
-    // load image/font bytes (which is irrelevant to "does this file exist?").
-    loader: {
-      ".css": "empty",
-      ".png": "empty",
-      ".jpg": "empty",
-      ".jpeg": "empty",
-      ".gif": "empty",
-      ".svg": "empty",
-      ".webp": "empty",
-      ".ico": "empty",
-      ".woff": "empty",
-      ".woff2": "empty",
-      ".ttf": "empty",
-      ".eot": "empty",
-    },
   });
 }
 

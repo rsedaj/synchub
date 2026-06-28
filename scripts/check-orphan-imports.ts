@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import path from "path";
 import fs from "fs";
+import { COMMON_IMPORT_CHECK_OPTIONS, ROOT } from "./import-check-config.ts";
 
 // Fast, scoped import-resolution smoke check for ORPHANED TS/TSX files.
 //
@@ -28,40 +29,12 @@ import fs from "fs";
 //      are ALREADY covered by the other two checks.
 //   2. It walks the repo for every local .ts/.tsx file and subtracts the
 //      already-reachable set (plus *.d.ts) — what remains are the "orphans".
-//   3. It esbuild-bundles every orphan as an entry point with
-//      `packages: "external"`, so every bare npm import (express, react, ...)
-//      is left alone and only LOCAL files (relative imports + the @ / @shared /
-//      @assets aliases) are followed and resolved. Output is discarded
-//      (`write: false`) — we only care about whether resolution succeeds.
-//
-//   Non-JS imports (CSS, images, fonts) are loaded as `empty` so esbuild does
-//   not try to parse/process their contents — we only care that the referenced
-//   files exist and the module graph resolves.
-
-const ROOT = path.resolve(import.meta.dirname, "..");
-
-const ALIAS = {
-  "@": path.join(ROOT, "client/src"),
-  "@shared": path.join(ROOT, "shared"),
-  "@assets": path.join(ROOT, "attached_assets"),
-};
-
-const RESOLVE_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".json", ".css"];
-
-const EMPTY_ASSET_LOADERS = {
-  ".css": "empty",
-  ".png": "empty",
-  ".jpg": "empty",
-  ".jpeg": "empty",
-  ".gif": "empty",
-  ".svg": "empty",
-  ".webp": "empty",
-  ".ico": "empty",
-  ".woff": "empty",
-  ".woff2": "empty",
-  ".ttf": "empty",
-  ".eot": "empty",
-} as const;
+//   3. It esbuild-bundles every orphan as an entry point. Both esbuild calls
+//      use the shared import-check options (see ./import-check-config.ts:
+//      bundle + packages:"external", the @ / @shared / @assets aliases,
+//      resolvable extensions, and the empty CSS/asset loaders), so this check
+//      resolves imports identically to the server and client checks. Output is
+//      discarded — we only care that resolution succeeds.
 
 // Directories we never want to walk into when collecting candidate files.
 const IGNORED_DIRS = new Set([
@@ -81,6 +54,13 @@ const EXISTING_ENTRIES = [
   path.join(ROOT, "server/index.ts"),
   path.join(ROOT, "client/src/main.tsx"),
 ];
+
+// esbuild requires an outdir when there are multiple entry points, even though
+// `write: false` means nothing is ever actually written to disk.
+const ORPHAN_CHECK_OUTDIR = path.join(
+  ROOT,
+  "node_modules/.cache/orphan-import-check",
+);
 
 // Recursively collect every local .ts/.tsx file under ROOT, skipping ignored
 // directories, dot-directories, and TypeScript declaration files (*.d.ts).
@@ -104,21 +84,12 @@ function collectSourceFiles(dir: string, out: string[] = []): string[] {
 // absolute paths of every local file they already cover.
 async function getReachableFiles(): Promise<Set<string>> {
   const result = await esbuild({
+    ...COMMON_IMPORT_CHECK_OPTIONS,
     entryPoints: EXISTING_ENTRIES,
-    // esbuild requires an outdir with multiple entry points; `write: false`
-    // means nothing is actually written.
-    outdir: path.join(ROOT, "node_modules/.cache/orphan-import-check"),
+    outdir: ORPHAN_CHECK_OUTDIR,
     platform: "node",
-    bundle: true,
-    format: "esm",
-    write: false,
     metafile: true,
     logLevel: "silent",
-    packages: "external",
-    jsx: "automatic",
-    alias: ALIAS,
-    resolveExtensions: RESOLVE_EXTENSIONS,
-    loader: { ...EMPTY_ASSET_LOADERS },
   });
   const reachable = new Set<string>();
   for (const input of Object.keys(result.metafile.inputs)) {
@@ -141,20 +112,11 @@ async function checkOrphanImports() {
   }
 
   await esbuild({
+    ...COMMON_IMPORT_CHECK_OPTIONS,
     entryPoints: orphans,
-    // esbuild requires an outdir when there are multiple entry points, even
-    // though `write: false` means nothing is ever written to disk.
-    outdir: path.join(ROOT, "node_modules/.cache/orphan-import-check"),
+    outdir: ORPHAN_CHECK_OUTDIR,
     platform: "node",
-    bundle: true,
-    format: "esm",
-    write: false,
     logLevel: "warning",
-    packages: "external",
-    jsx: "automatic",
-    alias: ALIAS,
-    resolveExtensions: RESOLVE_EXTENSIONS,
-    loader: { ...EMPTY_ASSET_LOADERS },
   });
 
   console.log(

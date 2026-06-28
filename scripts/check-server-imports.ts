@@ -1,5 +1,6 @@
 import { build as esbuild } from "esbuild";
 import path from "path";
+import { COMMON_IMPORT_CHECK_OPTIONS, ROOT } from "./import-check-config.ts";
 
 // Fast, scoped import-resolution smoke check for the server bundle.
 //
@@ -19,34 +20,18 @@ import path from "path";
 //   it stays green unless a referenced local module is actually missing.
 //
 // How it works:
-//   esbuild bundles server/index.ts with `bundle: true` and `packages: "external"`,
-//   so every bare npm import (express, drizzle-orm, ...) is left alone and only
-//   LOCAL files (relative imports + the @shared / @ aliases) are followed and
-//   resolved. Output is discarded (`write: false`) — we only care about whether
-//   resolution succeeds.
-
-const ROOT = path.resolve(import.meta.dirname, "..");
+//   esbuild bundles server/index.ts with the shared import-check options (see
+//   ./import-check-config.ts: bundle + packages:"external", so only LOCAL files
+//   are followed; the @ / @shared / @assets aliases; resolvable extensions; and
+//   the empty asset loaders). Output is discarded — we only care that resolution
+//   succeeds. The only server-specific bits are the entry point and platform.
 
 async function checkServerImports() {
   await esbuild({
+    ...COMMON_IMPORT_CHECK_OPTIONS,
     entryPoints: [path.join(ROOT, "server/index.ts")],
     platform: "node",
-    bundle: true,
-    format: "esm",
-    write: false,
     logLevel: "warning",
-    // Leave all node_modules packages external — we only want to verify that the
-    // LOCAL server import graph resolves, not pull in third-party code.
-    packages: "external",
-    // Mirror the tsconfig path aliases so @shared/* and @/* resolve the same way
-    // they do at runtime via tsx.
-    alias: {
-      "@shared": path.join(ROOT, "shared"),
-      "@": path.join(ROOT, "client/src"),
-    },
-    // The TS files in this project import each other with .ts extensions
-    // (allowImportingTsExtensions), so make sure esbuild resolves those.
-    resolveExtensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
   });
 }
 
