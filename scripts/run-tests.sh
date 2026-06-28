@@ -140,6 +140,15 @@ print_summary() {
 
 echo "${BOLD}SyncHub test runner${RESET} — $(date '+%Y-%m-%d %H:%M:%S')"
 
+# --- 0. Server import-graph smoke check ------------------------------------
+# Fast, offline resolution of the whole local server import graph from
+# server/index.ts. Catches a missing/renamed server module (e.g. a new file
+# imported by routes.ts but never committed) immediately with a clear "Could
+# not resolve" error, instead of only at runtime via a 120s health-check
+# timeout. It does NOT type-check (esbuild only resolves/parses), so it stays
+# green despite the project's pre-existing unrelated tsc errors.
+run_check "server import graph resolves" npx tsx scripts/check-server-imports.ts
+
 # --- 1. Backend tests ------------------------------------------------------
 # Discover every *.test.ts under tests/server (recursively), sorted for a
 # stable, predictable run order.

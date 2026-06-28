@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
 
+      - name: Check server import graph resolves
+        run: npx tsx scripts/check-server-imports.ts
+
       - name: Initialize database schema
         run: npx drizzle-kit push --force
 

@@ -69,6 +69,16 @@ remembering individual test files:
 - `bash scripts/run-tests.sh --no-api` — skip the live-server API phase (for
   environments with no database/server).
 
+`scripts/run-tests.sh` also runs a fast, offline **server import-graph smoke
+check** (`scripts/check-server-imports.ts`) before the backend tests in every
+mode. It esbuild-bundles `server/index.ts` with all npm packages external and
+output discarded, so it resolves the whole LOCAL server import graph and fails
+immediately with a clear "Could not resolve" error when a server module is
+missing/renamed (e.g. a new file imported but never committed) — instead of only
+surfacing at runtime as a 120s health-check timeout. It does NOT type-check, so
+the project's pre-existing unrelated `tsc` errors don't affect it. CI runs the
+same check (`.github/workflows/deploy.yml` → `test:` job) before booting the app.
+
 The API phase is delegated to `scripts/run-api-tests.sh`, which reuses a server
 already serving `/api/health` or boots `npm run dev` itself, waits for readiness,
 runs the tests, and tears down only a server it started. The same API tests also
