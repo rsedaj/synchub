@@ -1,4 +1,5 @@
 import path from "path";
+import ts from "typescript";
 import type { BuildOptions, Loader } from "esbuild";
 
 // Shared esbuild configuration for the three import-graph smoke checks
@@ -9,24 +10,69 @@ import type { BuildOptions, Loader } from "esbuild";
 //   Vite/tsx build does — same path aliases, same resolvable extensions, same
 //   "treat assets as empty" loaders. When that config was copy-pasted into each
 //   script, adding a new alias or asset type to the real build but only updating
-//   one script silently made the checks diverge (missing or falsely flagging
-//   imports). Keeping the shared pieces here, imported by all three, keeps them
-//   honest: update once, every check stays in sync.
+//   one script silently made the checks diverge. Keeping the shared pieces here,
+//   imported by all three, keeps them honest.
+//
+//   The path aliases go one step further: rather than being hand-copied here,
+//   they are DERIVED from tsconfig.json `compilerOptions.paths` (the single
+//   source of truth, kept in sync with vite.config.ts `resolve.alias`). Adding a
+//   new alias to tsconfig now propagates to all three checks automatically — no
+//   manual edit to this file or the check scripts is needed.
 //
 // Each check still owns what is genuinely unique to it (entry points, platform,
 // metafile/outdir for the multi-entry orphan check, log level).
 
-// Project root. This file lives in scripts/, so the root is one level up — the
-// same value every check computed locally before.
+// Project root. This file lives in scripts/, so the root is one level up.
 export const ROOT = path.resolve(import.meta.dirname, "..");
 
-// Path aliases mirrored from vite.config.ts / tsconfig.json so @, @shared and
-// @assets resolve the same way they do in the real Vite/tsx build.
-export const IMPORT_CHECK_ALIAS: Record<string, string> = {
-  "@": path.join(ROOT, "client/src"),
-  "@shared": path.join(ROOT, "shared"),
-  "@assets": path.join(ROOT, "attached_assets"),
-};
+// Derive esbuild path aliases from tsconfig.json `compilerOptions.paths`.
+//
+// We use the TypeScript compiler API rather than JSON.parse so the read is
+// tolerant of JSONC (comments, trailing commas) and honours baseUrl / extends
+// exactly the way tsc and tsx do. A tsconfig mapping like
+//   "@/*": ["./client/src/*"]
+// becomes an esbuild alias
+//   "@" -> "<root>/client/src"
+// (the trailing "/*" wildcard is stripped from both sides).
+function loadAliasesFromTsconfig(): Record<string, string> {
+  const configPath = path.join(ROOT, "tsconfig.json");
+  const readResult = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (readResult.error) {
+    throw new Error(
+      `import-check-config: could not read tsconfig.json: ${ts.flattenDiagnosticMessageText(
+        readResult.error.messageText,
+        "\n",
+      )}`,
+    );
+  }
+  const parsed = ts.parseJsonConfigFileContent(readResult.config, ts.sys, ROOT);
+  const paths = parsed.options.paths ?? {};
+  const baseUrl = parsed.options.baseUrl ?? ROOT;
+
+  const alias: Record<string, string> = {};
+  for (const [key, targets] of Object.entries(paths)) {
+    if (!targets || targets.length === 0) continue;
+    const aliasKey = key.replace(/\/\*$/, "");
+    const target = targets[0].replace(/\/\*$/, "");
+    alias[aliasKey] = path.resolve(baseUrl, target);
+  }
+
+  // Fail loudly if the derivation produced nothing sensible, so a broken/renamed
+  // tsconfig surfaces here instead of silently dropping aliases and making the
+  // import checks falsely pass (or fail) later.
+  if (!alias["@"] || !alias["@shared"]) {
+    throw new Error(
+      `import-check-config: tsconfig.json compilerOptions.paths is missing the ` +
+        `expected @ / @shared aliases (derived: ${Object.keys(alias).join(", ") || "none"}). ` +
+        `Has tsconfig.json been moved or restructured?`,
+    );
+  }
+
+  return alias;
+}
+
+// Path aliases, derived from tsconfig.json (kept in sync with vite.config.ts).
+export const IMPORT_CHECK_ALIAS: Record<string, string> = loadAliasesFromTsconfig();
 
 // Extensions esbuild tries when resolving extensionless local imports. The
 // project imports TS/TSX files with and without explicit extensions
