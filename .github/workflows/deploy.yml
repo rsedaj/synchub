@@ -55,6 +55,9 @@ jobs:
       - name: Check client import graph resolves
         run: npx tsx scripts/check-client-imports.ts
 
+      - name: Check orphan import graph resolves
+        run: npx tsx scripts/check-orphan-imports.ts
+
       - name: Initialize database schema
         run: npx drizzle-kit push --force
 

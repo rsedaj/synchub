@@ -159,6 +159,18 @@ run_check "server import graph resolves" npx tsx scripts/check-server-imports.ts
 # project's pre-existing unrelated tsc errors.
 run_check "client import graph resolves" npx tsx scripts/check-client-imports.ts
 
+# --- 0c. Orphan import-graph smoke check -----------------------------------
+# Covers the files the two checks above do NOT reach: the test files under
+# tests/server/** and tests/api/**, standalone config/scripts (vite.config.ts,
+# drizzle.config.ts, scripts/*.ts, ...) and any unused-but-committed component.
+# It resolves each of those non-entry files' local import graph and fails
+# immediately with a clear "Could not resolve" error when one references a
+# missing/renamed module — instead of only when that specific test executes (or
+# never, for an unused component). Like the checks above it does NOT type-check
+# or run the tests (esbuild only resolves/parses), so it stays green despite the
+# project's pre-existing unrelated tsc errors.
+run_check "orphan import graph resolves" npx tsx scripts/check-orphan-imports.ts
+
 # --- 1. Backend tests ------------------------------------------------------
 # Discover every *.test.ts under tests/server (recursively), sorted for a
 # stable, predictable run order.
