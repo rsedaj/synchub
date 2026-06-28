@@ -29,6 +29,29 @@ These rules must be respected with every change, without exception:
 - Changing only the Drizzle schema in `shared/schema.ts` without a corresponding migration is NOT sufficient — the running database will not reflect the change.
 - Migrations must be idempotent (safe to run multiple times on a database that already has the change applied).
 
+## GitHub Push & PAT Renewal
+
+Pushes to `origin` (github.com/rsedaj/synchub) — especially any change that
+touches `.github/workflows/` — require a classic Personal Access Token with the
+`repo` **and** `workflow` scopes, stored as the `GITHUB_PAT` secret. The Replit
+GitHub OAuth integration token lacks the `workflow` scope, so without
+`GITHUB_PAT` those pushes fail silently.
+
+`scripts/post-merge.sh` configures the `origin` remote to use `GITHUB_PAT` and
+validates the token against the GitHub API after every merge:
+- Missing `GITHUB_PAT` → prints a `WARNING` that workflow pushes will fail.
+- Expired/revoked token (GitHub API `401`) → prints a `WARNING` to renew it.
+- Valid token (`200`) → prints `GITHUB_PAT validated OK`.
+
+### Renewing an expired GITHUB_PAT
+1. Go to GitHub → Settings → Developer settings → Personal access tokens →
+   Tokens (classic) → Generate new token (classic).
+2. Select the `repo` and `workflow` scopes. Set an expiry you can track.
+3. Copy the new token and update the `GITHUB_PAT` secret in this Repl
+   (Secrets pane / environment), replacing the old value.
+4. Trigger any merge (or re-run `bash scripts/post-merge.sh`) and confirm the
+   log shows `post-merge: GITHUB_PAT validated OK`.
+
 ## Automated Checks
 
 There is ONE canonical command for the automated test gate — use it instead of
