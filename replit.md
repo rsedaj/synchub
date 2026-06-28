@@ -41,7 +41,12 @@ GitHub OAuth integration token lacks the `workflow` scope, so without
 validates the token against the GitHub API after every merge:
 - Missing `GITHUB_PAT` → prints a `WARNING` that workflow pushes will fail.
 - Expired/revoked token (GitHub API `401`) → prints a `WARNING` to renew it.
-- Valid token (`200`) → prints `GITHUB_PAT validated OK`.
+- Valid token but missing the `repo` or `workflow` scope → prints a `WARNING`
+  naming the missing scope(s); a valid-but-under-scoped token would otherwise
+  push everything EXCEPT `.github/workflows/` and fail silently there.
+- Valid classic token with both scopes → prints `GITHUB_PAT validated OK`.
+- Valid token whose scopes can't be read (no `x-oauth-scopes` header, e.g. a
+  fine-grained token) → prints a `NOTE` to verify it can push workflows.
 
 ### Renewing an expired GITHUB_PAT
 1. Go to GitHub → Settings → Developer settings → Personal access tokens →
