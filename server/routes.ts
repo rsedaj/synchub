@@ -17,6 +17,7 @@ import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-va
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema } from "@shared/schema";
+import { APP_VERSION } from "@shared/version";
 import { z } from "zod";
 
 // Auto-retry schedule: configId → { fireAt, failedRunId }
@@ -156,7 +157,7 @@ export async function registerRoutes(
   app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
-      version: process.env.npm_package_version || "1.52.0",
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
     });
