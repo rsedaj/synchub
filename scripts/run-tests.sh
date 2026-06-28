@@ -149,6 +149,16 @@ echo "${BOLD}SyncHub test runner${RESET} — $(date '+%Y-%m-%d %H:%M:%S')"
 # green despite the project's pre-existing unrelated tsc errors.
 run_check "server import graph resolves" npx tsx scripts/check-server-imports.ts
 
+# --- 0b. Client import-graph smoke check -----------------------------------
+# Frontend twin of the server import check above. Fast, offline resolution of
+# the whole local client import graph from client/src/main.tsx. Catches a React
+# component imported by the client but never committed (or renamed) immediately
+# with a clear "Could not resolve" error, instead of only at the end of the slow
+# Vite production build in the Docker image stage. It does NOT type-check or run
+# the full build (esbuild only resolves/parses), so it stays green despite the
+# project's pre-existing unrelated tsc errors.
+run_check "client import graph resolves" npx tsx scripts/check-client-imports.ts
+
 # --- 1. Backend tests ------------------------------------------------------
 # Discover every *.test.ts under tests/server (recursively), sorted for a
 # stable, predictable run order.
