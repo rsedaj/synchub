@@ -1,6 +1,11 @@
 import { build as esbuild } from "esbuild";
 import path from "path";
-import { COMMON_IMPORT_CHECK_OPTIONS, ROOT } from "./import-check-config.ts";
+import {
+  COMMON_IMPORT_CHECK_OPTIONS,
+  IMPORT_CHECK_ALIAS,
+  ROOT,
+} from "./import-check-config.ts";
+import { localImportResolutionPlugin } from "./import-check-plugin.ts";
 
 // Fast, scoped import-resolution smoke check for the server bundle.
 //
@@ -32,6 +37,13 @@ async function checkServerImports() {
     entryPoints: [path.join(ROOT, "server/index.ts")],
     platform: "node",
     logLevel: "warning",
+    // Also resolve local imports whose binding is unused (which esbuild would
+    // otherwise elide), so a missing/renamed module is still caught.
+    plugins: [
+      localImportResolutionPlugin({
+        aliasKeys: Object.keys(IMPORT_CHECK_ALIAS),
+      }),
+    ],
   });
 }
 

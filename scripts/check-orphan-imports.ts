@@ -1,7 +1,12 @@
 import { build as esbuild } from "esbuild";
 import path from "path";
 import fs from "fs";
-import { COMMON_IMPORT_CHECK_OPTIONS, ROOT } from "./import-check-config.ts";
+import {
+  COMMON_IMPORT_CHECK_OPTIONS,
+  IMPORT_CHECK_ALIAS,
+  ROOT,
+} from "./import-check-config.ts";
+import { localImportResolutionPlugin } from "./import-check-plugin.ts";
 
 // Fast, scoped import-resolution smoke check for ORPHANED TS/TSX files.
 //
@@ -117,6 +122,13 @@ async function checkOrphanImports() {
     outdir: ORPHAN_CHECK_OUTDIR,
     platform: "node",
     logLevel: "warning",
+    // Also resolve local imports whose binding is unused (which esbuild would
+    // otherwise elide), so a missing/renamed module is still caught.
+    plugins: [
+      localImportResolutionPlugin({
+        aliasKeys: Object.keys(IMPORT_CHECK_ALIAS),
+      }),
+    ],
   });
 
   console.log(
