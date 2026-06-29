@@ -474,6 +474,132 @@ function SparklineChart({ data, label }: { data: Array<{b: number; s: number}>; 
   );
 }
 
+function RunEventsPanel({ runId, configName, runCreatedAt, t }: { runId: string; configName?: string; runCreatedAt?: string; t: (key: string) => string }) {
+  const [show, setShow] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'info' | 'warn' | 'error'>('all');
+  const { data, isLoading } = useQuery<Array<{
+    id: string; seq: number; level: string; phase: string | null;
+    message: string; details: unknown; createdAt: string;
+  }>>({
+    queryKey: ['/api/sync-runs', runId, 'events'],
+    queryFn: async () => {
+      const resp = await fetch(`/api/sync-runs/${runId}/events?limit=5000`, { credentials: 'include' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    },
+    enabled: show,
+    staleTime: 60 * 1000,
+  });
+
+  if (!show) {
+    return (
+      <button onClick={() => setShow(true)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2" data-testid={`button-events-load-${runId}`}>
+        {t('syncDash.eventsLoad')}
+      </button>
+    );
+  }
+
+  if (isLoading) {
+    return <span className="text-xs text-muted-foreground animate-pulse">{t('syncDash.eventsLoading')}</span>;
+  }
+
+  const all = data ?? [];
+  const infoCount = all.filter(e => e.level === 'info').length;
+  const warnCount = all.filter(e => e.level === 'warn').length;
+  const errorCount = all.filter(e => e.level === 'error').length;
+  const events = filter === 'all' ? all : all.filter(e => e.level === filter);
+
+  // Grayscale (black & white) level styling — no color, per design preference.
+  const levelClass = (lvl: string) =>
+    lvl === 'error' ? 'border-foreground bg-foreground text-background'
+    : lvl === 'warn' ? 'border-foreground/60 text-foreground'
+    : 'border-muted-foreground/40 text-muted-foreground';
+
+  const filterBtn = (val: typeof filter, label: string) => (
+    <button
+      onClick={() => setFilter(val)}
+      data-testid={`button-events-filter-${val}-${runId}`}
+      className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${filter === val ? 'border-foreground/40 bg-muted text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+    >{label}</button>
+  );
+
+  const configSlug = configName
+    ? configName.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40)
+    : 'unknown';
+  const runLabel = runCreatedAt
+    ? new Date(runCreatedAt).toISOString().slice(0, 10)
+    : 'export';
+  const shortRunId = runId.slice(0, 8);
+  const exportFilename = `sync_log_${configSlug}_${runLabel}_${shortRunId}.txt`;
+
+  return (
+    <div data-testid={`events-panel-${runId}`}>
+      {/* Summary counts + filter + download */}
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+          <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap">{t('syncDash.eventsTitle')}:</span>
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{t('syncDash.eventsTotal')} {all.length}</span>
+          {warnCount > 0 && <span className="text-[11px] text-muted-foreground whitespace-nowrap" data-testid={`text-events-warn-count-${runId}`}>⚠ {warnCount}</span>}
+          {errorCount > 0 && <span className="text-[11px] text-foreground font-semibold whitespace-nowrap" data-testid={`text-events-error-count-${runId}`}>✗ {errorCount}</span>}
+        </div>
+        <div className="flex flex-wrap items-center gap-1 min-w-0 justify-end">
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {filterBtn('all', t('syncDash.eventsFilterAll'))}
+            {infoCount > 0 && filterBtn('info', t('syncDash.eventsFilterInfo'))}
+            {warnCount > 0 && filterBtn('warn', t('syncDash.eventsFilterWarn'))}
+            {errorCount > 0 && filterBtn('error', t('syncDash.eventsFilterError'))}
+          </div>
+          <div className="flex items-center gap-1 min-w-0">
+            {all.length > 0 && (
+              <div className="flex flex-col items-end gap-0 min-w-0 max-w-[200px]">
+                <a
+                  href={`/api/sync-runs/${encodeURIComponent(runId)}/export-log`}
+                  download
+                  title={exportFilename}
+                  data-testid={`button-events-download-${runId}`}
+                  className="px-1.5 py-0.5 rounded text-[10px] border border-transparent text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                >
+                  {t('syncDash.eventsDownload')}
+                </a>
+                <span className="text-[10px] text-muted-foreground font-mono leading-tight px-1.5 w-full truncate text-right" title={exportFilename}>{exportFilename}</span>
+              </div>
+            )}
+            <button onClick={() => setShow(false)} className="text-muted-foreground/60 hover:text-muted-foreground text-[10px] ml-1 flex-shrink-0">▲</button>
+          </div>
+        </div>
+      </div>
+      {events.length === 0 ? (
+        <p className="text-muted-foreground text-[10px]">{t('syncDash.eventsNone')}</p>
+      ) : (
+        <div className="overflow-auto max-h-72 border border-muted/30 rounded">
+          <table className="w-full text-[10px]">
+            <thead className="sticky top-0 bg-muted/50">
+              <tr className="text-muted-foreground">
+                <th className="text-left px-2 py-1 font-medium whitespace-nowrap">{t('syncDash.eventsColTime')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.eventsColLevel')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.eventsColPhase')}</th>
+                <th className="text-left px-2 py-1 font-medium">{t('syncDash.eventsColMessage')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((e) => (
+                <tr key={e.id} className="border-t border-muted/20 hover:bg-muted/20" data-testid={`events-row-${e.id}`}>
+                  <td className="px-2 py-0.5 text-muted-foreground font-mono whitespace-nowrap align-top">{e.createdAt ? new Date(e.createdAt).toISOString().replace('T', ' ').slice(11, 19) : '—'}</td>
+                  <td className="px-2 py-0.5 align-top">
+                    <span className={`inline-block px-1 rounded border text-[9px] font-semibold ${levelClass(e.level)}`}>{(e.level ?? 'info').toUpperCase()}</span>
+                  </td>
+                  <td className="px-2 py-0.5 text-muted-foreground font-mono align-top whitespace-nowrap">{e.phase ?? '—'}</td>
+                  <td className="px-2 py-0.5 text-foreground align-top whitespace-pre-wrap break-words">{e.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HkodPanel({ runId, configName, runCreatedAt, t }: { runId: string; configName?: string; runCreatedAt?: string; t: (key: string) => string }) {
   const [show, setShow] = useState(false);
   const [filter, setFilter] = useState<'all' | 'assigned' | 'preserved' | 'skipped'>('all');
@@ -3237,6 +3363,11 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   </div>
                                 </div>
                               )}
+
+                              {/* Detailed diagnostic log (always-accessible event stream) */}
+                              <div>
+                                <RunEventsPanel runId={run.id} configName={config?.name} runCreatedAt={run.startedAt?.toString()} t={t} />
+                              </div>
 
                               {/* H kód decisions log */}
                               <div>

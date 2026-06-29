@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, jsonb, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, jsonb, pgEnum, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -115,6 +115,25 @@ export const syncRuns = pgTable("sync_runs", {
   completedAt: timestamp("completed_at"),
   triggeredBy: varchar("triggered_by").references(() => users.id),
 });
+
+// Per-run, append-only diagnostic event log. Captures the chronological narrative
+// of every sync run (phase transitions, counts, batch summaries, retries, early
+// stops, backup/fetch results, cancellation/resume, errors) so problems can be
+// diagnosed from the UI at any time. `seq` is a per-run monotonic counter that
+// gives deterministic ordering independent of createdAt collisions under rapid
+// async writes. Per-record outcomes stay in sync_baselines — never log per item.
+export const syncRunEvents = pgTable("sync_run_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncRunId: varchar("sync_run_id").notNull().references(() => syncRuns.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+  level: text("level").$type<"info" | "warn" | "error">().notNull().default("info"),
+  phase: text("phase"),
+  message: text("message").notNull(),
+  details: jsonb("details").$type<Record<string, any> | null>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  runSeqIdx: index("idx_sync_run_events_run_seq").on(table.syncRunId, table.seq),
+}));
 
 export const syncBackups = pgTable("sync_backups", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -384,3 +403,17 @@ export type InsertSyncRun = z.infer<typeof insertSyncRunSchema>;
 export type SyncRun = typeof syncRuns.$inferSelect;
 export type InsertSyncBackup = z.infer<typeof insertSyncBackupSchema>;
 export type SyncBackup = typeof syncBackups.$inferSelect;
+
+export const insertSyncRunEventSchema = createInsertSchema(syncRunEvents, {
+  level: z.enum(["info", "warn", "error"]).optional(),
+  details: z.record(z.any()).nullable().optional(),
+}).pick({
+  syncRunId: true,
+  seq: true,
+  level: true,
+  phase: true,
+  message: true,
+  details: true,
+});
+export type InsertSyncRunEvent = z.infer<typeof insertSyncRunEventSchema>;
+export type SyncRunEvent = typeof syncRunEvents.$inferSelect;

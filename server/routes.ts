@@ -1026,6 +1026,56 @@ export async function registerRoutes(
     }
   });
 
+  // Detailed, chronological per-run diagnostic event log (always accessible).
+  app.get("/api/sync-runs/:id/events", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(String(req.params.id));
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      const levelRaw = typeof req.query.level === "string" ? req.query.level : undefined;
+      const level = levelRaw && ["info", "warn", "error"].includes(levelRaw) ? levelRaw : undefined;
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "2000"), 10) || 2000, 1), 5000);
+      const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10) || 0, 0);
+      const events = await storage.getSyncRunEvents(String(req.params.id), { level, limit, offset });
+      return res.json(events);
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to load run events" });
+    }
+  });
+
+  // Download the full run log as a plain-text file for offline diagnostics.
+  app.get("/api/sync-runs/:id/export-log", requireAuth, async (req, res) => {
+    try {
+      const run = await storage.getSyncRun(String(req.params.id));
+      if (!run) return res.status(404).json({ message: "Sync run not found" });
+      const events = await storage.getSyncRunEvents(String(req.params.id), { limit: 5000 });
+      const config = await storage.getSyncConfig(run.syncConfigId).catch(() => undefined);
+      const header = [
+        "SyncHub — detailný log synchronizácie",
+        `Run ID: ${run.id}`,
+        `Konfigurácia: ${config?.name ?? run.syncConfigId}`,
+        `Stav: ${run.status}`,
+        `Spustené: ${run.startedAt ? new Date(run.startedAt).toISOString() : "-"}`,
+        `Dokončené: ${run.completedAt ? new Date(run.completedAt).toISOString() : "-"}`,
+        `Spracované: ${run.recordsProcessed ?? 0}, Chyby: ${run.recordsFailed ?? 0}, Preskočené: ${run.recordsSkipped ?? 0}`,
+        `Počet záznamov logu: ${events.length}`,
+        "".padEnd(60, "="),
+        "",
+      ].join("\n");
+      const body = events.map((e) => {
+        const ts = e.createdAt ? new Date(e.createdAt).toISOString() : "";
+        const lvl = String(e.level ?? "info").toUpperCase().padEnd(5);
+        const ph = e.phase ? `[${e.phase}] ` : "";
+        return `${ts}  ${lvl}  ${ph}${e.message}`;
+      }).join("\n");
+      const startedAt = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 10) : "export";
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="sync-log-${startedAt}-${run.id.slice(0, 8)}.txt"`);
+      return res.send("\uFEFF" + header + body + "\n");
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to export log" });
+    }
+  });
+
   app.get("/api/sync-runs/:id/export-csv", requireAuth, async (req, res) => {
     try {
       const run = await storage.getSyncRun(String(req.params.id));

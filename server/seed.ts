@@ -450,6 +450,26 @@ export async function runMigrations() {
     log("Schema m012: sync_configs.match_normalization migration skipped", "seed");
   }
 
+  // Schema migration m013: per-run diagnostic event log (sync_run_events)
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS sync_run_events (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        sync_run_id varchar NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE,
+        seq integer NOT NULL,
+        level text NOT NULL DEFAULT 'info',
+        phase text,
+        message text NOT NULL,
+        details jsonb,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sync_run_events_run_seq ON sync_run_events(sync_run_id, seq)`);
+    log("Schema m013: sync_run_events table created", "seed");
+  } catch (_e) {
+    log("Schema m013: sync_run_events migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

@@ -1,13 +1,14 @@
 import { eq, desc, count, and, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncBackups, syncBaselines, onixBackups, hkodDecisions,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncRunEvents, syncBackups, syncBaselines, onixBackups, hkodDecisions,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
   type AuditLog, type InsertAuditLog,
   type SyncConfig, type InsertSyncConfig,
   type SyncRun, type InsertSyncRun,
+  type SyncRunEvent, type InsertSyncRunEvent,
   type SyncBackup, type InsertSyncBackup,
   type OnixBackup, type InsertOnixBackup,
 } from "@shared/schema";
@@ -54,6 +55,10 @@ export interface IStorage {
   getSyncRun(id: string): Promise<SyncRun | undefined>;
   createSyncRun(data: InsertSyncRun): Promise<SyncRun>;
   updateSyncRun(id: string, data: Partial<SyncRun>): Promise<SyncRun | undefined>;
+  createSyncRunEvent(event: InsertSyncRunEvent): Promise<SyncRunEvent>;
+  createSyncRunEvents(events: InsertSyncRunEvent[]): Promise<void>;
+  getMaxSyncRunEventSeq(runId: string): Promise<number>;
+  getSyncRunEvents(runId: string, opts?: { level?: string; limit?: number; offset?: number }): Promise<SyncRunEvent[]>;
 
   getAllSyncBackups(): Promise<SyncBackup[]>;
   getSyncBackup(id: string): Promise<SyncBackup | undefined>;
@@ -325,6 +330,39 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async createSyncRunEvent(event: InsertSyncRunEvent): Promise<SyncRunEvent> {
+    const [created] = await db.insert(syncRunEvents).values(event).returning();
+    return created;
+  }
+
+  async createSyncRunEvents(events: InsertSyncRunEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < events.length; i += CHUNK) {
+      await db.insert(syncRunEvents).values(events.slice(i, i + CHUNK));
+    }
+  }
+
+  async getMaxSyncRunEventSeq(runId: string): Promise<number> {
+    const [row] = await db
+      .select({ maxSeq: sql<number>`COALESCE(MAX(${syncRunEvents.seq}), -1)` })
+      .from(syncRunEvents)
+      .where(eq(syncRunEvents.syncRunId, runId));
+    return Number(row?.maxSeq ?? -1);
+  }
+
+  async getSyncRunEvents(runId: string, opts: { level?: string; limit?: number; offset?: number } = {}): Promise<SyncRunEvent[]> {
+    const limit = Math.min(Math.max(opts.limit ?? 2000, 1), 5000);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const conds = [eq(syncRunEvents.syncRunId, runId)];
+    if (opts.level) conds.push(eq(syncRunEvents.level, opts.level as any));
+    return db.select().from(syncRunEvents)
+      .where(and(...conds))
+      .orderBy(syncRunEvents.seq)
+      .limit(limit)
+      .offset(offset);
+  }
+
   async getAllSyncBackups(): Promise<SyncBackup[]> {
     return db.select().from(syncBackups).orderBy(desc(syncBackups.createdAt));
   }
@@ -511,6 +549,7 @@ export class DatabaseStorage implements IStorage {
     const [runsCount] = await db.select({ count: count() }).from(syncRuns);
     const [logsCount] = await db.select({ count: count() }).from(syncLogs);
     const [baselinesCount] = await db.select({ count: count() }).from(syncBaselines);
+    await db.delete(syncRunEvents);
     await db.delete(syncRuns);
     await db.delete(syncLogs);
     await db.delete(syncBaselines);

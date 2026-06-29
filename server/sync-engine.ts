@@ -5,7 +5,7 @@ import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
 import { pushToTarget, clearOnixIndexCache, deriveRecordKey } from "./target-push";
 import { computeEffectiveFullSync, restrictToDeferredSet } from "./deferred-rerun";
 import { createHash } from "crypto";
-import type { SyncConfig, SyncRun } from "@shared/schema";
+import type { SyncConfig, SyncRun, InsertSyncRunEvent } from "@shared/schema";
 import type { PushRecordResult, VATTransformEntry } from "./target-push";
 import { lookupCountry } from "../shared/countries";
 import type { CountryFormat } from "../shared/countries";
@@ -298,16 +298,59 @@ async function executeAsync(
 ) {
   const startTime = Date.now();
   const isResume = !!resumeFrom;
-  const log = (msg: string, _level?: string) => console.log(`[sync-engine] [${runId.slice(0, 8)}]${isResume ? " [RESUME]" : ""} ${msg}`);
+  let currentPhase: string = isResume ? "resume" : "init";
+  let eventSeq = 0;
+  const eventBuffer: InsertSyncRunEvent[] = [];
+  let flushChain: Promise<void> = Promise.resolve();
+  // Serialize all flushes so they never run concurrently and never lose ordering;
+  // awaiting flushRunEvents() at the end drains whatever is still buffered.
+  const flushRunEvents = (): Promise<void> => {
+    flushChain = flushChain.then(async () => {
+      if (eventBuffer.length === 0) return;
+      const batch = eventBuffer.splice(0, eventBuffer.length);
+      try {
+        await storage.createSyncRunEvents(batch);
+      } catch {
+        // Diagnostic logging must never break a sync run.
+      }
+    });
+    return flushChain;
+  };
+  // Single source of the run narrative: prints to the server console AND persists a
+  // durable, ordered event row so every run has a detailed log accessible anytime.
+  // Coarse-grained on purpose (phase/batch) — per-record outcomes live in
+  // sync_baselines. Buffered + flushed in batches so a 100k-record run never floods
+  // the connection pool.
+  const log = (msg: string, level: "info" | "warn" | "error" = "info") => {
+    const prefix = `[sync-engine] [${runId.slice(0, 8)}]${isResume ? " [RESUME]" : ""}`;
+    if (level === "error") console.error(`${prefix} ${msg}`);
+    else if (level === "warn") console.warn(`${prefix} ${msg}`);
+    else console.log(`${prefix} ${msg}`);
+    eventBuffer.push({ syncRunId: runId, seq: eventSeq++, level, phase: currentPhase, message: msg });
+    if (eventBuffer.length >= 25) void flushRunEvents();
+  };
   let backupStats: { uploadedRecordCount: number; totalTargetRecords: number; fileSize: number; fileName: string; truncated: boolean; totalFiles?: number } | null = null;
 
   try {
+    // On resume we append to the SAME run's event log, so continue the seq
+    // counter past the existing rows. Otherwise resumed events restart at 0,
+    // collide with the original run's seq values, and ORDER BY seq interleaves
+    // them nondeterministically — breaking the chronological narrative.
+    if (isResume) {
+      try {
+        eventSeq = (await storage.getMaxSyncRunEventSeq(runId)) + 1;
+      } catch {
+        // Best-effort: fall back to 0 rather than break the run.
+      }
+    }
+
     // Clear ONIX index cache at the very start of every run.
     // The cache has a 2-hour TTL but must NOT carry over between sync runs —
     // records created in run N would be missing from the stale index in run N+1,
     // causing them to look "new" and receive a second H kód → duplicate ONIX records.
     clearOnixIndexCache();
 
+    currentPhase = "preflight";
     log("=== PHASE 1/4: PREFLIGHT ===");
     await updatePhase(runId, "preflight");
 
@@ -374,12 +417,16 @@ async function executeAsync(
       }
     }
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
+    if (runState.cancelled) {
+      log("Synchronizácia zrušená používateľom (pred zálohou).", "warn");
+      return await markCancelled(runId, 0, 0, 0, 0, 0);
+    }
 
     const schedule = config.schedule as any;
     const doDriveBackup = schedule?.backupBeforeSync !== false;
 
     if (!isResume) {
+      currentPhase = "backup";
       log("=== PHASE 2/4: BACKUP ===");
       await updatePhase(runId, "backup");
 
@@ -550,8 +597,12 @@ async function executeAsync(
       log("Backup skipped (resume mode)");
     }
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, 0);
+    if (runState.cancelled) {
+      log("Synchronizácia zrušená používateľom (pred načítaním zdrojových dát).", "warn");
+      return await markCancelled(runId, 0, 0, 0, 0, 0);
+    }
 
+    currentPhase = "fetch";
     log("=== PHASE 3/4: FETCH SOURCE DATA ===");
     await updatePhase(runId, "fetch");
 
@@ -750,8 +801,12 @@ async function executeAsync(
       return;
     }
 
-    if (runState.cancelled) return await markCancelled(runId, 0, 0, 0, 0, totalRecords);
+    if (runState.cancelled) {
+      log("Synchronizácia zrušená používateľom (pred zápisom do cieľového systému).", "warn");
+      return await markCancelled(runId, 0, 0, 0, 0, totalRecords);
+    }
 
+    currentPhase = "sync";
     log("=== PHASE 4/4: SYNC TO TARGET ===");
     await updatePhase(runId, "sync");
 
@@ -836,6 +891,7 @@ async function executeAsync(
 
     for (let i = startOffset; i < totalRecords; i += BATCH_SIZE) {
       if (runState.cancelled) {
+        log(`Synchronizácia zrušená používateľom pri dávke ${currentBatch}/${totalBatches}.`, "warn");
         return await markCancelled(runId, totalCreated, totalUpdated, totalFailed, 0, totalRecords, allErrors, syncedRecords, currentBatch);
       }
 
@@ -1328,7 +1384,8 @@ async function executeAsync(
       },
     }, "completion");
 
-    log(`=== COMPLETE === vytvorené=${totalCreated} aktualizované=${totalUpdated} preskočené(nenájdené)=${totalSkippedByMatch} odložené(neúplný index)=${totalDeferredIncompleteIndex} chyby=${totalFailed} delta_bez_zmeny=${totalSkipped} trvanie=${duration}ms`);
+    currentPhase = "complete";
+    log(`=== COMPLETE === vytvorené=${totalCreated} aktualizované=${totalUpdated} preskočené(nenájdené)=${totalSkippedByMatch} odložené(neúplný index)=${totalDeferredIncompleteIndex} chyby=${totalFailed} delta_bez_zmeny=${totalSkipped} trvanie=${duration}ms`, totalFailed > 0 ? "warn" : "info");
 
     // Drop deferred records from the final baseline flush so their delta hash is not
     // advanced — this is what lets the next complete-index run re-attempt them.
@@ -1392,7 +1449,9 @@ async function executeAsync(
       });
     } catch {}
   } catch (err: any) {
+    currentPhase = "error";
     console.error(`[sync-engine] Run ${runId}: Unhandled error:`, err);
+    log(`FATÁLNA CHYBA: ${err?.message ?? String(err)}`, "error");
     try {
       await resilientDbUpdate(runId, {
         status: "error",
@@ -1423,6 +1482,11 @@ async function executeAsync(
       });
     } catch {}
   } finally {
+    try {
+      await flushRunEvents();
+    } catch {
+      // Diagnostic logging must never break a sync run.
+    }
     activeRuns.delete(runId);
   }
 }
