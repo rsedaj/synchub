@@ -1932,6 +1932,9 @@ export async function registerRoutes(
             }
           }
         }
+        if (results.errors.length > 0) {
+          return res.status(422).json({ message: results.errors.join("; "), results });
+        }
       }
 
       // 422 guard after modules — stop processing if any module entry failed
