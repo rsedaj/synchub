@@ -633,6 +633,173 @@ test("Drive restore with mixed module and config errors returns 422 and no parti
   }
 });
 
+test("Drive restore Phase 2 is atomic: a storage error mid-batch rolls back earlier writes", async () => {
+  // Strategy:
+  //  1. Create two temp modules (M1, M2) via SQL.
+  //  2. Create two sync configs (A and B) via API, both referencing M1/M2.
+  //  3. Build a backup with TWO syncConfig entries that both match existing
+  //     configs (UPDATE path in Phase 1 — Zod-only validation, no FK check):
+  //       - Config A (first): valid update, changes fieldMappings to
+  //         "tx_a_src" / "tx_a_tgt".  Phase 2 writes this first (succeeds).
+  //       - Config B (second): update that sets sourceModuleId to a
+  //         non-existent UUID "00000000-0000-0000-0000-000000000000".
+  //         Passes Zod (.string().min(1)), but triggers a FK constraint
+  //         violation in Phase 2 when Drizzle tries to commit.
+  //  4. POST backup → Phase 2 writes A then fails on B → transaction rolls
+  //     back → route returns 422 with a storage error in results.errors.
+  //  5. Assert HTTP 422.
+  //  6. Assert config A still has its ORIGINAL fieldMappings (not "tx_a_*"),
+  //     confirming the rollback covered config A's write.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot create/delete temp modules via SQL");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const srcCode = `__test_tx_src_${suffix}`;
+  const tgtCode = `__test_tx_tgt_${suffix}`;
+  const configAName = `__test_tx_config_a_${suffix}`;
+  const configBName = `__test_tx_config_b_${suffix}`;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let tempSrcModuleId = "";
+  let tempTgtModuleId = "";
+  let configAId = "";
+  let configBId = "";
+
+  try {
+    // 1. Create two temp modules via SQL
+    const srcResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [srcCode],
+    );
+    tempSrcModuleId = srcResult.rows[0].id;
+
+    const tgtResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [tgtCode],
+    );
+    tempTgtModuleId = tgtResult.rows[0].id;
+
+    // 2. Create config A via API — will be updated in the restore batch
+    const createARes = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configAName,
+        sourceModuleId: tempSrcModuleId,
+        targetModuleId: tempTgtModuleId,
+        fieldMappings: [{ sourceField: "orig_a_src", targetField: "orig_a_tgt" }],
+      }),
+    });
+    const createAText = await createARes.text();
+    assert.equal(createARes.status, 201, `Config A creation failed: ${createARes.status} — ${createAText}`);
+    ({ id: configAId } = JSON.parse(createAText) as { id: string });
+    createdConfigIds.push(configAId);
+
+    // 2b. Create config B via API — also updated in the restore batch (will fail)
+    const createBRes = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configBName,
+        sourceModuleId: tempSrcModuleId,
+        targetModuleId: tempTgtModuleId,
+        fieldMappings: [{ sourceField: "orig_b_src", targetField: "orig_b_tgt" }],
+      }),
+    });
+    const createBText = await createBRes.text();
+    assert.equal(createBRes.status, 201, `Config B creation failed: ${createBRes.status} — ${createBText}`);
+    ({ id: configBId } = JSON.parse(createBText) as { id: string });
+    createdConfigIds.push(configBId);
+
+    // 3. Build backup:
+    //    - Config A: valid update (new fieldMappings, same real modules) — writes first in Phase 2
+    //    - Config B: update with a non-existent sourceModuleId (FK violation in Phase 2)
+    const backup = {
+      version: "1.0",
+      type: "config",
+      appVersion: "test",
+      syncConfigs: [
+        {
+          id: configAId,
+          name: configAName,
+          sourceModuleId: tempSrcModuleId,
+          targetModuleId: tempTgtModuleId,
+          fieldMappings: [{ sourceField: "tx_a_src", targetField: "tx_a_tgt" }],
+          isEnabled: true,
+          autoRetry: false,
+          retryDelayMin: 3,
+          schedule: null,
+        },
+        {
+          id: configBId,
+          name: configBName,
+          // Non-existent module ID: passes Zod (.string().min(1)) but triggers
+          // a FK constraint violation in the DB during Phase 2.
+          sourceModuleId: "00000000-0000-0000-0000-000000000000",
+          targetModuleId: tempTgtModuleId,
+          fieldMappings: [{ sourceField: "tx_b_src", targetField: "tx_b_tgt" }],
+          isEnabled: true,
+          autoRetry: false,
+          retryDelayMin: 3,
+          schedule: null,
+        },
+      ],
+    };
+
+    // 4. POST to the Drive restore route (dev/test bypass)
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+      method: "POST",
+      body: JSON.stringify({ backup }),
+    });
+    const restoreText = await restoreRes.text();
+
+    // 5. Route must return 422 (storage error bubbled up via results.errors)
+    assert.equal(
+      restoreRes.status,
+      422,
+      `Expected 422 from Drive restore route when Phase 2 storage error occurs; got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      results: { errors: string[] };
+    };
+    assert.ok(
+      restoreBody.results.errors.length > 0,
+      `results.errors must be non-empty after Phase 2 storage error; got: ${JSON.stringify(restoreBody.results)}`,
+    );
+
+    // 6. Config A must still have its ORIGINAL fieldMappings — the transaction
+    //    rolled back config A's write even though it executed first in Phase 2.
+    const listRes = await api("/api/sync-configs");
+    assert.equal(listRes.status, 200, "GET /api/sync-configs must return 200");
+    const configs = (await listRes.json()) as Array<{
+      id: string;
+      fieldMappings: Array<{ sourceField: string; targetField: string }>;
+    }>;
+    const liveConfigA = configs.find(c => c.id === configAId);
+    assert.ok(liveConfigA, `Config A (${configAId}) must still exist after failed restore`);
+    assert.deepEqual(
+      liveConfigA!.fieldMappings,
+      [{ sourceField: "orig_a_src", targetField: "orig_a_tgt" }],
+      `Config A fieldMappings must be UNCHANGED (transaction rolled back config A's write); ` +
+        `got: ${JSON.stringify(liveConfigA!.fieldMappings)}`,
+    );
+  } finally {
+    if (tempSrcModuleId) {
+      await pool.query(`DELETE FROM sync_configs WHERE source_module_id = $1 OR target_module_id = $1`, [tempSrcModuleId]).catch(() => {});
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempSrcModuleId]).catch(() => {});
+    }
+    if (tempTgtModuleId) {
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempTgtModuleId]).catch(() => {});
+    }
+    await pool.end();
+  }
+});
+
 test("Drive restore audit log records details.restored.skipped when a config is skipped", async () => {
   // Same setup as the first test, but verifies the audit log entry written by
   // the real Drive restore route (entity="config_restore_from_drive") includes

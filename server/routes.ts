@@ -13,6 +13,7 @@ import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackup
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
 import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup, type RestoreSyncConfigsResult } from "./config-backup";
+import { db } from "./db";
 import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-validation";
 import passport from "passport";
 import bcrypt from "bcryptjs";
@@ -1812,6 +1813,7 @@ export async function registerRoutes(
           updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
         },
         results,
+        db,
       );
 
       if (results.errors.length > 0) {
@@ -1954,6 +1956,7 @@ export async function registerRoutes(
             updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
           },
           results,
+          db,
         );
         if (results.errors.length > 0) {
           return res.status(422).json({ message: results.errors.join("; "), results });

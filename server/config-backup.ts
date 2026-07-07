@@ -1,5 +1,7 @@
 import type { ZodError } from "zod";
 import type { SyncConfig, ApiModule } from "@shared/schema";
+import { syncConfigs } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import {
   createSyncConfigSchema,
   updateSyncConfigSchema,
@@ -75,6 +77,18 @@ type PendingOp =
   | { type: "skip" };
 
 /**
+ * A minimal duck-typed interface for the Drizzle db (or transaction) object so
+ * that config-backup.ts is not tightly coupled to the specific driver type.
+ * When `txDb` is provided to `restoreSyncConfigsFromBackup`, Phase 2 executes
+ * all writes inside a single DB transaction — any storage error mid-batch rolls
+ * back earlier writes in the same batch, preserving atomicity.
+ */
+export interface TransactionRunner {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transaction<T>(fn: (tx: any) => Promise<T>): Promise<T>;
+}
+
+/**
  * Restore the sync-config section of a config backup.
  *
  * Covers both branches:
@@ -87,6 +101,14 @@ type PendingOp =
  * partial restores where an early-batch config is written before a later config
  * fails — a 422 response now truly means "nothing was changed".
  *
+ * When `txDb` is provided (production routes), Phase 2 wraps all writes in a
+ * DB transaction: a storage error on write N automatically rolls back writes
+ * 1..N-1, maintaining atomicity even against unexpected DB-level failures.
+ *
+ * When `txDb` is omitted (unit tests using mock deps), Phase 2 falls back to
+ * calling `deps.createSyncConfig` / `deps.updateSyncConfig` directly without a
+ * transaction wrapper — this keeps the offline test suite DB-agnostic.
+ *
  * Used by POST /api/config-snapshots/:id/restore and
  * POST /api/backups/config-restore-from-drive/:fileId. Mutates the passed-in
  * `results` accumulator so the route can keep a single shared result.
@@ -96,6 +118,7 @@ export async function restoreSyncConfigsFromBackup(
   moduleIdMap: Record<string, string>,
   deps: RestoreSyncConfigsDeps,
   results: RestoreSyncConfigsResult,
+  txDb?: TransactionRunner,
 ): Promise<void> {
   const existingConfigs = await deps.getAllSyncConfigs();
   const currentModules = await deps.getAllModules();
@@ -168,14 +191,41 @@ export async function restoreSyncConfigsFromBackup(
     return;
   }
 
-  for (const op of pending) {
-    if (op.type === "update") {
-      await deps.updateSyncConfig(op.id, op.data);
-      results.syncConfigs++;
-    } else if (op.type === "create") {
-      await deps.createSyncConfig(op.data);
-      results.syncConfigs++;
+  if (txDb) {
+    // Transaction path (production): all writes committed atomically.
+    // A storage error on write N (e.g. FK constraint violation) causes Drizzle
+    // to roll back the entire transaction, leaving configs 1..N-1 unchanged.
+    try {
+      await txDb.transaction(async (tx: any) => {
+        for (const op of pending) {
+          if (op.type === "update") {
+            await tx
+              .update(syncConfigs)
+              .set({ ...op.data, updatedAt: new Date() })
+              .where(eq(syncConfigs.id, op.id));
+            results.syncConfigs++;
+          } else if (op.type === "create") {
+            await tx.insert(syncConfigs).values(op.data);
+            results.syncConfigs++;
+          }
+          // "skip" ops are already recorded in results.skipped during Phase 1
+        }
+      });
+    } catch (e: any) {
+      results.errors.push(`Storage error during sync-config write (all changes rolled back): ${e.message}`);
     }
-    // "skip" ops are already recorded in results.skipped during Phase 1
+  } else {
+    // No-transaction path: used by unit tests with mock deps so the offline
+    // test suite remains DB-agnostic.
+    for (const op of pending) {
+      if (op.type === "update") {
+        await deps.updateSyncConfig(op.id, op.data);
+        results.syncConfigs++;
+      } else if (op.type === "create") {
+        await deps.createSyncConfig(op.data);
+        results.syncConfigs++;
+      }
+      // "skip" ops are already recorded in results.skipped during Phase 1
+    }
   }
 }
