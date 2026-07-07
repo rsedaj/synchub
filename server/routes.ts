@@ -17,7 +17,8 @@ import { db } from "./db";
 import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-validation";
 import passport from "passport";
 import bcrypt from "bcryptjs";
-import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema } from "@shared/schema";
+import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema, users } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { APP_VERSION } from "@shared/version";
 import { z } from "zod";
 
@@ -1964,25 +1965,68 @@ export async function registerRoutes(
       }
 
       if (data.users && Array.isArray(data.users)) {
+        const VALID_ROLES = ["admin", "operator", "viewer"];
         const existingUsers = await storage.getAllUsers();
+
+        // Phase 1: validate all user entries, collect pending ops (no DB writes yet).
+        // Any validation failure blocks ALL writes for the entire users batch
+        // (all-or-nothing, mirrors the validate-first pattern used for modules).
+        type PendingUserOp =
+          | { type: "update"; id: string; data: Record<string, unknown> }
+          | { type: "skip" };
+        const pendingUserOps: PendingUserOp[] = [];
+
         for (const imp of data.users) {
+          const existing = existingUsers.find((u: any) => u.username === imp.username);
+          if (!existing) {
+            results.skipped.push(`User "${imp.username}": not found, skipped (create users manually)`);
+            continue;
+          }
+          if (imp.role !== undefined && !VALID_ROLES.includes(imp.role)) {
+            results.errors.push(
+              `User "${imp.username}": invalid role "${imp.role}" (must be one of: ${VALID_ROLES.join(", ")})`,
+            );
+            continue;
+          }
+          if (imp.isActive !== undefined && typeof imp.isActive !== "boolean") {
+            results.errors.push(`User "${imp.username}": isActive must be a boolean`);
+            continue;
+          }
+          pendingUserOps.push({
+            type: "update",
+            id: existing.id,
+            data: {
+              fullName: imp.fullName,
+              email: imp.email ?? null,
+              role: imp.role,
+              isActive: imp.isActive,
+            },
+          });
+        }
+
+        // Phase 2: write only when every user entry passed Phase 1 validation.
+        // Wraps all writes in a single DB transaction so an unexpected storage
+        // error on user N rolls back writes for users 1..N-1.
+        if (results.errors.length === 0) {
           try {
-            const existing = existingUsers.find(u => u.username === imp.username);
-            if (existing) {
-              await storage.updateUser(existing.id, {
-                fullName: imp.fullName,
-                email: imp.email,
-                role: imp.role,
-                isActive: imp.isActive,
-              });
-              results.users++;
-            } else {
-              results.skipped.push(`User "${imp.username}": not found, skipped (create users manually)`);
-            }
+            await db.transaction(async (tx) => {
+              for (const op of pendingUserOps) {
+                if (op.type === "update") {
+                  await tx.update(users).set(op.data as any).where(eq(users.id, op.id));
+                  results.users++;
+                }
+              }
+            });
           } catch (e: any) {
-            results.errors.push(`User ${imp.username}: ${e.message}`);
+            results.errors.push(`Storage error during user write (all changes rolled back): ${e.message}`);
           }
         }
+      }
+
+      // 422 guard after users section — stop processing if any user entry failed
+      // validation (mirrors the identical guard after modules and syncConfigs).
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
       }
 
       await storage.createAuditLog({

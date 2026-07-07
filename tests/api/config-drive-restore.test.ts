@@ -922,3 +922,128 @@ test("Drive restore audit log records details.restored.skipped when a config is 
     await pool.end();
   }
 });
+
+test("Drive restore users section: validate-first prevents partial writes when a user entry has an invalid role", async () => {
+  // Strategy:
+  //  Both existing users are referenced in the backup. User X (first in the
+  //  array) has a valid update — under the old per-entry approach this write
+  //  would be committed before user Y is processed. User Y (second) has an
+  //  invalid role value that passes z.string() but fails the Phase 1
+  //  role-enum guard. With validate-first: Phase 1 processes ALL entries
+  //  first, catches Y's invalid role, and blocks Phase 2 entirely —
+  //  user X is NOT written. The route returns 422 and user X's DB state is
+  //  unchanged.
+  //
+  //  This guards against a regression where validate-first in the users loop
+  //  is dropped (reverting to per-entry try/catch), which would allow partial
+  //  writes when the valid user is processed before the invalid one.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot create a temp operator user via API");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const operatorUsername = `__test_op_${suffix}`;
+  const originalFullName = `Original_${suffix}`;
+  let operatorUserId = "";
+
+  try {
+    // 1. Create a temporary operator user via the admin API.
+    //    This user will be user X — the one written first under a per-entry approach.
+    const createRes = await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        username: operatorUsername,
+        password: "TestPass123!",
+        fullName: originalFullName,
+        role: "operator",
+      }),
+    });
+    const createText = await createRes.text();
+    assert.equal(
+      createRes.status,
+      200,
+      `Create operator user failed: ${createRes.status} — ${createText}`,
+    );
+    const newUser = JSON.parse(createText) as { id: string };
+    operatorUserId = newUser.id;
+
+    // 2. Build backup with users array:
+    //    - Operator user (first in array): valid update — would succeed alone.
+    //    - Admin user (second in array): invalid role "__invalid_role__"
+    //      → caught by Phase 1 role-enum validation before any writes.
+    //    Ordering is intentional: operator FIRST so that a per-entry approach
+    //    would commit it before the admin's invalid role is discovered.
+    const backup = {
+      version: "1.0",
+      type: "config",
+      appVersion: "test",
+      users: [
+        {
+          username: operatorUsername,
+          fullName: "SHOULD_NOT_BE_WRITTEN",
+          email: null,
+          role: "operator",
+          isActive: true,
+        },
+        {
+          username: USERNAME,
+          fullName: "Any Name",
+          email: null,
+          role: "__invalid_role__",
+          isActive: true,
+        },
+      ],
+    };
+
+    // 3. POST restore → Phase 1 catches admin's invalid role → 422, no writes.
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+      method: "POST",
+      body: JSON.stringify({ backup }),
+    });
+    const restoreText = await restoreRes.text();
+    assert.equal(
+      restoreRes.status,
+      422,
+      `Expected 422 when users section has an invalid role, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      message: string;
+      results: { errors: string[] };
+    };
+    assert.ok(
+      Array.isArray(restoreBody.results?.errors) && restoreBody.results.errors.length > 0,
+      `422 response must include at least one error in results.errors; got: ${restoreText}`,
+    );
+    assert.ok(
+      restoreBody.results.errors.some(e => /invalid role/i.test(e)),
+      `Error message must mention "invalid role"; got: ${JSON.stringify(restoreBody.results.errors)}`,
+    );
+
+    // 4. Assert operator user's fullName is UNCHANGED — validate-first prevented
+    //    the write even though the operator entry itself was valid.
+    const usersRes = await api("/api/users");
+    assert.equal(usersRes.status, 200, "GET /api/users must return 200");
+    const allUsers = (await usersRes.json()) as Array<{
+      id: string;
+      username: string;
+      fullName: string;
+    }>;
+    const liveOperator = allUsers.find(u => u.id === operatorUserId);
+    assert.ok(
+      liveOperator !== undefined,
+      `Operator user (${operatorUserId}) must still exist after failed restore`,
+    );
+    assert.equal(
+      liveOperator!.fullName,
+      originalFullName,
+      `Operator fullName must be UNCHANGED — validate-first blocked the write; ` +
+        `got: "${liveOperator!.fullName}", expected: "${originalFullName}"`,
+    );
+  } finally {
+    if (operatorUserId) {
+      await api(`/api/users/${operatorUserId}`, { method: "DELETE" }).catch(() => {});
+    }
+  }
+});
