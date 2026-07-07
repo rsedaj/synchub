@@ -424,7 +424,8 @@ app.get("/api/diagnostics", async (req, res) => {
       })),
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message, stack: err.stack });
+    console.error("[diagnostics] Internal error:", err);
+    return res.status(500).json({ error: "Internal diagnostics error" });
   }
 });
 
