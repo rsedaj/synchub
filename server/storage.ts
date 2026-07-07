@@ -1,7 +1,7 @@
-import { eq, desc, count, and, gte, sql } from "drizzle-orm";
+import { eq, desc, count, and, gte, sql, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncRunEvents, syncBackups, syncBaselines, onixBackups, hkodDecisions,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncRunEvents, syncBackups, syncBaselines, onixBackups, hkodDecisions, configSnapshots,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
@@ -11,6 +11,7 @@ import {
   type SyncRunEvent, type InsertSyncRunEvent,
   type SyncBackup, type InsertSyncBackup,
   type OnixBackup, type InsertOnixBackup,
+  type ConfigSnapshot, type InsertConfigSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -132,6 +133,11 @@ export interface IStorage {
   updateOnixBackup(id: string, data: Partial<OnixBackup>): Promise<void>;
   getOnixBackups(limit?: number): Promise<OnixBackup[]>;
   getOnixBackup(id: string): Promise<OnixBackup | undefined>;
+
+  createConfigSnapshot(data: InsertConfigSnapshot): Promise<ConfigSnapshot>;
+  getConfigSnapshots(syncConfigId?: string): Promise<ConfigSnapshot[]>;
+  deleteConfigSnapshot(id: string): Promise<void>;
+  pruneConfigSnapshots(syncConfigId: string, maxCount: number): Promise<void>;
 
   getAnalyticsOverview(days: number): Promise<{
     perDay: Array<{
@@ -748,6 +754,36 @@ export class DatabaseStorage implements IStorage {
         totalProcessed: Number(r.total_processed ?? 0),
       })),
     };
+  }
+
+  async createConfigSnapshot(data: InsertConfigSnapshot): Promise<ConfigSnapshot> {
+    const [created] = await db.insert(configSnapshots).values(data).returning();
+    await this.pruneConfigSnapshots(data.syncConfigId, 10);
+    return created;
+  }
+
+  async getConfigSnapshots(syncConfigId?: string): Promise<ConfigSnapshot[]> {
+    if (syncConfigId) {
+      return db.select().from(configSnapshots)
+        .where(eq(configSnapshots.syncConfigId, syncConfigId))
+        .orderBy(desc(configSnapshots.createdAt));
+    }
+    return db.select().from(configSnapshots).orderBy(desc(configSnapshots.createdAt));
+  }
+
+  async deleteConfigSnapshot(id: string): Promise<void> {
+    await db.delete(configSnapshots).where(eq(configSnapshots.id, id));
+  }
+
+  async pruneConfigSnapshots(syncConfigId: string, maxCount: number): Promise<void> {
+    const all = await db.select({ id: configSnapshots.id })
+      .from(configSnapshots)
+      .where(eq(configSnapshots.syncConfigId, syncConfigId))
+      .orderBy(desc(configSnapshots.createdAt));
+    if (all.length > maxCount) {
+      const toDelete = all.slice(maxCount).map(r => r.id);
+      await db.delete(configSnapshots).where(inArray(configSnapshots.id, toDelete));
+    }
   }
 }
 

@@ -358,6 +358,29 @@ export async function uploadConfigBackup(
   }, "uploadConfigBackup");
 }
 
+export async function uploadConfigSnapshot(
+  configName: string,
+  snapshotData: any
+): Promise<{ fileId: string; fileName: string; fileSize: number; webViewLink: string }> {
+  return withRetry(async () => {
+    const folderId = await ensureConfigBackupFolder();
+    const safe = configName.replace(/[^a-zA-Z0-9_\-]/g, "_").slice(0, 40);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const timeStr = new Date().toISOString().slice(11, 19).replace(/:/g, "-");
+    const fileName = `snapshot_${safe}_${dateStr}_${timeStr}.json`;
+    const jsonContent = JSON.stringify({
+      type: "config_snapshot",
+      exportedAt: new Date().toISOString(),
+      configName,
+      ...snapshotData,
+    }, null, 2);
+    const fileSize = Buffer.byteLength(jsonContent, "utf-8");
+    const result = await uploadJsonFile(folderId, fileName, jsonContent);
+    console.log(`[google-drive] Config snapshot upload:`, JSON.stringify({ id: result.id, name: result.name }));
+    return { fileId: result.id, fileName, fileSize, webViewLink: result.webViewLink };
+  }, "uploadConfigSnapshot");
+}
+
 export async function listConfigBackups(): Promise<
   Array<{ id: string; name: string; size: string; createdTime: string }>
 > {

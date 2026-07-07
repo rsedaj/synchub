@@ -12,10 +12,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   HardDrive, Download, Trash2, ExternalLink, RefreshCw, Search, X,
   ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Cloud, Server,
-  ArrowRight, FileArchive, Calendar, Database,
+  ArrowRight, FileArchive, Calendar, Database, BookmarkCheck, Save,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { sk } from "date-fns/locale";
+
+interface ConfigSnapshot {
+  id: string;
+  syncConfigId: string;
+  configName: string;
+  snapshotJson: Record<string, any>;
+  googleDriveFileId: string | null;
+  googleDriveUrl: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
 
 interface EnrichedBackup {
   id: string;
@@ -147,6 +158,28 @@ export default function BackupManagementPage() {
 
   const { data: backups = [], isLoading, refetch } = useQuery<EnrichedBackup[]>({
     queryKey: ["/api/sync-backups/enriched"],
+  });
+
+  const { data: snapshots = [], refetch: refetchSnapshots } = useQuery<ConfigSnapshot[]>({
+    queryKey: ["/api/config-snapshots"],
+  });
+
+  const snapshotAllMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/config-snapshots/all"),
+    onSuccess: () => {
+      toast({ title: "Zálohy konfigurácií vytvorené" });
+      queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
+    },
+    onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const deleteSnapshotMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/config-snapshots/${id}`),
+    onSuccess: () => {
+      toast({ title: "Záloha konfigu odstránená" });
+      queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
+    },
+    onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
   });
 
   const deleteBackupMutation = useMutation({
@@ -293,9 +326,24 @@ export default function BackupManagementPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">{t("backups.subtitle")}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh">
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => snapshotAllMutation.mutate()}
+            disabled={snapshotAllMutation.isPending}
+            data-testid="btn-snapshot-all"
+            className="gap-1.5"
+          >
+            {snapshotAllMutation.isPending
+              ? <RefreshCw className="h-4 w-4 animate-spin" />
+              : <Save className="h-4 w-4" />}
+            <span className="hidden sm:inline">Zálohovať všetky</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { refetch(); refetchSnapshots(); }} data-testid="btn-refresh">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -581,6 +629,71 @@ export default function BackupManagementPage() {
           })}
         </div>
       )}
+
+      {/* Config Snapshots Section */}
+      {snapshots.length > 0 && (() => {
+        const grouped = snapshots.reduce((acc, s) => {
+          if (!acc[s.syncConfigId]) acc[s.syncConfigId] = { configName: s.configName, items: [] };
+          acc[s.syncConfigId].items.push(s);
+          return acc;
+        }, {} as Record<string, { configName: string; items: ConfigSnapshot[] }>);
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <BookmarkCheck className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Zálohy konfigurácií</h2>
+              <span className="text-xs text-muted-foreground">· max 10 na konfiguráciu · DB + Google Drive</span>
+            </div>
+            {Object.entries(grouped).map(([configId, group]) => (
+              <div key={configId} className="border rounded-md overflow-hidden" data-testid={`snapshot-group-${configId}`}>
+                <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 border-b">
+                  <BookmarkCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="font-medium text-sm">{group.configName}</span>
+                  <Badge variant="outline" className="text-[10px] ml-auto">{group.items.length} / 10</Badge>
+                </div>
+                <div className="divide-y">
+                  {group.items.map(snap => (
+                    <div key={snap.id} className="flex items-center gap-3 px-4 py-2.5 text-xs" data-testid={`snapshot-row-${snap.id}`}>
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground w-32 shrink-0">{fmtDate(snap.createdAt)}</span>
+                      <span className="text-muted-foreground">{fmtAgo(snap.createdAt)}</span>
+                      <div className="ml-auto flex items-center gap-2">
+                        {snap.googleDriveUrl ? (
+                          <a
+                            href={snap.googleDriveUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                            data-testid={`link-snapshot-drive-${snap.id}`}
+                          >
+                            <Cloud className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Drive</span>
+                          </a>
+                        ) : (
+                          <span className="flex items-center gap-1 text-muted-foreground/40">
+                            <Cloud className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">–</span>
+                          </span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteSnapshotMutation.mutate(snap.id)}
+                          disabled={deleteSnapshotMutation.isPending}
+                          data-testid={`btn-delete-snapshot-${snap.id}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Confirm dialog */}
       <AlertDialog open={!!confirmDialog} onOpenChange={o => { if (!o) setConfirmDialog(null); }}>

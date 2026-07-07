@@ -152,6 +152,28 @@ export const syncBackups = pgTable("sync_backups", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const configSnapshots = pgTable("config_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncConfigId: varchar("sync_config_id").notNull(),
+  configName: text("config_name").notNull(),
+  snapshotJson: jsonb("snapshot_json").$type<Record<string, any>>().notNull(),
+  googleDriveFileId: text("google_drive_file_id"),
+  googleDriveUrl: text("google_drive_url"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertConfigSnapshotSchema = createInsertSchema(configSnapshots).pick({
+  syncConfigId: true,
+  configName: true,
+  snapshotJson: true,
+  googleDriveFileId: true,
+  googleDriveUrl: true,
+  createdBy: true,
+});
+export type InsertConfigSnapshot = z.infer<typeof insertConfigSnapshotSchema>;
+export type ConfigSnapshot = typeof configSnapshots.$inferSelect;
+
 export const onixBackups = pgTable("onix_backups", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   status: text("status").notNull().default("pending"),

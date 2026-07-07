@@ -9,7 +9,7 @@ import { testModuleConnection, fetchModuleData, flattenObject, collectAllFields,
 import { executeSyncRun, cancelSyncRun, getActiveRuns, restoreFromBackup, resumeSyncRun } from "./sync-engine";
 import { checkOnixIndexComplete } from "./target-push";
 import { deriveDeferredScope, evaluateIndexGate } from "./deferred-rerun";
-import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders } from "./google-drive";
+import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders, uploadConfigSnapshot } from "./google-drive";
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
 import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup } from "./config-backup";
@@ -107,6 +107,31 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
   password: z.string().min(4).optional(),
 });
+
+async function snapshotConfigAsync(config: any, userId?: string): Promise<void> {
+  try {
+    const snapshotData = mapSyncConfigForBackup(config);
+    let driveFileId: string | null = null;
+    let driveUrl: string | null = null;
+    try {
+      const dr = await uploadConfigSnapshot(config.name, { config: snapshotData });
+      driveFileId = dr.fileId;
+      driveUrl = dr.webViewLink;
+    } catch (driveErr) {
+      console.warn(`[config-snapshot] Google Drive upload failed for "${config.name}":`, driveErr);
+    }
+    await storage.createConfigSnapshot({
+      syncConfigId: config.id,
+      configName: config.name,
+      snapshotJson: snapshotData as any,
+      googleDriveFileId: driveFileId,
+      googleDriveUrl: driveUrl,
+      createdBy: userId ?? null,
+    });
+  } catch (err) {
+    console.warn(`[config-snapshot] Snapshot creation failed for config "${config.name}":`, err);
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -708,7 +733,9 @@ export async function registerRoutes(
         details: { name: config.name, sourceModuleId: config.sourceModuleId, targetModuleId: config.targetModuleId },
         ipAddress: req.ip || null,
       });
-      return res.status(201).json(config);
+      res.status(201).json(config);
+      snapshotConfigAsync(config, req.user!.id);
+      return;
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to create sync config" });
     }
@@ -745,7 +772,9 @@ export async function registerRoutes(
         details: { name: config.name, changedFields, before: beforeValues, after: afterValues },
         ipAddress: req.ip || null,
       });
-      return res.json(config);
+      res.json(config);
+      snapshotConfigAsync(config, req.user!.id);
+      return;
     } catch (err: any) {
       return res.status(500).json({ message: "Failed to update sync config" });
     }
@@ -1698,6 +1727,53 @@ export async function registerRoutes(
       return res.json(files);
     } catch (err: any) {
       return res.status(500).json({ message: `Failed to list config backups: ${err.message}` });
+    }
+  });
+
+  // --- Config snapshots (per-config, max 10, DB + Google Drive) ---
+
+  app.get("/api/config-snapshots", requireAuth, async (_req, res) => {
+    try {
+      const snapshots = await storage.getConfigSnapshots();
+      return res.json(snapshots);
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to list config snapshots: ${err.message}` });
+    }
+  });
+
+  app.get("/api/config-snapshots/:configId", requireAuth, async (req, res) => {
+    try {
+      const snapshots = await storage.getConfigSnapshots(String(req.params.configId));
+      return res.json(snapshots);
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to list config snapshots: ${err.message}` });
+    }
+  });
+
+  app.post("/api/config-snapshots/all", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const configs = await storage.getAllSyncConfigs();
+      const results: Array<{ configId: string; configName: string; ok: boolean; error?: string }> = [];
+      for (const config of configs) {
+        try {
+          await snapshotConfigAsync(config, (req.user as any)?.id);
+          results.push({ configId: config.id, configName: config.name, ok: true });
+        } catch (err: any) {
+          results.push({ configId: config.id, configName: config.name, ok: false, error: err.message });
+        }
+      }
+      return res.json({ total: configs.length, results });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to snapshot all configs: ${err.message}` });
+    }
+  });
+
+  app.delete("/api/config-snapshots/:id", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      await storage.deleteConfigSnapshot(String(req.params.id));
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to delete config snapshot: ${err.message}` });
     }
   });
 

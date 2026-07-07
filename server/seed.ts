@@ -470,6 +470,26 @@ export async function runMigrations() {
     log("Schema m013: sync_run_events migration skipped", "seed");
   }
 
+  // Schema migration m014: per-config configuration snapshots
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS config_snapshots (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        sync_config_id varchar NOT NULL,
+        config_name text NOT NULL,
+        snapshot_json jsonb NOT NULL,
+        google_drive_file_id text,
+        google_drive_url text,
+        created_by varchar,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_config_snapshots_config_id ON config_snapshots(sync_config_id, created_at DESC)`);
+    log("Schema m014: config_snapshots table created", "seed");
+  } catch (_e) {
+    log("Schema m014: config_snapshots migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 
