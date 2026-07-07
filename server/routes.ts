@@ -1951,6 +1951,71 @@ export async function registerRoutes(
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // DEV / TEST ONLY — inline config restore (no Google Drive download).
+  // Accepts the same backup JSON that the Drive route processes, but via the
+  // request body.  Disabled in production so it cannot be used to bypass the
+  // normal Drive-based restore flow.
+  // ---------------------------------------------------------------------------
+  if (process.env.NODE_ENV !== "production") {
+    app.post("/api/backups/config-restore-inline", requireRole("admin"), async (req, res) => {
+      try {
+        const data = req.body?.backup as any;
+        if (!data || (!data.modules && !data.syncConfigs && !data.users)) {
+          return res.status(400).json({ message: "Invalid backup file format" });
+        }
+
+        const results = { modules: 0, syncConfigs: 0, users: 0, skipped: [] as string[], errors: [] as string[] };
+        const moduleIdMap: Record<string, string> = {};
+
+        if (data.modules && Array.isArray(data.modules)) {
+          const existingModules = await storage.getAllModules();
+          for (const imp of data.modules) {
+            try {
+              const existing = existingModules.find((m: any) => m.code === imp.code);
+              if (existing) {
+                moduleIdMap[imp.id] = existing.id;
+                results.modules++;
+              } else {
+                results.skipped.push(`Module ${imp.code}: not found in current system`);
+              }
+            } catch (e: any) {
+              results.errors.push(`Module ${imp.code}: ${e.message}`);
+            }
+          }
+        }
+
+        if (data.syncConfigs && Array.isArray(data.syncConfigs)) {
+          await restoreSyncConfigsFromBackup(
+            data.syncConfigs,
+            moduleIdMap,
+            {
+              getAllSyncConfigs: () => storage.getAllSyncConfigs(),
+              getAllModules: () => storage.getAllModules(),
+              createSyncConfig: (d) => storage.createSyncConfig(d),
+              updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
+            },
+            results,
+          );
+        }
+
+        await storage.createAuditLog({
+          userId: (req.user as any)?.id || "system",
+          action: "update",
+          entity: "config_restore_inline",
+          details: {
+            backupVersion: data.version,
+            restored: results,
+          },
+        });
+
+        return res.json({ success: true, results });
+      } catch (err: any) {
+        return res.status(500).json({ message: `Inline config restore failed: ${err.message}` });
+      }
+    });
+  }
+
   app.post("/api/backups/cleanup-stale", requireRole("admin"), async (_req, res) => {
     try {
       const allBackups = await storage.getAllSyncBackups();
