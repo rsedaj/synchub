@@ -20,6 +20,11 @@
  *     entry, the route returns a single 422 and performs no partial writes —
  *     neither the module nor the config DB state is changed.
  *
+ *  5. When a backup has a valid modules section followed by a users section
+ *     whose only entry has an invalid role value, the route returns 422 and
+ *     results.users === 0 — confirming the users section validates-first and
+ *     the previously-processed modules section was NOT partially written.
+ *
  * All tests require DATABASE_URL (to create/delete temp modules via SQL) and
  * are skipped when it is absent.
  *
@@ -645,8 +650,8 @@ test("Drive restore Phase 2 is atomic: a storage error mid-batch rolls back earl
   //         non-existent UUID "00000000-0000-0000-0000-000000000000".
   //         Passes Zod (.string().min(1)), but triggers a FK constraint
   //         violation in Phase 2 when Drizzle tries to commit.
-  //  4. POST backup → Phase 2 writes A then fails on B → transaction rolls
-  //     back → route returns 422 with a storage error in results.errors.
+  //  4. POST backup — Phase 2 writes A then fails on B — transaction rolls
+  //     back — route returns 422 with a storage error in results.errors.
   //  5. Assert HTTP 422.
   //  6. Assert config A still has its ORIGINAL fieldMappings (not "tx_a_*"),
   //     confirming the rollback covered config A's write.
@@ -796,6 +801,127 @@ test("Drive restore Phase 2 is atomic: a storage error mid-batch rolls back earl
     if (tempTgtModuleId) {
       await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempTgtModuleId]).catch(() => {});
     }
+    await pool.end();
+  }
+});
+
+test("Drive restore returns 422 and leaves module unchanged when users section contains an invalid role", async () => {
+  // Confirms the cross-section validate-all-before-writing guarantee for the
+  // users section:
+  //  1. Fetch an existing module and record its current name.
+  //  2. Build a backup with:
+  //       - A modules section containing that module with a CHANGED name (valid).
+  //       - A users section with one entry for the admin user but with
+  //         role="superadmin" — not in the allowed enum.
+  //  3. POST backup to /api/backups/config-restore-from-drive/__test__.
+  //  4. Assert HTTP 422 — users Phase 1 validation guard fires BEFORE any writes.
+  //  5. Assert results.errors non-empty, results.users === 0, results.modules === 0.
+  //  6. Assert the module's name is STILL the original value — confirming that
+  //     even though the modules section was valid, the cross-section 422 guard
+  //     fired before any module write was committed.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot introspect module state via SQL");
+    return;
+  }
+
+  // 1. Fetch an existing module
+  const modulesRes = await api("/api/modules");
+  assert.equal(modulesRes.status, 200, "GET /api/modules must return 200");
+  const modules = (await modulesRes.json()) as Array<{ id: string; code: string; name: string }>;
+  assert.ok(modules.length >= 1, `Need at least 1 module, found ${modules.length}`);
+  const mod = modules[0];
+  const originalName = mod.name;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    // 2. Build backup: module section is valid (name changed), users section has invalid role
+    const updatedName = `__drive_users_test_${Date.now()}`;
+    const backup = {
+      version: "1.0",
+      type: "config",
+      appVersion: "test",
+      modules: [
+        {
+          id: mod.id,
+          code: mod.code,
+          name: updatedName,       // valid — would be applied if users section didn't 422
+          status: "disconnected",
+          sortOrder: 999,
+          config: {},
+          dataFields: [],
+        },
+      ],
+      users: [
+        {
+          username: "admin",
+          fullName: "Administrator",
+          email: null,
+          role: "superadmin",     // INVALID — not in ["admin","operator","viewer"]
+          isActive: true,
+        },
+      ],
+    };
+
+    // 3. POST to the real Drive restore route via the dev/test bypass
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+      method: "POST",
+      body: JSON.stringify({ backup }),
+    });
+    const restoreText = await restoreRes.text();
+
+    // 4. Assert 422 — cross-section guard must fire BEFORE any writes
+    assert.equal(
+      restoreRes.status,
+      422,
+      `Expected 422 when users section has an invalid role, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      message: string;
+      results: { modules: number; syncConfigs: number; users: number; errors: string[] };
+    };
+
+    // 5. Assert errors non-empty, users === 0, and modules === 0 (nothing was written)
+    assert.ok(
+      restoreBody.results.errors.length > 0,
+      `results.errors must be non-empty; got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(
+      restoreBody.results.users,
+      0,
+      `results.users must be 0 (cross-section guard fired before writes); got: ${restoreBody.results.users}`,
+    );
+    assert.equal(
+      restoreBody.results.modules,
+      0,
+      `results.modules must be 0 (cross-section guard fired before ANY write); got: ${restoreBody.results.modules}`,
+    );
+
+    // 6. Assert module name is UNCHANGED — cross-section atomicity guarantee:
+    //    users validation failure must prevent ALL writes, including the valid module.
+    //    This check is performed BEFORE any cleanup so it reflects the true DB state.
+    const modRow = await pool.query(`SELECT name FROM api_modules WHERE id = $1`, [mod.id]);
+    assert.equal(modRow.rows.length, 1, `Module ${mod.id} must still exist in the DB`);
+    assert.equal(
+      modRow.rows[0].name,
+      originalName,
+      `Module name must be UNCHANGED after a 422 caused by an invalid user role — ` +
+        `cross-section validate-all-before-writing guarantee failed; ` +
+        `expected: "${originalName}", got: "${modRow.rows[0].name}"`,
+    );
+
+    // Verify the admin user was NOT touched (role stays "admin", not "superadmin")
+    const userRow = await pool.query(`SELECT role FROM users WHERE username = 'admin'`);
+    assert.ok(userRow.rows.length > 0, "Admin user must exist in the DB");
+    assert.notEqual(
+      userRow.rows[0].role,
+      "superadmin",
+      `Admin user role must NOT have been changed to "superadmin"`,
+    );
+  } finally {
+    await pool.end();
+  }
+});
     await pool.end();
   }
 });

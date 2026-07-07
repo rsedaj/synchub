@@ -1880,22 +1880,26 @@ export async function registerRoutes(
 
       const results = { modules: 0, syncConfigs: 0, users: 0, skipped: [] as string[], errors: [] as string[] };
 
+      // ── Cross-section pre-validation ──────────────────────────────────────────
+      // Validate ALL sections before writing ANYTHING so a failure in a later
+      // section (e.g. invalid user role) never leaves earlier section writes
+      // partially committed.  The pattern is: collect pending ops for each
+      // section, run a single 422 guard, then execute all writes together.
+
+      // ── Modules: validate (Phase 1) ──────────────────────────────────────────
+      type PendingModuleOp = {
+        existingId: string;
+        backupId: string;
+        code: string;
+        payload: Parameters<typeof storage.updateModule>[1];
+      };
+      const pendingModuleOps: PendingModuleOp[] = [];
+      // moduleIdMap is pre-populated here (not during writes) so syncConfig
+      // dry-run gets correct backup-id → live-id remapping.
       const moduleIdMap: Record<string, string> = {};
 
       if (data.modules && Array.isArray(data.modules)) {
         const existingModules = await storage.getAllModules();
-
-        // Phase 1: validate all module entries without touching the DB.
-        // Any validation failure blocks ALL writes (all-or-nothing semantics,
-        // mirrors the validate-first pattern in restoreSyncConfigsFromBackup).
-        type PendingModuleOp = {
-          existingId: string;
-          backupId: string;
-          code: string;
-          payload: Parameters<typeof storage.updateModule>[1];
-        };
-        const pendingModuleOps: PendingModuleOp[] = [];
-
         for (const imp of data.modules) {
           const existing = existingModules.find((m: any) => m.code === imp.code);
           if (!existing) {
@@ -1906,9 +1910,11 @@ export async function registerRoutes(
             results.errors.push(`Module ${imp.code}: name must be a non-empty string`);
             continue;
           }
+          const backupId = imp.id ?? existing.id;
+          moduleIdMap[backupId] = existing.id;
           pendingModuleOps.push({
             existingId: existing.id,
-            backupId: imp.id ?? existing.id,
+            backupId,
             code: imp.code,
             payload: {
               name: imp.name,
@@ -1922,60 +1928,41 @@ export async function registerRoutes(
             },
           });
         }
-
-        // Phase 2: execute writes only when Phase 1 found no errors.
-        if (results.errors.length === 0) {
-          for (const op of pendingModuleOps) {
-            try {
-              moduleIdMap[op.backupId] = op.existingId;
-              await storage.updateModule(op.existingId, op.payload);
-              results.modules++;
-            } catch (e: any) {
-              results.errors.push(`Module ${op.code}: ${e.message}`);
-            }
-          }
-        }
-        if (results.errors.length > 0) {
-          return res.status(422).json({ message: results.errors.join("; "), results });
-        }
       }
 
-      // 422 guard after modules — stop processing if any module entry failed
-      // validation (mirrors the identical guard after syncConfigs below).
-      if (results.errors.length > 0) {
-        return res.status(422).json({ message: results.errors.join("; "), results });
-      }
-
+      // ── SyncConfigs: validate only (dry run) ──────────────────────────────────
+      const syncConfigDeps = {
+        getAllSyncConfigs: () => storage.getAllSyncConfigs(),
+        getAllModules: () => storage.getAllModules(),
+        createSyncConfig: (d: any) => storage.createSyncConfig(d),
+        updateSyncConfig: (id: string, d: any) => storage.updateSyncConfig(id, d),
+      };
       if (data.syncConfigs && Array.isArray(data.syncConfigs)) {
+        const dryRunResults = { syncConfigs: 0, skipped: [] as string[], errors: [] as string[] };
         await restoreSyncConfigsFromBackup(
           data.syncConfigs,
           moduleIdMap,
-          {
-            getAllSyncConfigs: () => storage.getAllSyncConfigs(),
-            getAllModules: () => storage.getAllModules(),
-            createSyncConfig: (d) => storage.createSyncConfig(d),
-            updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
-          },
-          results,
-          db,
+          syncConfigDeps,
+          dryRunResults,
+          undefined, // txDb — no transaction during dry-run pre-validation
+          true,      // dryRun — validate only, no DB writes
         );
-        if (results.errors.length > 0) {
-          return res.status(422).json({ message: results.errors.join("; "), results });
-        }
+        // Merge only errors (skipped will be re-populated during the real write run)
+        for (const e of dryRunResults.errors) results.errors.push(e);
       }
+
+      // ── Users: validate (Phase 1) ─────────────────────────────────────────────
+      type PendingUserOp = {
+        existingId: string;
+        username: string;
+        payload: { fullName?: string; email?: string | null; role?: string; isActive?: boolean };
+      };
+      const pendingUserOps: PendingUserOp[] = [];
+      const ALLOWED_ROLES = ["admin", "operator", "viewer"] as const;
 
       if (data.users && Array.isArray(data.users)) {
         const VALID_ROLES = ["admin", "operator", "viewer"];
         const existingUsers = await storage.getAllUsers();
-
-        // Phase 1: validate all user entries, collect pending ops (no DB writes yet).
-        // Any validation failure blocks ALL writes for the entire users batch
-        // (all-or-nothing, mirrors the validate-first pattern used for modules).
-        type PendingUserOp =
-          | { type: "update"; id: string; data: Record<string, unknown> }
-          | { type: "skip" };
-        const pendingUserOps: PendingUserOp[] = [];
-
         for (const imp of data.users) {
           const existing = existingUsers.find((u: any) => u.username === imp.username);
           if (!existing) {
@@ -1993,9 +1980,9 @@ export async function registerRoutes(
             continue;
           }
           pendingUserOps.push({
-            type: "update",
-            id: existing.id,
-            data: {
+            existingId: existing.id,
+            username: imp.username,
+            payload: {
               fullName: imp.fullName,
               email: imp.email ?? null,
               role: imp.role,
@@ -2003,28 +1990,60 @@ export async function registerRoutes(
             },
           });
         }
-
-        // Phase 2: write only when every user entry passed Phase 1 validation.
-        // Wraps all writes in a single DB transaction so an unexpected storage
-        // error on user N rolls back writes for users 1..N-1.
-        if (results.errors.length === 0) {
-          try {
-            await db.transaction(async (tx) => {
-              for (const op of pendingUserOps) {
-                if (op.type === "update") {
-                  await tx.update(users).set(op.data as any).where(eq(users.id, op.id));
-                  results.users++;
-                }
-              }
-            });
-          } catch (e: any) {
-            results.errors.push(`Storage error during user write (all changes rolled back): ${e.message}`);
-          }
-        }
       }
 
-      // 422 guard after users section — stop processing if any user entry failed
-      // validation (mirrors the identical guard after modules and syncConfigs).
+      // ── Single cross-section 422 guard ────────────────────────────────────────
+      // Nothing has been written yet — any validation failure from any section
+      // halts the whole restore before a single DB row is changed.
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
+      }
+
+      // ── Execute all writes (all sections passed validation) ───────────────────
+      // After each write section, re-check errors and return 422 immediately if
+      // an unexpected DB error occurred — prevents proceeding to the next section
+      // after a partial failure and prevents false-success 200 responses.
+
+      for (const op of pendingModuleOps) {
+        try {
+          await storage.updateModule(op.existingId, op.payload);
+          results.modules++;
+        } catch (e: any) {
+          results.errors.push(`Module ${op.code}: ${e.message}`);
+        }
+      }
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
+      }
+
+      if (data.syncConfigs && Array.isArray(data.syncConfigs)) {
+        await restoreSyncConfigsFromBackup(
+          data.syncConfigs,
+          moduleIdMap,
+          syncConfigDeps,
+          results,
+          db,    // txDb — wrap writes in a DB transaction for Phase 2 atomicity
+          false, // dryRun=false — real write pass
+        );
+      }
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
+      }
+
+      if (pendingUserOps.length > 0) {
+        try {
+          await db.transaction(async (tx) => {
+            for (const op of pendingUserOps) {
+              await tx.update(users).set(op.payload as any).where(eq(users.id, op.existingId));
+              results.users++;
+            }
+          });
+        } catch (e: any) {
+          results.errors.push(`Storage error during user write (all changes rolled back): ${e.message}`);
+        }
+      }
+      // Final guard: if any execution-phase write failed, return 422 and do not
+      // report success:true (prevents false-success response with errors populated).
       if (results.errors.length > 0) {
         return res.status(422).json({ message: results.errors.join("; "), results });
       }

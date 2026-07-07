@@ -109,6 +109,10 @@ export interface TransactionRunner {
  * calling `deps.createSyncConfig` / `deps.updateSyncConfig` directly without a
  * transaction wrapper — this keeps the offline test suite DB-agnostic.
  *
+ * When `dryRun` is true, only Phase 1 runs (validation + error/skip collection)
+ * and no DB writes are performed. Use this to pre-validate the syncConfigs
+ * section as part of a cross-section validate-all-before-writing strategy.
+ *
  * Used by POST /api/config-snapshots/:id/restore and
  * POST /api/backups/config-restore-from-drive/:fileId. Mutates the passed-in
  * `results` accumulator so the route can keep a single shared result.
@@ -119,6 +123,7 @@ export async function restoreSyncConfigsFromBackup(
   deps: RestoreSyncConfigsDeps,
   results: RestoreSyncConfigsResult,
   txDb?: TransactionRunner,
+  dryRun = false,
 ): Promise<void> {
   const existingConfigs = await deps.getAllSyncConfigs();
   const currentModules = await deps.getAllModules();
@@ -187,7 +192,9 @@ export async function restoreSyncConfigsFromBackup(
   // Any validation error in Phase 1 leaves results.errors non-empty, which
   // causes the route to return 422 — and since we haven't written anything yet,
   // the database is guaranteed to be unchanged.
-  if (results.errors.length > 0) {
+  // When dryRun=true the caller wants validation only (cross-section pre-flight);
+  // skip writes regardless of whether Phase 1 produced errors.
+  if (results.errors.length > 0 || dryRun) {
     return;
   }
 
