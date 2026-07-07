@@ -1796,13 +1796,14 @@ export async function registerRoutes(
       if (!snapshot) return res.status(404).json({ message: "Snapshot not found" });
 
       const snap = snapshot.snapshotJson as any;
+      const importConfigs = Array.isArray(snap) ? snap : [snap];
       const moduleIdMap: Record<string, string> =
         req.body && typeof req.body.moduleIdMap === "object" && !Array.isArray(req.body.moduleIdMap)
           ? req.body.moduleIdMap
           : {};
       const results: RestoreSyncConfigsResult = { syncConfigs: 0, skipped: [], errors: [] };
       await restoreSyncConfigsFromBackup(
-        [snap],
+        importConfigs,
         moduleIdMap,
         {
           getAllSyncConfigs: () => storage.getAllSyncConfigs(),

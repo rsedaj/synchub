@@ -799,6 +799,202 @@ test("restore reports skipped when moduleIdMap remaps to a non-existent module I
   }
 });
 
+test("restore with moduleIdMap partially succeeds — one config remapped to valid module, one remapped to ghost ID", async () => {
+  // Exercises the mixed-outcome path in restoreSyncConfigsFromBackup:
+  //   - The snapshotJson is injected via SQL as an array of 2 configs.
+  //   - configA: moduleIdMap maps srcA→srcA (identity / valid), tgtA untouched → re-created.
+  //   - configB: moduleIdMap maps srcB→ghostId (non-existent) → skipped.
+  // Expected: results.syncConfigs === 1, results.skipped.length === 1
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot inject multi-config snapshot");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const srcACode = `__test_srcA_partial_${suffix}`;
+  const tgtACode = `__test_tgtA_partial_${suffix}`;
+  const srcBCode = `__test_srcB_partial_${suffix}`;
+  const tgtBCode = `__test_tgtB_partial_${suffix}`;
+  const configAName = `__test_configA_partial_${suffix}`;
+  const configBName = `__test_configB_partial_${suffix}`;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let tempSrcAId = "";
+  let tempTgtAId = "";
+  let tempSrcBId = "";
+  let tempTgtBId = "";
+  let configAId = "";
+  let configBId = "";
+  let snapshotId = "";
+
+  try {
+    // 1. Create 4 temp modules via SQL
+    const rA = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [srcACode],
+    );
+    tempSrcAId = rA.rows[0].id;
+
+    const rB = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [tgtACode],
+    );
+    tempTgtAId = rB.rows[0].id;
+
+    const rC = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [srcBCode],
+    );
+    tempSrcBId = rC.rows[0].id;
+
+    const rD = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [tgtBCode],
+    );
+    tempTgtBId = rD.rows[0].id;
+
+    // 2. Create two sync configs via the API
+    const createA = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configAName,
+        sourceModuleId: tempSrcAId,
+        targetModuleId: tempTgtAId,
+        fieldMappings: [{ sourceField: "f_src", targetField: "f_tgt" }],
+      }),
+    });
+    const createAText = await createA.text();
+    assert.equal(createA.status, 201, `Config A creation failed: ${createA.status} — ${createAText}`);
+    ({ id: configAId } = JSON.parse(createAText) as { id: string });
+    createdConfigIds.push(configAId);
+
+    const createB = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configBName,
+        sourceModuleId: tempSrcBId,
+        targetModuleId: tempTgtBId,
+        fieldMappings: [{ sourceField: "g_src", targetField: "g_tgt" }],
+      }),
+    });
+    const createBText = await createB.text();
+    assert.equal(createB.status, 201, `Config B creation failed: ${createB.status} — ${createBText}`);
+    ({ id: configBId } = JSON.parse(createBText) as { id: string });
+    createdConfigIds.push(configBId);
+
+    // 3. Create a snapshot of configA (to get a real snapshot row in the DB)
+    const snapRes = await api(`/api/config-snapshots/${configAId}`, { method: "POST" });
+    assert.equal(snapRes.status, 200, `Snapshot creation failed: ${snapRes.status}`);
+    const snapBody = (await snapRes.json()) as { ok: boolean; snapshot: { id: string } };
+    assert.ok(snapBody.ok, "Snapshot must report ok=true");
+    snapshotId = snapBody.snapshot.id;
+
+    // 4. Inject a 2-config array into snapshot_json via SQL.
+    //    The restore route handles Array.isArray(snap) ? snap : [snap], so an
+    //    array stored in snapshot_json is processed as multiple configs.
+    const multiConfigJson = JSON.stringify([
+      {
+        id: configAId,
+        name: configAName,
+        sourceModuleId: tempSrcAId,
+        targetModuleId: tempTgtAId,
+        fieldMappings: [{ sourceField: "f_src", targetField: "f_tgt" }],
+        schedule: null,
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      },
+      {
+        id: configBId,
+        name: configBName,
+        sourceModuleId: tempSrcBId,
+        targetModuleId: tempTgtBId,
+        fieldMappings: [{ sourceField: "g_src", targetField: "g_tgt" }],
+        schedule: null,
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      },
+    ]);
+    const updateResult = await pool.query(
+      `UPDATE config_snapshots SET snapshot_json = $1::jsonb WHERE id = $2 RETURNING id`,
+      [multiConfigJson, snapshotId],
+    );
+    assert.equal(
+      updateResult.rowCount,
+      1,
+      `SQL UPDATE matched ${updateResult.rowCount} rows — expected 1 (snapshot ${snapshotId})`,
+    );
+
+    // 5. Delete both sync configs so the restore must re-create them
+    const delA = await api(`/api/sync-configs/${configAId}`, { method: "DELETE" });
+    assert.equal(delA.status, 200, `Config A delete failed: ${delA.status}`);
+    const idxA = createdConfigIds.indexOf(configAId);
+    if (idxA !== -1) createdConfigIds.splice(idxA, 1);
+
+    const delB = await api(`/api/sync-configs/${configBId}`, { method: "DELETE" });
+    assert.equal(delB.status, 200, `Config B delete failed: ${delB.status}`);
+    const idxB = createdConfigIds.indexOf(configBId);
+    if (idxB !== -1) createdConfigIds.splice(idxB, 1);
+
+    // 6. Build moduleIdMap:
+    //    - configA's srcA is NOT remapped → uses original IDs, both exist → re-created.
+    //    - configB's srcB IS remapped to a ghost UUID → module not found → skipped.
+    const ghostSrcBId = "00000000-dead-beef-0003-000000000003";
+    const moduleIdMap: Record<string, string> = {
+      [tempSrcBId]: ghostSrcBId,
+    };
+
+    // 7. Restore — must return 200, syncConfigs=1, skipped.length=1
+    const restoreRes = await api(`/api/config-snapshots/${snapshotId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ moduleIdMap }),
+    });
+    const restoreText = await restoreRes.text();
+    assert.equal(
+      restoreRes.status,
+      200,
+      `Expected 200 for partial restore, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      ok: boolean;
+      results: { syncConfigs: number; skipped: string[]; errors: string[] };
+    };
+    assert.ok(restoreBody.ok, `Restore must report ok=true, got: ${restoreText}`);
+    assert.equal(
+      restoreBody.results.syncConfigs,
+      1,
+      `results.syncConfigs must be 1 (configA remapped correctly); got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(
+      restoreBody.results.skipped.length,
+      1,
+      `results.skipped must have 1 entry (configB remapped to ghost); got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(restoreBody.results.errors.length, 0, "results.errors must be empty for a clean partial restore");
+
+    // Push the re-created configA into the cleanup list
+    const listRes = await api("/api/sync-configs");
+    if (listRes.status === 200) {
+      const configs = (await listRes.json()) as Array<{ id: string; name: string }>;
+      const restored = configs.find(c => c.name === configAName);
+      if (restored) createdConfigIds.push(restored.id);
+    }
+  } finally {
+    for (const id of [tempSrcAId, tempTgtAId, tempSrcBId, tempTgtBId]) {
+      if (id) {
+        await pool.query(`DELETE FROM api_modules WHERE id = $1`, [id]).catch(() => {});
+      }
+    }
+    await pool.end();
+  }
+});
+
 test("restore returns 422 when snapshot data fails schema validation", async () => {
   // This case requires injecting a corrupt snapshotJson directly into the DB because
   // snapshots created through the public API always carry valid data (configs are
