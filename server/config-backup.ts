@@ -69,6 +69,11 @@ export interface RestoreSyncConfigsResult {
   errors: string[];
 }
 
+type PendingOp =
+  | { type: "update"; id: string; data: UpdateSyncConfigInput }
+  | { type: "create"; data: CreateSyncConfigInput }
+  | { type: "skip" };
+
 /**
  * Restore the sync-config section of a config backup.
  *
@@ -76,8 +81,15 @@ export interface RestoreSyncConfigsResult {
  *  - an existing config (matched by id or name) is updated in place;
  *  - a new config is created when its source/target modules exist after remap.
  *
- * Used by POST /api/backups/config-restore-from-drive/:fileId. Mutates the
- * passed-in `results` accumulator so the route can keep a single shared result.
+ * Uses a two-phase validate-then-write strategy: Phase 1 validates every
+ * config and collects the pending operations without touching the DB; Phase 2
+ * executes all writes only when no validation errors were found. This prevents
+ * partial restores where an early-batch config is written before a later config
+ * fails — a 422 response now truly means "nothing was changed".
+ *
+ * Used by POST /api/config-snapshots/:id/restore and
+ * POST /api/backups/config-restore-from-drive/:fileId. Mutates the passed-in
+ * `results` accumulator so the route can keep a single shared result.
  */
 export async function restoreSyncConfigsFromBackup(
   importConfigs: any[],
@@ -86,6 +98,12 @@ export async function restoreSyncConfigsFromBackup(
   results: RestoreSyncConfigsResult,
 ): Promise<void> {
   const existingConfigs = await deps.getAllSyncConfigs();
+  const currentModules = await deps.getAllModules();
+
+  // ── Phase 1: Validate all configs, collect pending operations ──────────────
+  // No DB writes happen here. Any validation error aborts the entire batch.
+  const pending: PendingOp[] = [];
+
   for (const imp of importConfigs) {
     try {
       const remappedSourceId = moduleIdMap[imp.sourceModuleId] || imp.sourceModuleId;
@@ -93,9 +111,6 @@ export async function restoreSyncConfigsFromBackup(
 
       const existing = existingConfigs.find(c => c.id === imp.id || c.name === imp.name);
       if (existing) {
-        // Validate against the same canonical schema + duplicate-detection rules
-        // the PATCH route uses, so a backup can't write a malformed shape,
-        // duplicate fixed fields, or duplicate mapping targets straight to the DB.
         const parsed = updateSyncConfigSchema.safeParse({
           name: imp.name,
           sourceModuleId: remappedSourceId,
@@ -109,17 +124,14 @@ export async function restoreSyncConfigsFromBackup(
         });
         if (!parsed.success) {
           results.errors.push(`Sync config "${imp.name}": ${formatValidationError(parsed.error)}`);
+          pending.push({ type: "skip" });
           continue;
         }
-        await deps.updateSyncConfig(existing.id, parsed.data);
-        results.syncConfigs++;
+        pending.push({ type: "update", id: existing.id, data: parsed.data });
       } else {
-        const currentModules = await deps.getAllModules();
         const sourceExists = currentModules.find(m => m.id === remappedSourceId);
         const targetExists = currentModules.find(m => m.id === remappedTargetId);
         if (sourceExists && targetExists) {
-          // Validate against the same canonical schema + duplicate-detection rules
-          // the POST route uses (see comment above).
           const parsed = createSyncConfigSchema.safeParse({
             name: imp.name,
             sourceModuleId: remappedSourceId,
@@ -133,16 +145,37 @@ export async function restoreSyncConfigsFromBackup(
           });
           if (!parsed.success) {
             results.errors.push(`Sync config "${imp.name}": ${formatValidationError(parsed.error)}`);
+            pending.push({ type: "skip" });
             continue;
           }
-          await deps.createSyncConfig(parsed.data);
-          results.syncConfigs++;
+          pending.push({ type: "create", data: parsed.data });
         } else {
           results.skipped.push(`Sync config "${imp.name}": source or target module not found after ID remap`);
+          pending.push({ type: "skip" });
         }
       }
     } catch (e: any) {
       results.errors.push(`Sync config "${imp.name}": ${e.message}`);
+      pending.push({ type: "skip" });
     }
+  }
+
+  // ── Phase 2: Write only when every config passed validation ────────────────
+  // Any validation error in Phase 1 leaves results.errors non-empty, which
+  // causes the route to return 422 — and since we haven't written anything yet,
+  // the database is guaranteed to be unchanged.
+  if (results.errors.length > 0) {
+    return;
+  }
+
+  for (const op of pending) {
+    if (op.type === "update") {
+      await deps.updateSyncConfig(op.id, op.data);
+      results.syncConfigs++;
+    } else if (op.type === "create") {
+      await deps.createSyncConfig(op.data);
+      results.syncConfigs++;
+    }
+    // "skip" ops are already recorded in results.skipped during Phase 1
   }
 }

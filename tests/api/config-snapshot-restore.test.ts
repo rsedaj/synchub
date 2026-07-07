@@ -1468,7 +1468,25 @@ test("restore with mixed outcome (config A valid, config B name='') — returns 
     `422 response must include at least one error in results.errors; got: ${restoreText}`,
   );
 
-  // 5. Verify that NO audit log entry was written for this snapshotId.
+  // 5. Verify that the live config A was NOT modified by the partial restore.
+  //    The snapshot tried to write fieldMappings=[{s1→t1}] for config A, but
+  //    because config B failed validation the entire batch must have been aborted
+  //    before any write — so config A must still have the original [src_a→tgt_a].
+  const listRes = await api("/api/sync-configs");
+  assert.equal(listRes.status, 200, "GET /api/sync-configs must return 200");
+  const configs = (await listRes.json()) as Array<{
+    id: string;
+    fieldMappings: Array<{ sourceField: string; targetField: string }>;
+  }>;
+  const liveConfigA = configs.find(c => c.id === configAId);
+  assert.ok(liveConfigA, `Config A (${configAId}) must still exist after the failed restore`);
+  assert.deepEqual(
+    liveConfigA!.fieldMappings,
+    [{ sourceField: "src_a", targetField: "tgt_a" }],
+    "Config A fieldMappings must be unchanged after a 422 mixed-outcome restore — partial writes must not occur",
+  );
+
+  // 6. Verify that NO audit log entry was written for this snapshotId.
   //    The route must exit early at the results.errors guard even though config A
   //    was processed successfully — one error must block the audit write entirely.
   const logsRes = await api(`/api/audit-logs?limit=1000`);
