@@ -246,10 +246,25 @@ export default function BackupManagementPage() {
   });
 
   const restoreSnapshotMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest("POST", `/api/config-snapshots/${id}/restore`),
-    onSuccess: () => {
-      toast({ title: t("backups.restored") });
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/config-snapshots/${id}/restore`);
+      return res.json() as Promise<{ ok: boolean; results: { syncConfigs: number; skipped: string[]; errors: string[] } }>;
+    },
+    onSuccess: (data) => {
+      const skipped: string[] = data?.results?.skipped ?? [];
+      if (skipped.length > 0) {
+        toast({
+          title: t("backups.restoredWithSkipped"),
+          description: t("backups.restoreSkippedDesc")
+            .replace("{count}", String(skipped.length))
+            .replace("{items}", skipped.join("; ")),
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: t("backups.restored") });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
     },
     onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
   });
