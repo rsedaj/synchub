@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { storage } from "./storage";
+import { APP_VERSION } from "@shared/version";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -58,6 +60,107 @@ app.use((req, res, next) => {
   });
 
   next();
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/diagnostics — zaregistrovaný PRED registerRoutes a Vite middleware
+// aby Vite catch-all neprehral Bearer-token autentifikáciu.
+// ---------------------------------------------------------------------------
+app.get("/api/diagnostics", async (req, res) => {
+  const key = process.env.DIAGNOSTICS_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "Diagnostics not configured (DIAGNOSTICS_KEY missing)" });
+  }
+  const auth = req.headers["authorization"] || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (token !== key) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const [modules, recentRuns, auditLogs, syncLogs] = await Promise.all([
+      storage.getAllModules(),
+      storage.getSyncRuns(undefined, 20),
+      storage.getAuditLogs(30),
+      storage.getSyncLogs(20),
+    ]);
+
+    // Pre posledných 5 runov načítaj aj podrobné events
+    const topRuns = recentRuns.slice(0, 5);
+    const runEventsMap: Record<string, any[]> = {};
+    await Promise.all(
+      topRuns.map(async (run) => {
+        const events = await storage.getSyncRunEvents(run.id, { limit: 200 });
+        runEventsMap[run.id] = events.map(e => ({
+          seq: e.seq,
+          level: e.level,
+          phase: e.phase,
+          message: e.message,
+          details: e.details,
+          createdAt: e.createdAt,
+        }));
+      })
+    );
+
+    // Config štatistiky
+    const configStats = await storage.getSyncConfigStats().catch(() => ({}));
+
+    return res.json({
+      meta: {
+        generatedAt: new Date().toISOString(),
+        version: APP_VERSION,
+        uptimeSeconds: Math.floor(process.uptime()),
+        nodeEnv: process.env.NODE_ENV || "unknown",
+      },
+      modules: modules.map(m => ({
+        id: m.id,
+        code: m.code,
+        name: m.name,
+        type: m.type,
+        enabled: m.enabled,
+        url: m.url,
+      })),
+      recentRuns: recentRuns.map(r => ({
+        id: r.id,
+        configId: r.syncConfigId,
+        status: r.status,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        recordsTotal: r.recordsTotal,
+        recordsProcessed: r.recordsProcessed,
+        recordsFailed: r.recordsFailed,
+        recordsSkipped: r.recordsSkipped,
+        progress: r.progress,
+        errorMessage: r.errorMessage,
+        triggeredBy: r.triggeredBy,
+      })),
+      runEvents: runEventsMap,
+      auditLogs: auditLogs.map(a => ({
+        id: a.id,
+        action: a.action,
+        entity: a.entity,
+        entityId: a.entityId,
+        userId: a.userId,
+        details: a.details,
+        ipAddress: a.ipAddress,
+        createdAt: a.createdAt,
+      })),
+      syncLogs: syncLogs.map(l => ({
+        id: l.id,
+        moduleId: l.moduleId,
+        direction: l.direction,
+        status: l.status,
+        recordsProcessed: l.recordsProcessed,
+        recordsFailed: l.recordsFailed,
+        errorMessage: l.errorMessage,
+        startedAt: l.startedAt,
+        completedAt: l.completedAt,
+      })),
+      configStats,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message, stack: err.stack });
+  }
 });
 
 (async () => {
