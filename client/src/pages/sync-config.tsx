@@ -58,7 +58,11 @@ import {
   RefreshCw,
   FileText,
   GripVertical,
+  History,
+  ExternalLink,
 } from "lucide-react";
+import { formatDistanceToNow, format } from "date-fns";
+import { sk as skLocale } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import type { ApiModule, SyncConfig } from "@shared/schema";
 
@@ -666,6 +670,17 @@ function ModuleHints({ targetCode, sourceCode, targetDataSource, language }: {
   );
 }
 
+interface ConfigSnapshot {
+  id: string;
+  syncConfigId: string;
+  configName: string;
+  snapshotJson: Record<string, any>;
+  googleDriveFileId: string | null;
+  googleDriveUrl: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
 export default function SyncConfigPage() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -676,9 +691,25 @@ export default function SyncConfigPage() {
   const [vatPopover, setVatPopover] = useState<{ configId: string; rate: string } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewSide, setPreviewSide] = useState<"source" | "target">("source");
+  const [snapshotExpandedConfig, setSnapshotExpandedConfig] = useState<string | null>(null);
 
   const { data: modules } = useQuery<ApiModule[]>({ queryKey: ["/api/modules"] });
   const { data: configs, isLoading: configsLoading } = useQuery<EnrichedSyncConfig[]>({ queryKey: ["/api/sync-configs"] });
+  const { data: allSnapshots } = useQuery<ConfigSnapshot[]>({ queryKey: ["/api/config-snapshots"] });
+
+  const snapshotsByConfig = useMemo(() => {
+    const map = new Map<string, ConfigSnapshot[]>();
+    (allSnapshots || []).forEach(s => {
+      const arr = map.get(s.syncConfigId) || [];
+      arr.push(s);
+      map.set(s.syncConfigId, arr);
+    });
+    map.forEach((arr, key) => {
+      arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      map.set(key, arr);
+    });
+    return map;
+  }, [allSnapshots]);
 
   const { data: liveEditedConfig } = useQuery<EnrichedSyncConfig>({
     queryKey: ["/api/sync-configs", editor.id],
@@ -3099,6 +3130,28 @@ export default function SyncConfigPage() {
                               </Badge>
                             );
                           })()}
+                          {(() => {
+                            const snaps = snapshotsByConfig.get(config.id);
+                            if (!snaps || snaps.length === 0) return null;
+                            const latest = snaps[0];
+                            const isSnapshotExpanded = snapshotExpandedConfig === config.id;
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] gap-1 cursor-pointer hover:bg-muted/50 select-none"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setSnapshotExpandedConfig(isSnapshotExpanded ? null : config.id);
+                                  if (!isExpanded) setExpandedConfig(config.id);
+                                }}
+                                title={language === "sk" ? "Zobraziť históriu konfigurácií" : "View config snapshot history"}
+                                data-testid={`badge-snapshot-${config.id}`}
+                              >
+                                <History className="h-2.5 w-2.5" />
+                                {language === "sk" ? "Záloha" : "Backup"}: {formatDistanceToNow(new Date(latest.createdAt), { addSuffix: false, locale: language === "sk" ? skLocale : undefined })}
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                           <span className="font-mono">{config.sourceModule?.code || "?"}</span>
@@ -3270,6 +3323,102 @@ export default function SyncConfigPage() {
                           {language === "sk" ? "Google Drive záloha: aktívna" : "Google Drive backup: active"}
                         </div>
                       )}
+
+                      {(() => {
+                        const snaps = snapshotsByConfig.get(config.id);
+                        if (!snaps || snaps.length === 0) return null;
+                        const isSnapshotExpanded = snapshotExpandedConfig === config.id;
+                        const latest = snaps[0];
+                        return (
+                          <div className="mt-3" data-testid={`snapshot-section-${config.id}`}>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1.5 text-xs font-semibold hover:text-foreground text-muted-foreground transition-colors w-full text-left"
+                              onClick={() => setSnapshotExpandedConfig(isSnapshotExpanded ? null : config.id)}
+                              data-testid={`button-snapshot-toggle-${config.id}`}
+                            >
+                              <History className="h-3 w-3" />
+                              {language === "sk" ? "Zálohy konfigurácie" : "Config snapshots"}
+                              <span className="text-[10px] ml-1 font-normal">({snaps.length})</span>
+                              {isSnapshotExpanded ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                            </button>
+                            {!isSnapshotExpanded && (
+                              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                                {language === "sk" ? "Posledná záloha:" : "Last backup:"}
+                                {" "}
+                                <span className="font-medium">
+                                  {formatDistanceToNow(new Date(latest.createdAt), { addSuffix: true, locale: language === "sk" ? skLocale : undefined })}
+                                </span>
+                                {latest.googleDriveUrl && (
+                                  <a
+                                    href={latest.googleDriveUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground ml-1"
+                                    onClick={e => e.stopPropagation()}
+                                    data-testid={`link-snapshot-drive-latest-${config.id}`}
+                                  >
+                                    <ExternalLink className="h-2.5 w-2.5" />
+                                    Drive
+                                  </a>
+                                )}
+                              </p>
+                            )}
+                            {isSnapshotExpanded && (
+                              <div className="mt-2 space-y-1" data-testid={`snapshot-list-${config.id}`}>
+                                {snaps.slice(0, 5).map((snap, idx) => (
+                                  <div
+                                    key={snap.id}
+                                    className="flex items-center justify-between gap-2 text-xs bg-muted/40 rounded px-2 py-1.5"
+                                    data-testid={`snapshot-item-${config.id}-${idx}`}
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                      <span className="font-mono text-muted-foreground shrink-0">
+                                        {format(new Date(snap.createdAt), "dd.MM.yyyy HH:mm")}
+                                      </span>
+                                      <span className="text-muted-foreground truncate hidden sm:block">
+                                        — {formatDistanceToNow(new Date(snap.createdAt), { addSuffix: true, locale: language === "sk" ? skLocale : undefined })}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {snap.googleDriveFileId ? (
+                                        <Badge variant="outline" className="text-[9px] gap-0.5 px-1">
+                                          <CheckCircle2 className="h-2.5 w-2.5 text-green-600 dark:text-green-400" />
+                                          Drive
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-[9px] gap-0.5 px-1 text-muted-foreground">
+                                          {language === "sk" ? "Lokálne" : "Local"}
+                                        </Badge>
+                                      )}
+                                      {snap.googleDriveUrl && (
+                                        <a
+                                          href={snap.googleDriveUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+                                          onClick={e => e.stopPropagation()}
+                                          data-testid={`link-snapshot-drive-${config.id}-${idx}`}
+                                        >
+                                          <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                                {snaps.length > 5 && (
+                                  <p className="text-[10px] text-muted-foreground text-center pt-0.5">
+                                    {language === "sk"
+                                      ? `+ ${snaps.length - 5} ďalších — zobraziť všetky v Správe záloh`
+                                      : `+ ${snaps.length - 5} more — view all in Backup Management`}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </Card>
