@@ -138,6 +138,7 @@ export interface IStorage {
   getConfigSnapshots(syncConfigId?: string): Promise<ConfigSnapshot[]>;
   deleteConfigSnapshot(id: string): Promise<void>;
   pruneConfigSnapshots(syncConfigId: string, maxCount: number): Promise<void>;
+  updateConfigSnapshotNames(syncConfigId: string, newName: string): Promise<void>;
 
   getAnalyticsOverview(days: number): Promise<{
     perDay: Array<{
@@ -784,6 +785,12 @@ export class DatabaseStorage implements IStorage {
       const toDelete = all.slice(maxCount).map(r => r.id);
       await db.delete(configSnapshots).where(inArray(configSnapshots.id, toDelete));
     }
+  }
+
+  async updateConfigSnapshotNames(syncConfigId: string, newName: string): Promise<void> {
+    await db.update(configSnapshots)
+      .set({ configName: newName })
+      .where(eq(configSnapshots.syncConfigId, syncConfigId));
   }
 }
 
