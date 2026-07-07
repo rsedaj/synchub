@@ -978,6 +978,40 @@ test("restore with moduleIdMap partially succeeds — one config remapped to val
     );
     assert.equal(restoreBody.results.errors.length, 0, "results.errors must be empty for a clean partial restore");
 
+    // 8. Verify the audit log entry written by the restore route
+    //    — action=restore_backup, entityId=snapshotId, details.skipped contains configBName
+    const logsRes = await api(`/api/audit-logs?limit=1000`);
+    assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+    const allLogs = (await logsRes.json()) as Array<{
+      action: string;
+      entity: string;
+      entityId: string;
+      details: Record<string, unknown>;
+    }>;
+
+    const auditEntry = allLogs.find(
+      l =>
+        l.action === "restore_backup" &&
+        l.entity === "config_snapshot" &&
+        l.entityId === snapshotId,
+    );
+    assert.ok(
+      auditEntry !== undefined,
+      `Expected audit log entry for snapshot ${snapshotId} with action=restore_backup. ` +
+        `Recent restore_backup entries: ${JSON.stringify(
+          allLogs.filter(l => l.action === "restore_backup").slice(0, 5),
+        )}`,
+    );
+    const auditSkipped = auditEntry!.details?.skipped as unknown[];
+    assert.ok(
+      Array.isArray(auditSkipped) && auditSkipped.length === 1,
+      `Audit log details.skipped must be an array of length 1 (configB was skipped); got: ${JSON.stringify(auditEntry!.details)}`,
+    );
+    assert.ok(
+      typeof auditSkipped[0] === "string" && (auditSkipped[0] as string).includes(configBName),
+      `Audit log details.skipped[0] must reference "${configBName}"; got: ${JSON.stringify(auditSkipped[0])}`,
+    );
+
     // Push the re-created configA into the cleanup list
     const listRes = await api("/api/sync-configs");
     if (listRes.status === 200) {
