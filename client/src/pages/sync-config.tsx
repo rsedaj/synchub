@@ -3412,42 +3412,54 @@ export default function SyncConfigPage() {
                                     {snaps.slice(0, 5).map((snap, idx) => (
                                       <div
                                         key={snap.id}
-                                        className="flex items-center justify-between gap-2 text-xs bg-muted/40 rounded px-2 py-1.5"
+                                        className="flex flex-col gap-0.5 text-xs bg-muted/40 rounded px-2 py-1.5"
                                         data-testid={`snapshot-item-${config.id}-${idx}`}
                                       >
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <History className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                          <span className="font-mono text-muted-foreground shrink-0">
-                                            {format(new Date(snap.createdAt), "dd.MM.yyyy HH:mm")}
-                                          </span>
-                                          <span className="text-muted-foreground truncate hidden sm:block">
-                                            — {formatDistanceToNow(new Date(snap.createdAt), { addSuffix: true, locale: language === "sk" ? skLocale : undefined })}
-                                          </span>
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                            <span className="font-mono text-muted-foreground shrink-0">
+                                              {format(new Date(snap.createdAt), "dd.MM.yyyy HH:mm")}
+                                            </span>
+                                            <span className="text-muted-foreground truncate hidden sm:block">
+                                              — {formatDistanceToNow(new Date(snap.createdAt), { addSuffix: true, locale: language === "sk" ? skLocale : undefined })}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            {snap.googleDriveFileId ? (
+                                              <Badge variant="outline" className="text-[9px] gap-0.5 px-1">
+                                                <CheckCircle2 className="h-2.5 w-2.5 text-green-600 dark:text-green-400" />
+                                                Drive
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline" className="text-[9px] gap-0.5 px-1 text-muted-foreground">
+                                                {language === "sk" ? "Lokálne" : "Local"}
+                                              </Badge>
+                                            )}
+                                            {snap.googleDriveUrl && (
+                                              <a
+                                                href={snap.googleDriveUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+                                                onClick={e => e.stopPropagation()}
+                                                data-testid={`link-snapshot-drive-${config.id}-${idx}`}
+                                              >
+                                                <ExternalLink className="h-3 w-3" />
+                                              </a>
+                                            )}
+                                          </div>
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          {snap.googleDriveFileId ? (
-                                            <Badge variant="outline" className="text-[9px] gap-0.5 px-1">
-                                              <CheckCircle2 className="h-2.5 w-2.5 text-green-600 dark:text-green-400" />
-                                              Drive
-                                            </Badge>
-                                          ) : (
-                                            <Badge variant="outline" className="text-[9px] gap-0.5 px-1 text-muted-foreground">
-                                              {language === "sk" ? "Lokálne" : "Local"}
-                                            </Badge>
-                                          )}
-                                          {snap.googleDriveUrl && (
-                                            <a
-                                              href={snap.googleDriveUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
-                                              onClick={e => e.stopPropagation()}
-                                              data-testid={`link-snapshot-drive-${config.id}-${idx}`}
-                                            >
-                                              <ExternalLink className="h-3 w-3" />
-                                            </a>
-                                          )}
-                                        </div>
+                                        {snap.configName !== config.name && (
+                                          <p
+                                            className="text-[10px] text-muted-foreground italic pl-4"
+                                            data-testid={`snapshot-historic-name-${config.id}-${idx}`}
+                                          >
+                                            {language === "sk"
+                                              ? `Názov pri zálohe: ${snap.configName}`
+                                              : `Name at backup time: ${snap.configName}`}
+                                          </p>
+                                        )}
                                       </div>
                                     ))}
                                     {snaps.length > 5 && (

@@ -773,11 +773,6 @@ export async function registerRoutes(
         ipAddress: req.ip || null,
       });
       res.json(config);
-      if (changedFields.includes("name") && config.name) {
-        storage.updateConfigSnapshotNames(config.id, config.name).catch(e =>
-          console.warn("[config-snapshot] Failed to sync configName after rename:", e)
-        );
-      }
       snapshotConfigAsync(config, req.user!.id);
       return;
     } catch (err: any) {
