@@ -132,6 +132,60 @@ function fmtAgo(d: string | null) {
   try { return formatDistanceToNow(new Date(d), { addSuffix: true, locale: sk }); } catch { return ""; }
 }
 
+interface DiffEntry {
+  label: string;
+  from: string;
+  to: string;
+}
+
+function formatDiffValue(val: unknown): string {
+  if (val === null || val === undefined) return "–";
+  if (typeof val === "boolean") return val ? "✓" : "✗";
+  if (typeof val === "number") return String(val);
+  if (typeof val === "string") return val.length > 32 ? `${val.slice(0, 30)}…` : val || "–";
+  return String(val);
+}
+
+function computeSnapshotDiff(
+  snap: Record<string, any>,
+  curr: Record<string, any>,
+  t: (k: string) => string,
+): DiffEntry[] {
+  const diffs: DiffEntry[] = [];
+  const simple: Array<[string, string]> = [
+    ["name", "backups.diffFieldName"],
+    ["isEnabled", "backups.diffFieldEnabled"],
+    ["autoRetry", "backups.diffFieldAutoRetry"],
+    ["retryDelayMin", "backups.diffFieldRetryDelay"],
+    ["onMissing", "backups.diffFieldOnMissing"],
+    ["sourceRecordLimit", "backups.diffFieldRecordLimit"],
+    ["notes", "backups.diffFieldNotes"],
+  ];
+  for (const [key, labelKey] of simple) {
+    if (JSON.stringify(snap[key]) !== JSON.stringify(curr[key])) {
+      diffs.push({ label: t(labelKey), from: formatDiffValue(curr[key]), to: formatDiffValue(snap[key]) });
+    }
+  }
+  const snapCount = Array.isArray(snap.fieldMappings) ? snap.fieldMappings.length : 0;
+  const currCount = Array.isArray(curr.fieldMappings) ? curr.fieldMappings.length : 0;
+  if (snapCount !== currCount) {
+    diffs.push({ label: t("backups.diffFieldMappings"), from: String(currCount), to: String(snapCount) });
+  }
+  const snapSched = (snap.schedule || {}) as Record<string, any>;
+  const currSched = (curr.schedule || {}) as Record<string, any>;
+  const schedFields: Array<[string, string]> = [
+    ["enabled", "backups.diffFieldSchedEnabled"],
+    ["frequency", "backups.diffFieldSchedFreq"],
+    ["backupBeforeSync", "backups.diffFieldSchedBackup"],
+  ];
+  for (const [sk, labelKey] of schedFields) {
+    if (JSON.stringify(snapSched[sk]) !== JSON.stringify(currSched[sk])) {
+      diffs.push({ label: t(labelKey), from: formatDiffValue(currSched[sk]), to: formatDiffValue(snapSched[sk]) });
+    }
+  }
+  return diffs;
+}
+
 function StatCard({ label, value, sub, icon: Icon }: { label: string; value: string | number; sub?: string; icon: React.ElementType }) {
   return (
     <div className="border rounded-md p-4">
@@ -153,7 +207,13 @@ export default function BackupManagementPage() {
   const [sortBy, setSortBy] = useState("newest");
   const [expandedConfigs, setExpandedConfigs] = useState<Set<string>>(new Set());
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
-  const [confirmDialog, setConfirmDialog] = useState<{ type: "delete" | "deleteAll" | "restoreSnapshot"; id: string; name: string; date?: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    type: "delete" | "deleteAll" | "restoreSnapshot";
+    id: string;
+    name: string;
+    date?: string;
+    snapshot?: ConfigSnapshot;
+  } | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const { data: backups = [], isLoading, refetch } = useQuery<EnrichedBackup[]>({
@@ -162,6 +222,10 @@ export default function BackupManagementPage() {
 
   const { data: snapshots = [], refetch: refetchSnapshots } = useQuery<ConfigSnapshot[]>({
     queryKey: ["/api/config-snapshots"],
+  });
+
+  const { data: syncConfigs = [] } = useQuery<Array<Record<string, any>>>({
+    queryKey: ["/api/sync-configs"],
   });
 
   const snapshotAllMutation = useMutation({
@@ -688,7 +752,7 @@ export default function BackupManagementPage() {
                           variant="outline"
                           size="sm"
                           className="h-6 px-2 text-[11px] gap-1"
-                          onClick={() => setConfirmDialog({ type: "restoreSnapshot", id: snap.id, name: snap.configName, date: fmtDate(snap.createdAt) })}
+                          onClick={() => setConfirmDialog({ type: "restoreSnapshot", id: snap.id, name: snap.configName, date: fmtDate(snap.createdAt), snapshot: snap })}
                           disabled={restoreSnapshotMutation.isPending}
                           data-testid={`btn-restore-snapshot-${snap.id}`}
                         >
@@ -739,6 +803,41 @@ export default function BackupManagementPage() {
                   : t("backups.confirmDeleteDesc").replace("{name}", confirmDialog?.name || "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {confirmDialog?.type === "restoreSnapshot" && (() => {
+            const currentConfig = syncConfigs.find((c: Record<string, any>) => c.id === confirmDialog.snapshot?.syncConfigId);
+            const diffs = currentConfig && confirmDialog.snapshot
+              ? computeSnapshotDiff(confirmDialog.snapshot.snapshotJson, currentConfig, t)
+              : [];
+            return (
+              <div className="mt-1 border rounded-md text-xs overflow-hidden" data-testid="restore-diff-panel">
+                <div className="px-3 py-2 bg-muted/30 font-medium text-muted-foreground flex items-center gap-1.5 border-b">
+                  <ArrowRight className="h-3 w-3" />
+                  {t("backups.diffTitle")}
+                </div>
+                {!currentConfig ? (
+                  <div className="px-3 py-2.5 text-muted-foreground" data-testid="restore-diff-config-missing">
+                    {t("backups.diffConfigDeleted")}
+                  </div>
+                ) : diffs.length === 0 ? (
+                  <div className="px-3 py-2.5 text-muted-foreground flex items-center gap-1.5" data-testid="restore-diff-no-changes">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                    {t("backups.diffNoChanges")}
+                  </div>
+                ) : (
+                  <div className="divide-y max-h-48 overflow-y-auto" data-testid="restore-diff-list">
+                    {diffs.map(d => (
+                      <div key={d.label} className="flex items-center gap-2 px-3 py-1.5" data-testid={`restore-diff-row-${d.label}`}>
+                        <span className="text-muted-foreground w-36 shrink-0 truncate">{d.label}</span>
+                        <span className="line-through text-muted-foreground/60 truncate max-w-[90px]">{d.from}</span>
+                        <ArrowRight className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                        <span className="font-medium truncate max-w-[90px]">{d.to}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="btn-confirm-cancel">{t("backups.cancel")}</AlertDialogCancel>
             <AlertDialogAction
