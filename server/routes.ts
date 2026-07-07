@@ -1768,6 +1768,18 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/config-snapshots/:configId", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(String(req.params.configId));
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      await snapshotConfigAsync(config, (req.user as any)?.id);
+      const snapshots = await storage.getConfigSnapshots(config.id);
+      return res.json({ ok: true, snapshot: snapshots[0] ?? null });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to snapshot config: ${err.message}` });
+    }
+  });
+
   app.delete("/api/config-snapshots/:id", requireRole("admin", "operator"), async (req, res) => {
     try {
       await storage.deleteConfigSnapshot(String(req.params.id));

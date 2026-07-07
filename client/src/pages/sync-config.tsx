@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/components/language-provider";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -684,6 +685,8 @@ interface ConfigSnapshot {
 export default function SyncConfigPage() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canEdit = user?.role === "admin" || user?.role === "operator";
   const [editorOpen, setEditorOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState>({ ...emptyEditor });
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -818,6 +821,21 @@ export default function SyncConfigPage() {
     const name = item.Ns_Name ?? item.Name ?? item.name ?? "";
     return { code: String(code), name: String(name) };
   }).filter(s => s.code);
+
+  const [snapshottingConfigId, setSnapshottingConfigId] = useState<string | null>(null);
+
+  async function handleSnapshotConfig(configId: string) {
+    setSnapshottingConfigId(configId);
+    try {
+      await apiRequest("POST", `/api/config-snapshots/${configId}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
+      toast({ title: language === "sk" ? "Záloha konfigurácie vytvorená" : "Config snapshot created" });
+    } catch (e: any) {
+      toast({ title: e.message || (language === "sk" ? "Chyba pri zálohe" : "Snapshot failed"), variant: "destructive" });
+    } finally {
+      setSnapshottingConfigId(null);
+    }
+  }
 
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/sync-configs", data),
@@ -3413,6 +3431,23 @@ export default function SyncConfigPage() {
                                       ? `+ ${snaps.length - 5} ďalších — zobraziť všetky v Správe záloh`
                                       : `+ ${snaps.length - 5} more — view all in Backup Management`}
                                   </p>
+                                )}
+                                {canEdit && (
+                                  <div className="pt-1">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs gap-1.5 w-full"
+                                      disabled={snapshottingConfigId === config.id}
+                                      onClick={e => { e.stopPropagation(); handleSnapshotConfig(config.id); }}
+                                      data-testid={`button-snapshot-now-${config.id}`}
+                                    >
+                                      {snapshottingConfigId === config.id
+                                        ? <RefreshCw className="h-3 w-3 animate-spin" />
+                                        : <Save className="h-3 w-3" />}
+                                      {language === "sk" ? "Zálohovať teraz" : "Snapshot now"}
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                             )}
