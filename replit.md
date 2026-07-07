@@ -13,6 +13,7 @@ The project aims to streamline data exchange processes, reduce manual effort, an
 - Security-first approach with audit logging.
 - Slovak interface (default), with an option to switch to English.
 - Copyright: SEDAJ s.r.o.
+- **Always bump APP_VERSION in `shared/version.ts` with every change**, no exceptions.
 
 ## Non-Negotiable Deployment Rules
 
