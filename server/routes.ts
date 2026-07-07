@@ -12,7 +12,7 @@ import { deriveDeferredScope, evaluateIndexGate } from "./deferred-rerun";
 import { deleteBackupFile, getStorageStats, uploadConfigBackup, listConfigBackups, downloadBackup, cleanupOldFolders, uploadConfigSnapshot } from "./google-drive";
 import { runOnixBackup } from "./onix-backup";
 import { readLocalBackup, localBackupExists } from "./local-backup";
-import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup } from "./config-backup";
+import { mapSyncConfigForBackup, restoreSyncConfigsFromBackup, type RestoreSyncConfigsResult } from "./config-backup";
 import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-validation";
 import passport from "passport";
 import bcrypt from "bcryptjs";
@@ -1786,6 +1786,50 @@ export async function registerRoutes(
       return res.json({ ok: true });
     } catch (err: any) {
       return res.status(500).json({ message: `Failed to delete config snapshot: ${err.message}` });
+    }
+  });
+
+  app.post("/api/config-snapshots/:id/restore", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const snapshots = await storage.getConfigSnapshots();
+      const snapshot = snapshots.find(s => s.id === String(req.params.id));
+      if (!snapshot) return res.status(404).json({ message: "Snapshot not found" });
+
+      const snap = snapshot.snapshotJson as any;
+      const results: RestoreSyncConfigsResult = { syncConfigs: 0, skipped: [], errors: [] };
+      await restoreSyncConfigsFromBackup(
+        [snap],
+        {},
+        {
+          getAllSyncConfigs: () => storage.getAllSyncConfigs(),
+          getAllModules: () => storage.getAllModules(),
+          createSyncConfig: (d) => storage.createSyncConfig(d),
+          updateSyncConfig: (id, d) => storage.updateSyncConfig(id, d),
+        },
+        results,
+      );
+
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
+      }
+
+      await storage.createAuditLog({
+        userId: (req.user as any)?.id ?? null,
+        action: "restore_backup",
+        entity: "config_snapshot",
+        entityId: snapshot.id,
+        details: {
+          configName: snapshot.configName,
+          syncConfigId: snapshot.syncConfigId,
+          snapshotId: snapshot.id,
+          skipped: results.skipped,
+        },
+        ipAddress: req.ip || null,
+      });
+
+      return res.json({ ok: true, results });
+    } catch (err: any) {
+      return res.status(500).json({ message: `Failed to restore config snapshot: ${err.message}` });
     }
   });
 

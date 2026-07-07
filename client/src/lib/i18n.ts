@@ -308,6 +308,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "backups.confirmDeleteAllTitle": "Zmazať všetky zálohy?",
     "backups.confirmDeleteAllDesc": "Všetky zálohy integrácie '{name}' budú trvalo vymazané. Táto akcia je nevratná.",
     "backups.cancel": "Zrušiť",
+    "backups.restore": "Obnoviť",
+    "backups.restored": "Konfigurácia obnovená",
+    "backups.confirmRestoreTitle": "Obnoviť konfiguráciu?",
+    "backups.confirmRestoreDesc": "Záloha zo dňa {date} bude aplikovaná späť do konfigurácie \"{name}\". Aktuálne nastavenia budú prepísané.",
+    "backups.confirmRestoreAction": "Áno, obnoviť",
 
     "syncRecords.title": "Katalóg záznamov",
     "syncRecords.subtitle": "Prehľad synchronizovaných záznamov podľa integrácie",
@@ -950,6 +955,11 @@ export const translations: Record<Language, Record<string, string>> = {
     "backups.confirmDeleteAllTitle": "Delete all backups?",
     "backups.confirmDeleteAllDesc": "All backups for integration \"{name}\" will be permanently deleted. This action cannot be undone.",
     "backups.cancel": "Cancel",
+    "backups.restore": "Restore",
+    "backups.restored": "Configuration restored",
+    "backups.confirmRestoreTitle": "Restore configuration?",
+    "backups.confirmRestoreDesc": "The snapshot from {date} will be applied back to configuration \"{name}\". Current settings will be overwritten.",
+    "backups.confirmRestoreAction": "Yes, restore",
 
     "syncRecords.title": "Record Catalog",
     "syncRecords.subtitle": "Overview of synchronized records per integration",

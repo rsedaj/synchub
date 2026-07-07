@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   HardDrive, Download, Trash2, ExternalLink, RefreshCw, Search, X,
   ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Cloud, Server,
-  ArrowRight, FileArchive, Calendar, Database, BookmarkCheck, Save,
+  ArrowRight, FileArchive, Calendar, Database, BookmarkCheck, Save, RotateCcw,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { sk } from "date-fns/locale";
@@ -153,7 +153,7 @@ export default function BackupManagementPage() {
   const [sortBy, setSortBy] = useState("newest");
   const [expandedConfigs, setExpandedConfigs] = useState<Set<string>>(new Set());
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
-  const [confirmDialog, setConfirmDialog] = useState<{ type: "delete" | "deleteAll"; id: string; name: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ type: "delete" | "deleteAll" | "restoreSnapshot"; id: string; name: string; date?: string } | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const { data: backups = [], isLoading, refetch } = useQuery<EnrichedBackup[]>({
@@ -177,6 +177,15 @@ export default function BackupManagementPage() {
     mutationFn: async (id: string) => apiRequest("DELETE", `/api/config-snapshots/${id}`),
     onSuccess: () => {
       toast({ title: "Záloha konfigu odstránená" });
+      queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
+    },
+    onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const restoreSnapshotMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", `/api/config-snapshots/${id}/restore`),
+    onSuccess: () => {
+      toast({ title: t("backups.restored") });
       queryClient.invalidateQueries({ queryKey: ["/api/config-snapshots"] });
     },
     onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
@@ -676,6 +685,17 @@ export default function BackupManagementPage() {
                           </span>
                         )}
                         <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[11px] gap-1"
+                          onClick={() => setConfirmDialog({ type: "restoreSnapshot", id: snap.id, name: snap.configName, date: fmtDate(snap.createdAt) })}
+                          disabled={restoreSnapshotMutation.isPending}
+                          data-testid={`btn-restore-snapshot-${snap.id}`}
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          <span className="hidden sm:inline">{t("backups.restore")}</span>
+                        </Button>
+                        <Button
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
@@ -700,30 +720,41 @@ export default function BackupManagementPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <Trash2 className="h-4 w-4 text-destructive" />
-              {confirmDialog?.type === "deleteAll" ? t("backups.confirmDeleteAllTitle") : t("backups.confirmDeleteTitle")}
+              {confirmDialog?.type === "restoreSnapshot"
+                ? <RotateCcw className="h-4 w-4" />
+                : <Trash2 className="h-4 w-4 text-destructive" />}
+              {confirmDialog?.type === "restoreSnapshot"
+                ? t("backups.confirmRestoreTitle")
+                : confirmDialog?.type === "deleteAll"
+                  ? t("backups.confirmDeleteAllTitle")
+                  : t("backups.confirmDeleteTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmDialog?.type === "deleteAll"
-                ? t("backups.confirmDeleteAllDesc").replace("{name}", confirmDialog?.name || "")
-                : t("backups.confirmDeleteDesc").replace("{name}", confirmDialog?.name || "")}
+              {confirmDialog?.type === "restoreSnapshot"
+                ? t("backups.confirmRestoreDesc")
+                    .replace("{date}", confirmDialog?.date || "")
+                    .replace("{name}", confirmDialog?.name || "")
+                : confirmDialog?.type === "deleteAll"
+                  ? t("backups.confirmDeleteAllDesc").replace("{name}", confirmDialog?.name || "")
+                  : t("backups.confirmDeleteDesc").replace("{name}", confirmDialog?.name || "")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="btn-confirm-cancel">{t("backups.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              data-testid="btn-confirm-delete"
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              data-testid="btn-confirm-action"
+              className={confirmDialog?.type === "restoreSnapshot" ? "" : "bg-destructive hover:bg-destructive/90 text-destructive-foreground"}
               onClick={e => {
                 e.preventDefault();
                 const d = confirmDialog;
                 setConfirmDialog(null);
                 if (!d) return;
-                if (d.type === "delete") deleteBackupMutation.mutate(d.id);
+                if (d.type === "restoreSnapshot") restoreSnapshotMutation.mutate(d.id);
+                else if (d.type === "delete") deleteBackupMutation.mutate(d.id);
                 else deleteAllMutation.mutate(d.id);
               }}
             >
-              {t("backups.delete")}
+              {confirmDialog?.type === "restoreSnapshot" ? t("backups.confirmRestoreAction") : t("backups.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
