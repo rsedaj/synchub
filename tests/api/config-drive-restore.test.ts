@@ -923,6 +923,109 @@ test("Drive restore audit log records details.restored.skipped when a config is 
   }
 });
 
+test("Drive restore users Phase 2 is atomic: a write-time NOT NULL violation rolls back earlier user writes", async () => {
+  // Strategy:
+  //  Phase 1 validates role and isActive but does NOT enforce fullName non-null
+  //  (that constraint lives only in the DB schema). So a backup entry with
+  //  fullName=null passes Phase 1 validation but triggers a PostgreSQL NOT NULL
+  //  constraint violation when Drizzle executes the update in Phase 2.
+  //
+  //  Test layout:
+  //    User A (first in batch): valid update — fullName changed to a sentinel value.
+  //                             Phase 2 writes this first → succeeds inside tx.
+  //    User B (second in batch): fullName=null → passes Phase 1, fails Phase 2
+  //                             NOT NULL constraint → Drizzle rolls back the
+  //                             entire transaction, including user A's write.
+  //  Route must return 422 with a storage error in results.errors, and user A's
+  //  fullName must remain at its original value (transaction rolled back).
+  //
+  //  This guards against a regression where the `db.transaction()` wrapper is
+  //  removed from the users Phase 2 block, which would allow partial writes when
+  //  a write-time storage error occurs mid-batch.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot create temp users via API");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const usernameA = `__test_op_a_${suffix}`;
+  const usernameB = `__test_op_b_${suffix}`;
+  const originalFullNameA = `OriginalA_${suffix}`;
+  const originalFullNameB = `OriginalB_${suffix}`;
+  let userAId = "";
+  let userBId = "";
+
+  try {
+    // 1. Create two temp operator users via the admin API.
+    const createA = await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ username: usernameA, password: "TestPass123!", fullName: originalFullNameA, role: "operator" }),
+    });
+    const createAText = await createA.text();
+    assert.equal(createA.status, 200, `Create user A failed: ${createA.status} — ${createAText}`);
+    userAId = (JSON.parse(createAText) as { id: string }).id;
+
+    const createB = await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ username: usernameB, password: "TestPass123!", fullName: originalFullNameB, role: "operator" }),
+    });
+    const createBText = await createB.text();
+    assert.equal(createB.status, 200, `Create user B failed: ${createB.status} — ${createBText}`);
+    userBId = (JSON.parse(createBText) as { id: string }).id;
+
+    // 2. Build backup: user A has a valid new fullName; user B has fullName=null.
+    //    fullName=null passes Phase 1 (no null-check there) but violates the
+    //    PostgreSQL NOT NULL constraint in Phase 2 → transaction rolls back.
+    const backup = {
+      version: "1.0",
+      type: "config",
+      appVersion: "test",
+      users: [
+        { username: usernameA, fullName: "SHOULD_NOT_BE_WRITTEN_TX", email: null, role: "operator", isActive: true },
+        { username: usernameB, fullName: null, email: null, role: "operator", isActive: true },
+      ],
+    };
+
+    // 3. POST restore — Phase 2 writes user A, then user B throws NOT NULL
+    //    violation → Drizzle rolls back the transaction → 422.
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+      method: "POST",
+      body: JSON.stringify({ backup }),
+    });
+    const restoreText = await restoreRes.text();
+    assert.equal(
+      restoreRes.status,
+      422,
+      `Expected 422 when Phase 2 NOT NULL violation rolls back the user transaction, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      message: string;
+      results: { errors: string[] };
+    };
+    assert.ok(
+      Array.isArray(restoreBody.results?.errors) && restoreBody.results.errors.length > 0,
+      `422 response must include at least one error in results.errors; got: ${restoreText}`,
+    );
+
+    // 4. Assert user A's fullName is UNCHANGED — the transaction rolled it back.
+    const usersRes = await api("/api/users");
+    assert.equal(usersRes.status, 200, "GET /api/users must return 200");
+    const allUsers = (await usersRes.json()) as Array<{ id: string; fullName: string }>;
+    const liveA = allUsers.find(u => u.id === userAId);
+    assert.ok(liveA !== undefined, `User A (${userAId}) must still exist after failed restore`);
+    assert.equal(
+      liveA!.fullName,
+      originalFullNameA,
+      `User A fullName must be UNCHANGED — the DB transaction rolled it back when user B's write failed; ` +
+        `got: "${liveA!.fullName}", expected: "${originalFullNameA}"`,
+    );
+  } finally {
+    if (userAId) await api(`/api/users/${userAId}`, { method: "DELETE" }).catch(() => {});
+    if (userBId) await api(`/api/users/${userBId}`, { method: "DELETE" }).catch(() => {});
+  }
+});
+
 test("Drive restore users section: validate-first prevents partial writes when a user entry has an invalid role", async () => {
   // Strategy:
   //  Both existing users are referenced in the backup. User X (first in the
