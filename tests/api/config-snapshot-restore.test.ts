@@ -1511,6 +1511,143 @@ test("restore with mixed outcome (config A valid, config B name='') — returns 
   );
 });
 
+test("restore Phase 2 is atomic: a storage error mid-batch rolls back earlier writes", async () => {
+  // Strategy:
+  //  Both config A and config B EXIST in the DB (so Phase 1 uses the UPDATE
+  //  path — Zod-only validation, no FK check). The injected snapshot sets config
+  //  B's sourceModuleId to a non-existent UUID that passes z.string().min(1)
+  //  (Zod schema) but violates the FK constraint when Drizzle tries to commit
+  //  the update (Phase 2). Drizzle rolls back the entire transaction — config
+  //  A's write is reverted even though it executed first in the loop.
+  //
+  //  This test guards against a regression where the `db` argument is removed
+  //  from the restoreSyncConfigsFromBackup call in the snapshot restore route,
+  //  which would drop the transaction wrapper and allow a partial write.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot inject multi-config snapshot");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const configAName = `__test_restore_tx_a_${suffix}`;
+  const configBName = `__test_restore_tx_b_${suffix}`;
+
+  // 1. Create config A via API with original fieldMappings [src_a → tgt_a]
+  const createARes = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(baseConfig(configAName)),
+  });
+  assert.equal(createARes.status, 201, `Config A creation failed: ${createARes.status}`);
+  const { id: configAId } = (await createARes.json()) as { id: string };
+  createdConfigIds.push(configAId);
+
+  // 2. Create config B via API — needs to exist in the DB so it takes the
+  //    UPDATE path in Phase 1 (no module-existence check in that branch).
+  const createBRes = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(baseConfig(configBName, {
+      fieldMappings: [{ sourceField: "src_b", targetField: "tgt_b" }],
+    })),
+  });
+  assert.equal(createBRes.status, 201, `Config B creation failed: ${createBRes.status}`);
+  const { id: configBId } = (await createBRes.json()) as { id: string };
+  createdConfigIds.push(configBId);
+
+  // 3. Take a real snapshot of config A so we have a genuine snapshot UUID
+  const snapRes = await api(`/api/config-snapshots/${configAId}`, { method: "POST" });
+  assert.equal(snapRes.status, 200, `Snapshot creation failed: ${snapRes.status}`);
+  const { snapshot } = (await snapRes.json()) as { ok: boolean; snapshot: { id: string } };
+  const snapshotId = snapshot.id;
+
+  // 4. Overwrite snapshot_json with a 2-config array:
+  //      Config A — valid update, changes fieldMappings to [tx_src → tx_tgt],
+  //                 keeps the real sourceModuleId / targetModuleId (valid FKs).
+  //                 Phase 2 writes this first → succeeds.
+  //      Config B — sourceModuleId set to a non-existent UUID. Passes Zod
+  //                 (z.string().min(1)), but triggers a FK constraint violation
+  //                 in Phase 2 → Drizzle rolls back the entire transaction,
+  //                 including config A's write.
+  const NON_EXISTENT_MODULE_ID = "00000000-0000-0000-0000-000000000099";
+  const injectedJson = JSON.stringify([
+    {
+      id: configAId,
+      name: configAName,
+      sourceModuleId: sourceModuleId,
+      targetModuleId: targetModuleId,
+      fieldMappings: [{ sourceField: "tx_src", targetField: "tx_tgt" }],
+      schedule: null,
+      isEnabled: true,
+      autoRetry: false,
+      retryDelayMin: 3,
+    },
+    {
+      id: configBId,
+      name: configBName,
+      sourceModuleId: NON_EXISTENT_MODULE_ID,
+      targetModuleId: targetModuleId,
+      fieldMappings: [{ sourceField: "tx_b_src", targetField: "tx_b_tgt" }],
+      schedule: null,
+      isEnabled: true,
+      autoRetry: false,
+      retryDelayMin: 3,
+    },
+  ]);
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const updateResult = await pool.query(
+      `UPDATE config_snapshots SET snapshot_json = $1::jsonb WHERE id = $2 RETURNING id`,
+      [injectedJson, snapshotId],
+    );
+    assert.equal(
+      updateResult.rowCount,
+      1,
+      `SQL UPDATE matched ${updateResult.rowCount} rows — expected 1 (snapshot ${snapshotId})`,
+    );
+  } finally {
+    await pool.end();
+  }
+
+  // 5. POST restore — Phase 2 writes config A (succeeds), then config B fails
+  //    (FK violation on sourceModuleId). Transaction rolls back → 422.
+  const restoreRes = await api(`/api/config-snapshots/${snapshotId}/restore`, {
+    method: "POST",
+  });
+  const restoreText = await restoreRes.text();
+  assert.equal(
+    restoreRes.status,
+    422,
+    `Expected 422 when Phase 2 FK violation occurs mid-batch, got ${restoreRes.status}: ${restoreText}`,
+  );
+  const restoreBody = JSON.parse(restoreText) as {
+    message: string;
+    results: { errors: string[] };
+  };
+  assert.ok(
+    restoreBody.results?.errors?.length > 0,
+    `422 response must include at least one error in results.errors; got: ${restoreText}`,
+  );
+
+  // 6. Config A must still have its ORIGINAL fieldMappings [src_a → tgt_a].
+  //    The Drizzle transaction rolled back config A's write ("tx_src → tx_tgt")
+  //    when config B's write failed — partial writes must not occur.
+  const listRes = await api("/api/sync-configs");
+  assert.equal(listRes.status, 200, "GET /api/sync-configs must return 200");
+  const configs = (await listRes.json()) as Array<{
+    id: string;
+    fieldMappings: Array<{ sourceField: string; targetField: string }>;
+  }>;
+  const liveConfigA = configs.find(c => c.id === configAId);
+  assert.ok(liveConfigA, `Config A (${configAId}) must still exist after the failed restore`);
+  assert.deepEqual(
+    liveConfigA!.fieldMappings,
+    [{ sourceField: "src_a", targetField: "tgt_a" }],
+    `Config A fieldMappings must be UNCHANGED — the DB transaction rolled back config A's write ` +
+      `when config B's write failed; got: ${JSON.stringify(liveConfigA!.fieldMappings)}`,
+  );
+});
+
 test("restore returns 422 when snapshot data fails schema validation", async () => {
   // This case requires injecting a corrupt snapshotJson directly into the DB because
   // snapshots created through the public API always carry valid data (configs are
