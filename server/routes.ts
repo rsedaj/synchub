@@ -1918,6 +1918,9 @@ export async function registerRoutes(
           },
           results,
         );
+        if (results.errors.length > 0) {
+          return res.status(422).json({ message: results.errors.join("; "), results });
+        }
       }
 
       if (data.users && Array.isArray(data.users)) {

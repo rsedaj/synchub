@@ -1,7 +1,7 @@
 /**
  * Automated API test: POST /api/backups/config-restore-from-drive/:fileId
  *
- * Tests the real Drive restore route's skipped path via a dev/test bypass:
+ * Tests the real Drive restore route via a dev/test bypass:
  * when fileId === "__test__" and NODE_ENV !== "production", the route reads
  * backup JSON from req.body.backup instead of downloading from Google Drive.
  * The rest of the route (validation, restoreSyncConfigsFromBackup, audit log,
@@ -13,8 +13,11 @@
  *     non-empty and results.errors empty.
  *  2. The audit log entry written by the route (entity="config_restore_from_drive")
  *     includes details.restored.skipped as a non-empty array.
+ *  3. When a multi-config payload contains one valid and one invalid config
+ *     (duplicate target fields), the route returns 422 and the valid config's
+ *     DB state is unchanged — confirming the validate-first / atomic guarantee.
  *
- * Both tests require DATABASE_URL (to create/delete temp modules via SQL) and
+ * All tests require DATABASE_URL (to create/delete temp modules via SQL) and
  * are skipped when it is absent.
  *
  * Run against a live dev server:
@@ -195,6 +198,158 @@ test("Drive restore reports skipped when sync config's source module is deleted"
       restoreBody.results.errors.length,
       0,
       `results.errors must be empty for a clean skip; got: ${JSON.stringify(restoreBody.results.errors)}`,
+    );
+  } finally {
+    if (tempSrcModuleId) {
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempSrcModuleId]).catch(() => {});
+    }
+    if (tempTgtModuleId) {
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempTgtModuleId]).catch(() => {});
+    }
+    await pool.end();
+  }
+});
+
+test("Drive restore returns 422 and leaves valid config unchanged when batch contains an invalid config", async () => {
+  // Strategy:
+  //  1. Create two temp modules via SQL.
+  //  2. Create a valid sync config via API referencing those modules with
+  //     fieldMappings [{ sourceField: "orig_src", targetField: "orig_tgt" }].
+  //  3. Build a backup with TWO syncConfig entries:
+  //       - Entry A (valid update): the existing config with fieldMappings
+  //         changed to [{ sourceField: "new_src", targetField: "new_tgt" }].
+  //       - Entry B (invalid): a new config with duplicate target fields
+  //         [{ sourceField: "x", targetField: "dup" }, { sourceField: "y", targetField: "dup" }].
+  //  4. POST backup to /api/backups/config-restore-from-drive/__test__.
+  //  5. Assert HTTP 422 (validate-first means nothing was written).
+  //  6. Assert the valid config still has the ORIGINAL fieldMappings (unchanged).
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot create/delete temp modules via SQL");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const srcCode = `__test_drive_partial_src_${suffix}`;
+  const tgtCode = `__test_drive_partial_tgt_${suffix}`;
+  const configName = `__test_drive_partial_valid_${suffix}`;
+  const invalidConfigName = `__test_drive_partial_invalid_${suffix}`;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let tempSrcModuleId = "";
+  let tempTgtModuleId = "";
+  let configId = "";
+
+  try {
+    // 1. Create two temp modules via SQL
+    const srcResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [srcCode],
+    );
+    tempSrcModuleId = srcResult.rows[0].id;
+
+    const tgtResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [tgtCode],
+    );
+    tempTgtModuleId = tgtResult.rows[0].id;
+
+    // 2. Create a valid sync config via API with the original fieldMappings
+    const createRes = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configName,
+        sourceModuleId: tempSrcModuleId,
+        targetModuleId: tempTgtModuleId,
+        fieldMappings: [{ sourceField: "orig_src", targetField: "orig_tgt" }],
+      }),
+    });
+    const createText = await createRes.text();
+    assert.equal(createRes.status, 201, `Config creation failed: ${createRes.status} — ${createText}`);
+    ({ id: configId } = JSON.parse(createText) as { id: string });
+    createdConfigIds.push(configId);
+
+    // 3. Build a backup with one valid and one invalid syncConfig entry
+    const backup = {
+      version: "1.0",
+      type: "config",
+      appVersion: "test",
+      syncConfigs: [
+        // Entry A — valid update: same name/id, different (valid) fieldMappings
+        {
+          id: configId,
+          name: configName,
+          sourceModuleId: tempSrcModuleId,
+          targetModuleId: tempTgtModuleId,
+          fieldMappings: [{ sourceField: "new_src", targetField: "new_tgt" }],
+          isEnabled: true,
+          autoRetry: false,
+          retryDelayMin: 3,
+          schedule: null,
+        },
+        // Entry B — invalid: duplicate target fields (both map to "dup").
+        // Use a fixed UUID that won't match any existing config.
+        {
+          id: "00000000-dead-beef-cafe-000000000002",
+          name: invalidConfigName,
+          sourceModuleId: tempSrcModuleId,
+          targetModuleId: tempTgtModuleId,
+          fieldMappings: [
+            { sourceField: "x", targetField: "dup" },
+            { sourceField: "y", targetField: "dup" },
+          ],
+          isEnabled: true,
+          autoRetry: false,
+          retryDelayMin: 3,
+          schedule: null,
+        },
+      ],
+    };
+
+    // 4. POST to the real Drive restore route via the dev/test bypass
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+      method: "POST",
+      body: JSON.stringify({ backup }),
+    });
+    const restoreText = await restoreRes.text();
+
+    // 5. Assert 422 — validation failed, nothing written
+    assert.equal(
+      restoreRes.status,
+      422,
+      `Expected 422 from Drive restore route when batch contains an invalid config, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      message: string;
+      results: { syncConfigs: number; skipped: string[]; errors: string[] };
+    };
+    assert.ok(
+      restoreBody.results.errors.length > 0,
+      `results.errors must be non-empty; got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(
+      restoreBody.results.syncConfigs,
+      0,
+      `results.syncConfigs must be 0 (no writes); got: ${restoreBody.results.syncConfigs}`,
+    );
+
+    // 6. Assert the valid config still has the ORIGINAL fieldMappings
+    const listRes = await api("/api/sync-configs");
+    assert.equal(listRes.status, 200, "GET /api/sync-configs must return 200");
+    const configs = (await listRes.json()) as Array<{
+      id: string;
+      fieldMappings: Array<{ sourceField: string; targetField: string }>;
+    }>;
+    const liveConfig = configs.find(c => c.id === configId);
+    assert.ok(liveConfig, `Config ${configId} must still exist`);
+    assert.deepEqual(
+      liveConfig!.fieldMappings,
+      [{ sourceField: "orig_src", targetField: "orig_tgt" }],
+      `Config fieldMappings must be unchanged (validate-first guarantee); got: ${JSON.stringify(liveConfig!.fieldMappings)}`,
     );
   } finally {
     if (tempSrcModuleId) {
