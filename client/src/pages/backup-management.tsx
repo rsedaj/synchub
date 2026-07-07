@@ -152,14 +152,13 @@ function computeSnapshotDiff(
   t: (k: string) => string,
 ): DiffEntry[] {
   const diffs: DiffEntry[] = [];
+  // Only compare fields that mapSyncConfigForBackup() stores AND restoreSyncConfigsFromBackup() applies:
+  // name, sourceModuleId, targetModuleId, fieldMappings, schedule, isEnabled, autoRetry, retryDelayMin
   const simple: Array<[string, string]> = [
     ["name", "backups.diffFieldName"],
     ["isEnabled", "backups.diffFieldEnabled"],
     ["autoRetry", "backups.diffFieldAutoRetry"],
     ["retryDelayMin", "backups.diffFieldRetryDelay"],
-    ["onMissing", "backups.diffFieldOnMissing"],
-    ["sourceRecordLimit", "backups.diffFieldRecordLimit"],
-    ["notes", "backups.diffFieldNotes"],
   ];
   for (const [key, labelKey] of simple) {
     if (JSON.stringify(snap[key]) !== JSON.stringify(curr[key])) {
