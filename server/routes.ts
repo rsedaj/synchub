@@ -1881,29 +1881,63 @@ export async function registerRoutes(
 
       if (data.modules && Array.isArray(data.modules)) {
         const existingModules = await storage.getAllModules();
+
+        // Phase 1: validate all module entries without touching the DB.
+        // Any validation failure blocks ALL writes (all-or-nothing semantics,
+        // mirrors the validate-first pattern in restoreSyncConfigsFromBackup).
+        type PendingModuleOp = {
+          existingId: string;
+          backupId: string;
+          code: string;
+          payload: Parameters<typeof storage.updateModule>[1];
+        };
+        const pendingModuleOps: PendingModuleOp[] = [];
+
         for (const imp of data.modules) {
-          try {
-            const existing = existingModules.find(m => m.code === imp.code);
-            if (existing) {
-              moduleIdMap[imp.id] = existing.id;
-              await storage.updateModule(existing.id, {
-                name: imp.name,
-                description: imp.description,
-                baseUrl: imp.baseUrl,
-                status: imp.status,
-                config: imp.config,
-                dataFields: imp.dataFields,
-                docsUrl: imp.docsUrl,
-                sortOrder: imp.sortOrder,
-              });
+          const existing = existingModules.find((m: any) => m.code === imp.code);
+          if (!existing) {
+            results.skipped.push(`Module ${imp.code}: not found in current system`);
+            continue;
+          }
+          if (typeof imp.name !== "string" || imp.name.trim().length === 0) {
+            results.errors.push(`Module ${imp.code}: name must be a non-empty string`);
+            continue;
+          }
+          pendingModuleOps.push({
+            existingId: existing.id,
+            backupId: imp.id ?? existing.id,
+            code: imp.code,
+            payload: {
+              name: imp.name,
+              description: imp.description,
+              baseUrl: imp.baseUrl,
+              status: imp.status,
+              config: imp.config,
+              dataFields: imp.dataFields,
+              docsUrl: imp.docsUrl,
+              sortOrder: imp.sortOrder,
+            },
+          });
+        }
+
+        // Phase 2: execute writes only when Phase 1 found no errors.
+        if (results.errors.length === 0) {
+          for (const op of pendingModuleOps) {
+            try {
+              moduleIdMap[op.backupId] = op.existingId;
+              await storage.updateModule(op.existingId, op.payload);
               results.modules++;
-            } else {
-              results.skipped.push(`Module ${imp.code}: not found in current system`);
+            } catch (e: any) {
+              results.errors.push(`Module ${op.code}: ${e.message}`);
             }
-          } catch (e: any) {
-            results.errors.push(`Module ${imp.code}: ${e.message}`);
           }
         }
+      }
+
+      // 422 guard after modules — stop processing if any module entry failed
+      // validation (mirrors the identical guard after syncConfigs below).
+      if (results.errors.length > 0) {
+        return res.status(422).json({ message: results.errors.join("; "), results });
       }
 
       if (data.syncConfigs && Array.isArray(data.syncConfigs)) {

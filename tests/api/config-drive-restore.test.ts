@@ -362,6 +362,94 @@ test("Drive restore returns 422 and leaves valid config unchanged when batch con
   }
 });
 
+test("Drive restore returns 422 and leaves valid module unchanged when batch contains an invalid module (empty name)", async () => {
+  // Confirms the validate-first guarantee for the modules section:
+  // when one module entry has an empty name, Phase 1 adds it to results.errors,
+  // Phase 2 writes nothing, and the 422 guard fires — so the valid module's
+  // name in the DB remains unchanged.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot introspect module state via SQL");
+    return;
+  }
+
+  // 1. Fetch two real modules that exist in the system
+  const modulesRes = await api("/api/modules");
+  assert.equal(modulesRes.status, 200, "GET /api/modules must return 200");
+  const modules = (await modulesRes.json()) as Array<{ id: string; code: string; name: string }>;
+  assert.ok(modules.length >= 2, `Need at least 2 modules, found ${modules.length}`);
+  const modA = modules[0];
+  const modB = modules[1];
+
+  const originalNameA = modA.name;
+
+  // 2. Build backup: module A is valid (name = updated), module B is invalid (name = "")
+  const updatedNameA = `__drive_test_updated_${Date.now()}`;
+  const backup = {
+    version: "1.0",
+    type: "config",
+    appVersion: "test",
+    modules: [
+      {
+        id: modA.id,
+        code: modA.code,
+        name: updatedNameA,    // valid — would be applied if not for the 422
+        status: "disconnected",
+        sortOrder: 999,
+        config: {},
+        dataFields: [],
+      },
+      {
+        id: modB.id,
+        code: modB.code,
+        name: "",              // INVALID — triggers Phase 1 error
+        status: "disconnected",
+        sortOrder: 999,
+        config: {},
+        dataFields: [],
+      },
+    ],
+  };
+
+  // 3. POST to the real Drive restore route using the dev/test bypass
+  const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+    method: "POST",
+    body: JSON.stringify({ backup }),
+  });
+  const restoreText = await restoreRes.text();
+  assert.equal(
+    restoreRes.status,
+    422,
+    `Expected 422 when module batch has an invalid entry, got ${restoreRes.status}: ${restoreText}`,
+  );
+  const restoreBody = JSON.parse(restoreText) as {
+    results: { modules: number; errors: string[] };
+  };
+  assert.ok(
+    restoreBody.results.errors.length > 0,
+    `results.errors must be non-empty; got: ${JSON.stringify(restoreBody.results)}`,
+  );
+  assert.equal(
+    restoreBody.results.modules,
+    0,
+    `results.modules must be 0 — validate-first guarantees no writes; got: ${restoreBody.results.modules}`,
+  );
+
+  // 4. Assert module A's name was NOT changed (validate-first held)
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const row = await pool.query(`SELECT name FROM api_modules WHERE id = $1`, [modA.id]);
+    assert.equal(row.rows.length, 1, `Module ${modA.id} must still exist in the DB`);
+    assert.equal(
+      row.rows[0].name,
+      originalNameA,
+      `Module A name must be unchanged ("${originalNameA}"), got: "${row.rows[0].name}"`,
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
 test("Drive restore audit log records details.restored.skipped when a config is skipped", async () => {
   // Same setup as the first test, but verifies the audit log entry written by
   // the real Drive restore route (entity="config_restore_from_drive") includes
