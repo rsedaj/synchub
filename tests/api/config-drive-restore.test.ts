@@ -1,18 +1,18 @@
 /**
- * Automated API test: POST /api/backups/config-restore-inline (dev/test only)
+ * Automated API test: POST /api/backups/config-restore-from-drive/:fileId
  *
- * Tests the same restoreSyncConfigsFromBackup() code-path that the real
- * POST /api/backups/config-restore-from-drive/:fileId route uses, but via an
- * inline endpoint that accepts backup JSON directly instead of downloading from
- * Google Drive.  The inline endpoint is only registered when
- * NODE_ENV !== "production", so it cannot be used in live deployments.
+ * Tests the real Drive restore route's skipped path via a dev/test bypass:
+ * when fileId === "__test__" and NODE_ENV !== "production", the route reads
+ * backup JSON from req.body.backup instead of downloading from Google Drive.
+ * The rest of the route (validation, restoreSyncConfigsFromBackup, audit log,
+ * response shape) runs identically to a real Drive restore.
  *
  * Verifies that:
- *  1. When the sync config referenced in a backup no longer exists AND the
- *     source module has been deleted, the restore returns HTTP 200 with
- *     results.skipped non-empty and results.errors empty.
- *  2. The audit log entry for the restore includes details.restored.skipped as
- *     a non-empty array.
+ *  1. When the sync config in the backup no longer exists AND the source module
+ *     has been deleted, the route returns HTTP 200 with results.skipped
+ *     non-empty and results.errors empty.
+ *  2. The audit log entry written by the route (entity="config_restore_from_drive")
+ *     includes details.restored.skipped as a non-empty array.
  *
  * Both tests require DATABASE_URL (to create/delete temp modules via SQL) and
  * are skipped when it is absent.
@@ -29,6 +29,10 @@ import pg from "pg";
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:5000";
 const USERNAME = process.env.TEST_USERNAME || "admin";
 const PASSWORD = process.env.TEST_PASSWORD || "admin123";
+
+// Sentinel file ID — routes.ts treats this as a test bypass when
+// NODE_ENV !== "production", reading backup from req.body.backup.
+const TEST_FILE_ID = "__test__";
 
 let cookie = "";
 const createdConfigIds: string[] = [];
@@ -77,14 +81,15 @@ after(async () => {
 // Tests
 // ---------------------------------------------------------------------------
 
-test("inline restore reports skipped when sync config's source module is deleted", async () => {
+test("Drive restore reports skipped when sync config's source module is deleted", async () => {
   // Strategy:
   //  1. Create two temp modules via SQL.
   //  2. Create a sync config via API referencing those modules.
-  //  3. Build an in-memory backup JSON (the same shape as a Drive backup).
+  //  3. Build an in-memory backup JSON (same shape as a real Drive backup).
   //  4. Delete the sync config (so restore can't find it by id or name).
-  //  5. Delete the source module via SQL (so the re-create path is also blocked).
-  //  6. POST the backup JSON to the inline restore endpoint.
+  //  5. Delete the source module via SQL (blocks the re-create path).
+  //  6. POST backup to /api/backups/config-restore-from-drive/__test__
+  //     (the real Drive route, using the dev/test bypass for the download step).
   //  7. Assert HTTP 200, results.skipped non-empty, results.errors empty.
 
   if (!process.env.DATABASE_URL) {
@@ -135,7 +140,7 @@ test("inline restore reports skipped when sync config's source module is deleted
     ({ id: configId } = JSON.parse(createText) as { id: string });
     createdConfigIds.push(configId);
 
-    // 3. Build a minimal backup JSON matching the Drive backup format
+    // 3. Build backup JSON matching the Drive backup format
     const backup = {
       version: "1.0",
       type: "config",
@@ -165,8 +170,8 @@ test("inline restore reports skipped when sync config's source module is deleted
     await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempSrcModuleId]);
     tempSrcModuleId = "";
 
-    // 6. POST backup JSON to inline restore endpoint
-    const restoreRes = await api("/api/backups/config-restore-inline", {
+    // 6. POST to the real Drive restore route using the dev/test bypass
+    const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
       method: "POST",
       body: JSON.stringify({ backup }),
     });
@@ -174,7 +179,7 @@ test("inline restore reports skipped when sync config's source module is deleted
     assert.equal(
       restoreRes.status,
       200,
-      `Expected 200 from inline restore, got ${restoreRes.status}: ${restoreText}`,
+      `Expected 200 from Drive restore route, got ${restoreRes.status}: ${restoreText}`,
     );
     const restoreBody = JSON.parse(restoreText) as {
       success: boolean;
@@ -202,9 +207,10 @@ test("inline restore reports skipped when sync config's source module is deleted
   }
 });
 
-test("inline restore audit log records details.restored.skipped when a config is skipped", async () => {
-  // Same setup as the first test, but verifies the audit log entry records the
-  // skipped array so operators can see what was missed after a restore.
+test("Drive restore audit log records details.restored.skipped when a config is skipped", async () => {
+  // Same setup as the first test, but verifies the audit log entry written by
+  // the real Drive restore route (entity="config_restore_from_drive") includes
+  // details.restored.skipped as a non-empty array.
 
   if (!process.env.DATABASE_URL) {
     console.log("SKIP: DATABASE_URL not set — cannot create/delete temp modules via SQL");
@@ -280,15 +286,15 @@ test("inline restore audit log records details.restored.skipped when a config is
     tempSrcModuleId = "";
 
     const restoreText = await (
-      await api("/api/backups/config-restore-inline", {
+      await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
         method: "POST",
         body: JSON.stringify({ backup }),
       })
     ).text();
     const restoreBody = JSON.parse(restoreText) as { success: boolean };
-    assert.ok(restoreBody.success, `Restore must succeed, got: ${restoreText}`);
+    assert.ok(restoreBody.success, `Drive restore must succeed, got: ${restoreText}`);
 
-    // Check audit log: entity="config_restore_inline", details.restored.skipped non-empty
+    // Check audit log: entity="config_restore_from_drive", details.restored.skipped non-empty
     const logsRes = await api("/api/audit-logs?limit=1000");
     assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
     const allLogs = (await logsRes.json()) as Array<{
@@ -298,11 +304,11 @@ test("inline restore audit log records details.restored.skipped when a config is
     }>;
 
     const entry = allLogs.find(
-      l => l.action === "update" && l.entity === "config_restore_inline",
+      l => l.action === "update" && l.entity === "config_restore_from_drive",
     );
     assert.ok(
       entry !== undefined,
-      `Expected an audit log entry with action=update / entity=config_restore_inline. ` +
+      `Expected an audit log entry with action=update / entity=config_restore_from_drive. ` +
         `Recent update entries: ${JSON.stringify(
           allLogs.filter(l => l.action === "update").slice(0, 5),
         )}`,
