@@ -458,13 +458,16 @@ test("Drive restore with mixed module and config errors returns 422 and no parti
   //  1. Create two temp modules (src + tgt) via SQL.
   //  2. Create a valid sync config referencing those modules.
   //  3. Build a backup with:
-  //       - A modules section containing one entry for the src module but with an
-  //         invalid status value ("__invalid_status__") — causes storage.updateModule
-  //         to throw a DB enum error → goes into results.errors.
-  //       - A syncConfigs section containing an invalid config (duplicate target fields).
+  //       - A modules section containing one entry for the src module but with
+  //         name="" — triggers the explicit Phase 1 validation guard in routes.ts
+  //         ("name must be a non-empty string") so no DB write is attempted for
+  //         the module at all.
+  //       - A syncConfigs section containing an invalid config (duplicate target
+  //         fields) — would also 422 if the modules guard didn't fire first.
   //  4. POST backup to /api/backups/config-restore-from-drive/__test__.
-  //  5. Assert HTTP 422 (module errors halt processing before configs are touched).
-  //  6. Assert the src module still has its original name/status (no partial write).
+  //  5. Assert HTTP 422 — modules Phase 1 guard fires, syncConfig section is
+  //     never reached (single error path, no partial writes).
+  //  6. Assert the src module still has its original name/status (no write attempted).
   //  7. Assert the valid sync config still has its ORIGINAL fieldMappings (not touched).
 
   if (!process.env.DATABASE_URL) {
@@ -517,8 +520,9 @@ test("Drive restore with mixed module and config errors returns 422 and no parti
     createdConfigIds.push(configId);
 
     // 3. Build a backup with a failing module entry AND a failing syncConfig entry.
-    //    The module entry uses an invalid status enum value to force a DB error.
-    //    The syncConfig entry has duplicate target fields.
+    //    The module entry has name="" which triggers the Phase 1 validation guard
+    //    (routes.ts: "name must be a non-empty string") — no DB write is attempted.
+    //    The syncConfig entry has duplicate target fields (would 422 if reached).
     const backup = {
       version: "1.0",
       type: "config",
@@ -527,11 +531,10 @@ test("Drive restore with mixed module and config errors returns 422 and no parti
         {
           id: tempSrcModuleId,
           code: srcCode,
-          name: "attempted_overwrite_name",
+          name: "",               // INVALID — triggers Phase 1 modules 422 guard
           description: null,
           baseUrl: null,
-          // Invalid enum value — pg will throw for module_status type
-          status: "__invalid_status__",
+          status: "disconnected", // valid status; error is name-only
           config: {},
           dataFields: [],
           docsUrl: null,
@@ -626,7 +629,6 @@ test("Drive restore with mixed module and config errors returns 422 and no parti
     if (tempTgtModuleId) {
       await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempTgtModuleId]).catch(() => {});
     }
->>>>>>> d39e554 (Add 422 guard after modules loop in Drive restore + mixed-error integration test)
     await pool.end();
   }
 });
