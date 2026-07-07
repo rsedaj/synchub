@@ -1029,6 +1029,235 @@ test("restore with moduleIdMap partially succeeds — one config remapped to val
   }
 });
 
+test("restore with all configs remapped to ghost IDs — audit log details.skipped contains all N skipped configs", async () => {
+  // Exercises the all-skipped path in restoreSyncConfigsFromBackup:
+  //   - Snapshot contains 2 configs.
+  //   - Both source module IDs are remapped to non-existent (ghost) UUIDs.
+  //   - Expected: results.syncConfigs === 0, results.skipped.length === 2, results.errors === []
+  //   - Audit log must be written with action=restore_backup and details.skipped of length 2
+  //     referencing both config names (errors is empty so the audit write proceeds).
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot inject multi-config snapshot");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const srcACode = `__test_srcA_allskip_${suffix}`;
+  const tgtACode = `__test_tgtA_allskip_${suffix}`;
+  const srcBCode = `__test_srcB_allskip_${suffix}`;
+  const tgtBCode = `__test_tgtB_allskip_${suffix}`;
+  const configAName = `__test_configA_allskip_${suffix}`;
+  const configBName = `__test_configB_allskip_${suffix}`;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let tempSrcAId = "";
+  let tempTgtAId = "";
+  let tempSrcBId = "";
+  let tempTgtBId = "";
+  let configAId = "";
+  let configBId = "";
+  let snapshotId = "";
+
+  try {
+    // 1. Create 4 temp modules via SQL
+    const rA = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [srcACode],
+    );
+    tempSrcAId = rA.rows[0].id;
+
+    const rB = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [tgtACode],
+    );
+    tempTgtAId = rB.rows[0].id;
+
+    const rC = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [srcBCode],
+    );
+    tempSrcBId = rC.rows[0].id;
+
+    const rD = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]') RETURNING id`,
+      [tgtBCode],
+    );
+    tempTgtBId = rD.rows[0].id;
+
+    // 2. Create two sync configs via the API
+    const createA = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configAName,
+        sourceModuleId: tempSrcAId,
+        targetModuleId: tempTgtAId,
+        fieldMappings: [{ sourceField: "fa_src", targetField: "fa_tgt" }],
+      }),
+    });
+    const createAText = await createA.text();
+    assert.equal(createA.status, 201, `Config A creation failed: ${createA.status} — ${createAText}`);
+    ({ id: configAId } = JSON.parse(createAText) as { id: string });
+    createdConfigIds.push(configAId);
+
+    const createB = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configBName,
+        sourceModuleId: tempSrcBId,
+        targetModuleId: tempTgtBId,
+        fieldMappings: [{ sourceField: "fb_src", targetField: "fb_tgt" }],
+      }),
+    });
+    const createBText = await createB.text();
+    assert.equal(createB.status, 201, `Config B creation failed: ${createB.status} — ${createBText}`);
+    ({ id: configBId } = JSON.parse(createBText) as { id: string });
+    createdConfigIds.push(configBId);
+
+    // 3. Create a snapshot of configA (to obtain a real snapshot row in the DB)
+    const snapRes = await api(`/api/config-snapshots/${configAId}`, { method: "POST" });
+    assert.equal(snapRes.status, 200, `Snapshot creation failed: ${snapRes.status}`);
+    const snapBody = (await snapRes.json()) as { ok: boolean; snapshot: { id: string } };
+    assert.ok(snapBody.ok, "Snapshot must report ok=true");
+    snapshotId = snapBody.snapshot.id;
+
+    // 4. Inject a 2-config array into snapshot_json via SQL
+    const multiConfigJson = JSON.stringify([
+      {
+        id: configAId,
+        name: configAName,
+        sourceModuleId: tempSrcAId,
+        targetModuleId: tempTgtAId,
+        fieldMappings: [{ sourceField: "fa_src", targetField: "fa_tgt" }],
+        schedule: null,
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      },
+      {
+        id: configBId,
+        name: configBName,
+        sourceModuleId: tempSrcBId,
+        targetModuleId: tempTgtBId,
+        fieldMappings: [{ sourceField: "fb_src", targetField: "fb_tgt" }],
+        schedule: null,
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      },
+    ]);
+    const updateResult = await pool.query(
+      `UPDATE config_snapshots SET snapshot_json = $1::jsonb WHERE id = $2 RETURNING id`,
+      [multiConfigJson, snapshotId],
+    );
+    assert.equal(
+      updateResult.rowCount,
+      1,
+      `SQL UPDATE matched ${updateResult.rowCount} rows — expected 1 (snapshot ${snapshotId})`,
+    );
+
+    // 5. Delete both sync configs so restore must attempt to re-create them
+    const delA = await api(`/api/sync-configs/${configAId}`, { method: "DELETE" });
+    assert.equal(delA.status, 200, `Config A delete failed: ${delA.status}`);
+    const idxA = createdConfigIds.indexOf(configAId);
+    if (idxA !== -1) createdConfigIds.splice(idxA, 1);
+
+    const delB = await api(`/api/sync-configs/${configBId}`, { method: "DELETE" });
+    assert.equal(delB.status, 200, `Config B delete failed: ${delB.status}`);
+    const idxB = createdConfigIds.indexOf(configBId);
+    if (idxB !== -1) createdConfigIds.splice(idxB, 1);
+
+    // 6. Build moduleIdMap that remaps BOTH source modules to ghost UUIDs
+    const ghostSrcAId = "00000000-dead-beef-0004-000000000004";
+    const ghostSrcBId = "00000000-dead-beef-0005-000000000005";
+    const moduleIdMap: Record<string, string> = {
+      [tempSrcAId]: ghostSrcAId,
+      [tempSrcBId]: ghostSrcBId,
+    };
+
+    // 7. Restore — must return 200, syncConfigs=0, skipped.length=2, errors=[]
+    const restoreRes = await api(`/api/config-snapshots/${snapshotId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ moduleIdMap }),
+    });
+    const restoreText = await restoreRes.text();
+    assert.equal(
+      restoreRes.status,
+      200,
+      `Expected 200 for all-skipped restore, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      ok: boolean;
+      results: { syncConfigs: number; skipped: string[]; errors: string[] };
+    };
+    assert.ok(restoreBody.ok, `Restore must report ok=true, got: ${restoreText}`);
+    assert.equal(
+      restoreBody.results.syncConfigs,
+      0,
+      `results.syncConfigs must be 0 (both configs remapped to ghost); got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(
+      restoreBody.results.skipped.length,
+      2,
+      `results.skipped must have 2 entries (both configs remapped to ghost); got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(
+      restoreBody.results.errors.length,
+      0,
+      `results.errors must be empty for an all-skipped restore; got: ${JSON.stringify(restoreBody.results)}`,
+    );
+
+    // 8. Verify the audit log entry written by the restore route
+    //    — action=restore_backup, entityId=snapshotId, details.skipped contains both config names
+    const logsRes = await api(`/api/audit-logs?limit=1000`);
+    assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+    const allLogs = (await logsRes.json()) as Array<{
+      action: string;
+      entity: string;
+      entityId: string;
+      details: Record<string, unknown>;
+    }>;
+
+    const auditEntry = allLogs.find(
+      l =>
+        l.action === "restore_backup" &&
+        l.entity === "config_snapshot" &&
+        l.entityId === snapshotId,
+    );
+    assert.ok(
+      auditEntry !== undefined,
+      `Expected audit log entry for snapshot ${snapshotId} with action=restore_backup. ` +
+        `Recent restore_backup entries: ${JSON.stringify(
+          allLogs.filter(l => l.action === "restore_backup").slice(0, 5),
+        )}`,
+    );
+    const auditSkipped = auditEntry!.details?.skipped as unknown[];
+    assert.ok(
+      Array.isArray(auditSkipped) && auditSkipped.length === 2,
+      `Audit log details.skipped must be an array of length 2 (both configs were skipped); got: ${JSON.stringify(auditEntry!.details)}`,
+    );
+    assert.ok(
+      auditSkipped.some(s => typeof s === "string" && (s as string).includes(configAName)),
+      `Audit log details.skipped must reference "${configAName}"; got: ${JSON.stringify(auditSkipped)}`,
+    );
+    assert.ok(
+      auditSkipped.some(s => typeof s === "string" && (s as string).includes(configBName)),
+      `Audit log details.skipped must reference "${configBName}"; got: ${JSON.stringify(auditSkipped)}`,
+    );
+  } finally {
+    for (const id of [tempSrcAId, tempTgtAId, tempSrcBId, tempTgtBId]) {
+      if (id) {
+        await pool.query(`DELETE FROM api_modules WHERE id = $1`, [id]).catch(() => {});
+      }
+    }
+    await pool.end();
+  }
+});
+
 test("restore returns 422 when snapshot data fails schema validation", async () => {
   // This case requires injecting a corrupt snapshotJson directly into the DB because
   // snapshots created through the public API always carry valid data (configs are
