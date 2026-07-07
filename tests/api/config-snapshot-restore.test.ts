@@ -249,6 +249,142 @@ test("restore writes an audit log entry with action=restore_backup", async () =>
   );
 });
 
+test("restore reports skipped when config's source module is deleted", async () => {
+  // This test exercises the skipped path in restoreSyncConfigsFromBackup:
+  //   config not found by id or name  AND  source/target module no longer exists
+  //
+  // There is no public DELETE /api/modules endpoint, so we create and remove
+  // the temp modules directly via PostgreSQL — the same technique the 422 test
+  // uses to inject a corrupt snapshot.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot create/delete temp modules");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const srcCode = `__test_src_${suffix}`;
+  const tgtCode = `__test_tgt_${suffix}`;
+  const configName = `__test_restore_skipped_${suffix}`;
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  let tempSrcModuleId = "";
+  let tempTgtModuleId = "";
+  let configId = "";
+  let snapshotId = "";
+
+  try {
+    // 1. Create two temp modules via SQL
+    const srcResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [srcCode],
+    );
+    tempSrcModuleId = srcResult.rows[0].id;
+
+    const tgtResult = await pool.query(
+      `INSERT INTO api_modules (code, name, status, sort_order, is_active, config, data_fields)
+       VALUES ($1, $1, 'disconnected', 999, true, '{}', '[]')
+       RETURNING id`,
+      [tgtCode],
+    );
+    tempTgtModuleId = tgtResult.rows[0].id;
+
+    // 2. Create a sync config referencing the temp modules
+    const createRes = await api("/api/sync-configs", {
+      method: "POST",
+      body: JSON.stringify({
+        name: configName,
+        sourceModuleId: tempSrcModuleId,
+        targetModuleId: tempTgtModuleId,
+        fieldMappings: [{ sourceField: "f_src", targetField: "f_tgt" }],
+      }),
+    });
+    const createText = await createRes.text();
+    assert.equal(createRes.status, 201, `Config creation failed: ${createRes.status} — ${createText}`);
+    ({ id: configId } = JSON.parse(createText) as { id: string });
+    createdConfigIds.push(configId); // ensure cleanup even if test fails mid-way
+
+    // 3. Take a snapshot
+    const snapRes = await api(`/api/config-snapshots/${configId}`, { method: "POST" });
+    assert.equal(snapRes.status, 200, `Snapshot creation failed: ${snapRes.status}`);
+    const snapBody = (await snapRes.json()) as { ok: boolean; snapshot: { id: string } };
+    assert.ok(snapBody.ok, "Snapshot must report ok=true");
+    snapshotId = snapBody.snapshot.id;
+
+    // 4. Delete the sync config so the restore can't find it by id or name
+    const delConfigRes = await api(`/api/sync-configs/${configId}`, { method: "DELETE" });
+    assert.equal(delConfigRes.status, 200, `Config delete failed: ${delConfigRes.status}`);
+    // Remove from cleanup list — already gone
+    const idx = createdConfigIds.indexOf(configId);
+    if (idx !== -1) createdConfigIds.splice(idx, 1);
+
+    // 5. Delete the source module via SQL so the re-create path is blocked
+    await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempSrcModuleId]);
+    tempSrcModuleId = ""; // mark as cleaned up
+
+    // 6. Restore — must succeed (200) but report the config as skipped
+    const restoreRes = await api(`/api/config-snapshots/${snapshotId}/restore`, {
+      method: "POST",
+    });
+    const restoreText = await restoreRes.text();
+    assert.equal(
+      restoreRes.status,
+      200,
+      `Expected 200 for skipped restore, got ${restoreRes.status}: ${restoreText}`,
+    );
+    const restoreBody = JSON.parse(restoreText) as {
+      ok: boolean;
+      results: { syncConfigs: number; skipped: string[]; errors: string[] };
+    };
+    assert.ok(restoreBody.ok, `Restore must report ok=true, got: ${restoreText}`);
+    assert.ok(
+      restoreBody.results.skipped.length > 0,
+      `results.skipped must be non-empty when source module is deleted; got: ${JSON.stringify(restoreBody.results)}`,
+    );
+    assert.equal(restoreBody.results.errors.length, 0, "results.errors must be empty for a clean skip");
+
+    // 7. Assert the audit log details.skipped is non-empty for this restore
+    const logsRes = await api(`/api/audit-logs?limit=1000`);
+    assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+    const allLogs = (await logsRes.json()) as Array<{
+      action: string;
+      entity: string;
+      entityId: string;
+      details: Record<string, unknown>;
+    }>;
+
+    const entry = allLogs.find(
+      l =>
+        l.action === "restore_backup" &&
+        l.entity === "config_snapshot" &&
+        l.entityId === snapshotId,
+    );
+    assert.ok(
+      entry !== undefined,
+      `Expected audit log entry for snapshot ${snapshotId} with action=restore_backup. ` +
+        `Recent restore_backup entries: ${JSON.stringify(
+          allLogs.filter(l => l.action === "restore_backup").slice(0, 5),
+        )}`,
+    );
+    const auditSkipped = entry!.details?.skipped as unknown[];
+    assert.ok(
+      Array.isArray(auditSkipped) && auditSkipped.length > 0,
+      `Audit log details.skipped must be a non-empty array when a config was skipped; got: ${JSON.stringify(entry!.details)}`,
+    );
+  } finally {
+    // Best-effort cleanup: delete temp modules if they were created
+    if (tempSrcModuleId) {
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempSrcModuleId]).catch(() => {});
+    }
+    if (tempTgtModuleId) {
+      await pool.query(`DELETE FROM api_modules WHERE id = $1`, [tempTgtModuleId]).catch(() => {});
+    }
+    await pool.end();
+  }
+});
+
 test("restore returns 422 when snapshot data fails schema validation", async () => {
   // This case requires injecting a corrupt snapshotJson directly into the DB because
   // snapshots created through the public API always carry valid data (configs are
