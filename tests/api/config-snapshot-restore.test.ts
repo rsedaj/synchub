@@ -1371,6 +1371,128 @@ test("restore with all configs failing schema validation — NO audit log entry 
   );
 });
 
+test("restore with mixed outcome (config A valid, config B name='') — returns 422 and NO audit log entry", async () => {
+  // Regression guard for the partial-audit leak scenario:
+  //   restoreSyncConfigsFromBackup processes configs sequentially — config A
+  //   succeeds (update path, valid name) and increments results.syncConfigs,
+  //   then config B fails schema validation (name="") and pushes to results.errors.
+  //   The route guard `if (results.errors.length > 0)` must still fire, return
+  //   422, and skip storage.createAuditLog() — even though one config succeeded.
+  //
+  // This test catches a regression where the guard only checked all-error cases,
+  // allowing a partial audit entry when only some configs fail.
+
+  if (!process.env.DATABASE_URL) {
+    console.log("SKIP: DATABASE_URL not set — cannot inject multi-config snapshot");
+    return;
+  }
+
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const configAName = `__test_restore_mixed422_A_${suffix}`;
+
+  // 1. Create a real configA via the API (will be found by ID in the update path)
+  const createRes = await api("/api/sync-configs", {
+    method: "POST",
+    body: JSON.stringify(baseConfig(configAName)),
+  });
+  assert.equal(createRes.status, 201, `Config A creation failed: ${createRes.status}`);
+  const { id: configAId } = (await createRes.json()) as { id: string };
+  createdConfigIds.push(configAId);
+
+  // 2. Create a real snapshot row so we have a genuine UUID in config_snapshots
+  const snapRes = await api(`/api/config-snapshots/${configAId}`, { method: "POST" });
+  assert.equal(snapRes.status, 200, `Snapshot creation failed: ${snapRes.status}`);
+  const { snapshot } = (await snapRes.json()) as { ok: boolean; snapshot: { id: string } };
+  const snapshotId = snapshot.id;
+
+  // 3. Overwrite snapshot_json with a 2-config array:
+  //      config A — valid name, will match existing record → update branch → passes validation
+  //      config B — name="" on a ghost ID → create branch (modules exist) → fails z.string().min(1)
+  const mixedJson = JSON.stringify([
+    {
+      id: configAId,
+      name: configAName,
+      sourceModuleId: sourceModuleId,
+      targetModuleId: targetModuleId,
+      fieldMappings: [{ sourceField: "s1", targetField: "t1" }],
+      schedule: null,
+      isEnabled: true,
+      autoRetry: false,
+      retryDelayMin: 3,
+    },
+    {
+      id: "00000000-dead-beef-0200-000000000200",
+      name: "",
+      sourceModuleId: sourceModuleId,
+      targetModuleId: targetModuleId,
+      fieldMappings: [{ sourceField: "s2", targetField: "t2" }],
+      schedule: null,
+      isEnabled: true,
+      autoRetry: false,
+      retryDelayMin: 3,
+    },
+  ]);
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const updateResult = await pool.query(
+      `UPDATE config_snapshots SET snapshot_json = $1::jsonb WHERE id = $2 RETURNING id`,
+      [mixedJson, snapshotId],
+    );
+    assert.equal(
+      updateResult.rowCount,
+      1,
+      `SQL UPDATE matched ${updateResult.rowCount} rows — expected 1 (snapshot ${snapshotId})`,
+    );
+  } finally {
+    await pool.end();
+  }
+
+  // 4. Attempt restore — config A passes validation but config B fails with name="".
+  //    The route guard `if (results.errors.length > 0)` must fire and return 422.
+  const restoreRes = await api(`/api/config-snapshots/${snapshotId}/restore`, {
+    method: "POST",
+  });
+  const restoreText = await restoreRes.text();
+  assert.equal(
+    restoreRes.status,
+    422,
+    `Expected 422 when one config fails schema validation (mixed outcome), got ${restoreRes.status}: ${restoreText}`,
+  );
+  const restoreBody = JSON.parse(restoreText) as {
+    message: string;
+    results: { errors: string[] };
+  };
+  assert.ok(
+    restoreBody.results?.errors?.length > 0,
+    `422 response must include at least one error in results.errors; got: ${restoreText}`,
+  );
+
+  // 5. Verify that NO audit log entry was written for this snapshotId.
+  //    The route must exit early at the results.errors guard even though config A
+  //    was processed successfully — one error must block the audit write entirely.
+  const logsRes = await api(`/api/audit-logs?limit=1000`);
+  assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+  const allLogs = (await logsRes.json()) as Array<{
+    action: string;
+    entity: string;
+    entityId: string;
+  }>;
+
+  const entry = allLogs.find(
+    l =>
+      l.action === "restore_backup" &&
+      l.entity === "config_snapshot" &&
+      l.entityId === snapshotId,
+  );
+  assert.equal(
+    entry,
+    undefined,
+    `Expected NO audit log entry for snapshot ${snapshotId} when a mixed-outcome restore returns 422, ` +
+      `but found: ${JSON.stringify(entry)}`,
+  );
+});
+
 test("restore returns 422 when snapshot data fails schema validation", async () => {
   // This case requires injecting a corrupt snapshotJson directly into the DB because
   // snapshots created through the public API always carry valid data (configs are
