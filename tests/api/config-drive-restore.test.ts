@@ -1368,3 +1368,99 @@ test("Drive restore skips (not errors) a users entry whose username does not exi
       )}`,
   );
 });
+
+test("Drive restore audit log records details.restored.skipped when a module code is not found in current system", async () => {
+  // Confirms the modules section's "not found" skip path (server/routes.ts,
+  // "Module ${imp.code}: not found in current system") is also captured in
+  // the audit log, not just in the HTTP response's results.skipped. The route
+  // writes `restored: results` verbatim into the audit log, so this proves
+  // the module-skip reason isn't silently dropped from the audit trail even
+  // though HTTP-level behavior looks correct.
+  //  1. Build a backup whose modules section references a module code that
+  //     does not exist in the DB.
+  //  2. POST to /api/backups/config-restore-from-drive/__test__.
+  //  3. Assert HTTP 200 (NOT 422) — an unknown module code must not fail the batch.
+  //  4. Assert results.skipped contains an entry mentioning the unknown module code.
+  //  5. Assert results.modules === 0 — no module row was written.
+  //  6. Assert the audit log entry (entity="config_restore_from_drive") written
+  //     for this restore also carries the unknown-module skip in
+  //     details.restored.skipped.
+
+  const unknownModuleCode = `__nonexistent_module_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  const backup = {
+    version: "1.0",
+    type: "config",
+    appVersion: "test",
+    modules: [
+      {
+        id: "00000000-dead-beef-cafe-000000000123",
+        code: unknownModuleCode,
+        name: "Ghost Module",
+        description: null,
+        baseUrl: null,
+        status: "disconnected",
+        config: {},
+        dataFields: [],
+        docsUrl: null,
+        sortOrder: 999,
+      },
+    ],
+  };
+
+  const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+    method: "POST",
+    body: JSON.stringify({ backup }),
+  });
+  const restoreText = await restoreRes.text();
+
+  // 3. Must be 200, not 422 — an unknown module code is a skip, not an error.
+  assert.equal(
+    restoreRes.status,
+    200,
+    `Expected 200 when modules section references an unknown module code (soft skip, not an error); got ${restoreRes.status}: ${restoreText}`,
+  );
+
+  const restoreBody = JSON.parse(restoreText) as {
+    results: { modules: number; skipped: string[]; errors: string[] };
+  };
+
+  // 4. results.skipped must mention the unknown module code.
+  assert.ok(
+    restoreBody.results.skipped.some(s => s.includes(unknownModuleCode)),
+    `results.skipped must contain an entry for the unknown module code "${unknownModuleCode}"; got: ${JSON.stringify(restoreBody.results.skipped)}`,
+  );
+
+  // 5. results.modules must be 0 — no write was attempted for the unknown module.
+  assert.equal(
+    restoreBody.results.modules,
+    0,
+    `results.modules must be 0 (unknown module code was skipped, not written); got: ${restoreBody.results.modules}`,
+  );
+
+  // 6. Confirm the audit log entry for THIS restore also records the
+  //    unknown-module skip in details.restored.skipped.
+  const logsRes = await api("/api/audit-logs?limit=1000");
+  assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+  const allLogs = (await logsRes.json()) as Array<{
+    action: string;
+    entity: string;
+    details: Record<string, any>;
+  }>;
+
+  const entry = allLogs.find(
+    l =>
+      l.action === "update" &&
+      l.entity === "config_restore_from_drive" &&
+      Array.isArray(l.details?.restored?.skipped) &&
+      l.details.restored.skipped.some((s: string) => s.includes(unknownModuleCode)),
+  );
+  assert.ok(
+    entry !== undefined,
+    `Expected an audit log entry (action=update / entity=config_restore_from_drive) whose ` +
+      `details.restored.skipped includes the unknown module code "${unknownModuleCode}"; ` +
+      `recent update entries: ${JSON.stringify(
+        allLogs.filter(l => l.action === "update").slice(0, 5),
+      )}`,
+  );
+});
