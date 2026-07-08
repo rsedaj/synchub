@@ -1286,6 +1286,11 @@ test("Drive restore skips (not errors) a users entry whose username does not exi
   //  3. Assert HTTP 200 (NOT 422) — an unknown username must not fail the batch.
   //  4. Assert results.skipped contains an entry mentioning the unknown username.
   //  5. Assert results.users === 0 — no user row was created or updated.
+  //  6. Assert the audit log entry (entity="config_restore_from_drive") written
+  //     for this restore also carries the unknown-username skip in
+  //     details.restored.skipped — proving the audit trail isn't limited to
+  //     skipped sync configs and would catch a regression that dropped the
+  //     users-section skip path from the audit write.
 
   const unknownUsername = `__nonexistent_user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -1332,5 +1337,34 @@ test("Drive restore skips (not errors) a users entry whose username does not exi
     restoreBody.results.users,
     0,
     `results.users must be 0 (unknown username was skipped, not written); got: ${restoreBody.results.users}`,
+  );
+
+  // 6. Confirm the audit log entry for THIS restore also records the
+  //    unknown-username skip in details.restored.skipped. Match on the
+  //    unknown username itself (embedded in the fileId-less details) rather
+  //    than just "most recent update entry", since other tests may also
+  //    write config_restore_from_drive audit entries concurrently.
+  const logsRes = await api("/api/audit-logs?limit=1000");
+  assert.equal(logsRes.status, 200, "GET /api/audit-logs must return 200");
+  const allLogs = (await logsRes.json()) as Array<{
+    action: string;
+    entity: string;
+    details: Record<string, any>;
+  }>;
+
+  const entry = allLogs.find(
+    l =>
+      l.action === "update" &&
+      l.entity === "config_restore_from_drive" &&
+      Array.isArray(l.details?.restored?.skipped) &&
+      l.details.restored.skipped.some((s: string) => s.includes(unknownUsername)),
+  );
+  assert.ok(
+    entry !== undefined,
+    `Expected an audit log entry (action=update / entity=config_restore_from_drive) whose ` +
+      `details.restored.skipped includes the unknown username "${unknownUsername}"; ` +
+      `recent update entries: ${JSON.stringify(
+        allLogs.filter(l => l.action === "update").slice(0, 5),
+      )}`,
   );
 });
