@@ -24,6 +24,9 @@
  *     whose only entry has an invalid role value, the route returns 422 and
  *     results.users === 0 — confirming the users section validates-first and
  *     the previously-processed modules section was NOT partially written.
+ *  6. When the users section contains an entry whose username does not exist
+ *     in the DB, the route returns HTTP 200 (not 422), adds an entry to
+ *     results.skipped, and results.users stays 0 — a soft skip, not an error.
  *
  * All tests require DATABASE_URL (to create/delete temp modules via SQL) and
  * are skipped when it is absent.
@@ -922,9 +925,6 @@ test("Drive restore returns 422 and leaves module unchanged when users section c
     await pool.end();
   }
 });
-    await pool.end();
-  }
-});
 
 test("Drive restore audit log records details.restored.skipped when a config is skipped", async () => {
   // Same setup as the first test, but verifies the audit log entry written by
@@ -1275,4 +1275,62 @@ test("Drive restore users section: validate-first prevents partial writes when a
       await api(`/api/users/${operatorUserId}`, { method: "DELETE" }).catch(() => {});
     }
   }
+});
+
+test("Drive restore skips (not errors) a users entry whose username does not exist", async () => {
+  // Confirms the users section's "not found" skip path (server/routes.ts,
+  // users section) behaves as a soft skip rather than a hard validation error:
+  //  1. Build a backup whose users section contains ONE entry with a username
+  //     that does not exist in the DB.
+  //  2. POST to /api/backups/config-restore-from-drive/__test__.
+  //  3. Assert HTTP 200 (NOT 422) — an unknown username must not fail the batch.
+  //  4. Assert results.skipped contains an entry mentioning the unknown username.
+  //  5. Assert results.users === 0 — no user row was created or updated.
+
+  const unknownUsername = `__nonexistent_user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  const backup = {
+    version: "1.0",
+    type: "config",
+    appVersion: "test",
+    users: [
+      {
+        username: unknownUsername,
+        fullName: "Ghost User",
+        email: null,
+        role: "operator",
+        isActive: true,
+      },
+    ],
+  };
+
+  const restoreRes = await api(`/api/backups/config-restore-from-drive/${TEST_FILE_ID}`, {
+    method: "POST",
+    body: JSON.stringify({ backup }),
+  });
+  const restoreText = await restoreRes.text();
+
+  // 3. Must be 200, not 422 — a missing username is a skip, not an error.
+  assert.equal(
+    restoreRes.status,
+    200,
+    `Expected 200 when users section references an unknown username (soft skip, not an error); got ${restoreRes.status}: ${restoreText}`,
+  );
+
+  const restoreBody = JSON.parse(restoreText) as {
+    results: { users: number; skipped: string[]; errors: string[] };
+  };
+
+  // 4. results.skipped must mention the unknown username.
+  assert.ok(
+    restoreBody.results.skipped.some(s => s.includes(unknownUsername)),
+    `results.skipped must contain an entry for the unknown username "${unknownUsername}"; got: ${JSON.stringify(restoreBody.results.skipped)}`,
+  );
+
+  // 5. results.users must be 0 — no write was attempted for the unknown user.
+  assert.equal(
+    restoreBody.results.users,
+    0,
+    `results.users must be 0 (unknown username was skipped, not written); got: ${restoreBody.results.users}`,
+  );
 });
