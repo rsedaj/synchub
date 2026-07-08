@@ -1031,7 +1031,11 @@ async function executeAsync(
                 };
               });
             if (snapEntries.length > 0) {
-              storage.upsertRecordSnapshots(config.id, runId, snapEntries).catch((_e: any) => {});
+              storage.upsertRecordSnapshots(config.id, runId, snapEntries).catch((e: any) => {
+                const msg = e?.message ?? String(e);
+                console.warn(`[sync-engine] Record snapshot save failed (runId=${runId}, batch=${currentBatch}, records=${snapEntries.length}): ${msg}`);
+                log(`Uloženie baseline snímky zlyhalo (dávka ${currentBatch}, ${snapEntries.length} záznamov): ${msg}`, "warn");
+              });
             }
           }
           // Save H kód decisions for audit log

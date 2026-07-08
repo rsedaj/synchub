@@ -430,15 +430,16 @@ export class DatabaseStorage implements IStorage {
 
   async upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void> {
     const CHUNK = 500;
+    const stripNul = (v: string) => v.replace(/\u0000/g, "");
     for (let i = 0; i < entries.length; i += CHUNK) {
       const chunk = entries.slice(i, i + CHUNK);
-      const values = chunk.map(e => `('${configId}', '${e.recordKey.replace(/'/g, "''")}', '${e.fieldHash}', NOW())`).join(",");
-      await db.execute(sql.raw(`
+      const rows = chunk.map(e => sql`(${configId}, ${stripNul(e.recordKey)}, ${stripNul(e.fieldHash)}, NOW())`);
+      await db.execute(sql`
         INSERT INTO sync_baselines (sync_config_id, record_key, field_hash, updated_at)
-        VALUES ${values}
+        VALUES ${sql.join(rows, sql.raw(","))}
         ON CONFLICT (sync_config_id, record_key)
         DO UPDATE SET field_hash = EXCLUDED.field_hash, updated_at = NOW()
-      `));
+      `);
     }
   }
 
@@ -458,18 +459,30 @@ export class DatabaseStorage implements IStorage {
     errorMessage?: string;
   }>): Promise<void> {
     const CHUNK = 50;
-    const esc = (v: string | null | undefined) => v != null ? `'${String(v).replace(/'/g, "''")}'` : 'NULL';
-    const escJson = (v: any) => v != null ? `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb` : 'NULL';
+    // Postgres text/jsonb columns reject the NUL codepoint (U+0000) outright — even
+    // as a \u0000 escape inside a jsonb literal ("unsupported Unicode escape
+    // sequence"). Source feeds (XML/JSON from external suppliers) occasionally
+    // contain stray NUL bytes, which previously made the whole INSERT fail
+    // silently (see the .catch() at the sync-engine call site) and left h_code /
+    // onix_ns_number / source_data / target_data permanently NULL for affected
+    // configs even though the run itself reported success.
+    const stripNul = (v: string) => v.replace(/\u0000/g, "");
+    const cleanStr = (v: string | null | undefined) => v != null ? stripNul(String(v)) : null;
+    // JSON.stringify renders an embedded NUL char (U+0000) as the literal 6-char
+    // escape sequence "\u0000" — not an actual NUL byte — so it must be stripped
+    // from the *serialized* text (case-insensitive: \u0000 / \U0000), not via stripNul.
+    const cleanJson = (v: any) => v != null ? JSON.parse(JSON.stringify(v).replace(/\\u0000/gi, "")) : null;
     for (let i = 0; i < entries.length; i += CHUNK) {
       const chunk = entries.slice(i, i + CHUNK);
-      const values = chunk.map(e => {
-        const rk = e.recordKey.replace(/'/g, "''");
-        const fh = (e.fieldHash || '').replace(/'/g, "''");
-        return `(${esc(configId)}, '${rk}', '${fh}', NOW(), ${escJson(e.sourceData)}, ${escJson(e.targetData)}, ${esc(e.hCode)}, ${esc(e.onixNsNumber)}, ${esc(e.onixRecordId)}, ${esc(e.syncStatus)}, ${esc(e.errorMessage)}, ${esc(runId)})`;
-      }).join(",");
-      await db.execute(sql.raw(`
+      const rows = chunk.map(e => sql`(
+        ${configId}, ${cleanStr(e.recordKey)}, ${cleanStr(e.fieldHash) ?? ''}, NOW(),
+        ${cleanJson(e.sourceData)}, ${cleanJson(e.targetData)}, ${cleanStr(e.hCode)},
+        ${cleanStr(e.onixNsNumber)}, ${cleanStr(e.onixRecordId)}, ${cleanStr(e.syncStatus)},
+        ${cleanStr(e.errorMessage)}, ${cleanStr(runId)}, NOW(), NOW()
+      )`);
+      await db.execute(sql`
         INSERT INTO sync_baselines (sync_config_id, record_key, field_hash, updated_at, source_data, target_data, h_code, onix_ns_number, onix_record_id, sync_status, error_message, sync_run_id, first_synced_at, last_synced_at)
-        VALUES ${values}
+        VALUES ${sql.join(rows, sql.raw(","))}
         ON CONFLICT (sync_config_id, record_key) DO UPDATE SET
           field_hash = CASE WHEN EXCLUDED.field_hash != '' THEN EXCLUDED.field_hash ELSE sync_baselines.field_hash END,
           updated_at = NOW(),
@@ -483,7 +496,7 @@ export class DatabaseStorage implements IStorage {
           sync_run_id = EXCLUDED.sync_run_id,
           first_synced_at = COALESCE(sync_baselines.first_synced_at, NOW()),
           last_synced_at = NOW()
-      `));
+      `);
     }
   }
 
