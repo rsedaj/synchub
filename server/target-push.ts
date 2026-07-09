@@ -530,6 +530,10 @@ interface OnixIndexEntry {
   // Per match field: how many indexed records had a non-empty value (cause 2 —
   // distinguishes "field never populated on ONIX cards" from "value not found").
   fieldNonEmptyCount: Map<string, number>;
+  // All H kód-like values already present in ONIX (Ns_Number or configured hKodField,
+  // whichever applies) — lets the counter self-heal when the stored nextNumber has
+  // fallen behind cards that already exist (cause 8: stale counter → collision).
+  usedHKodValues: Set<string>;
 }
 const _onixIndexCache = new Map<string, OnixIndexEntry>();
 const ONIX_INDEX_TTL_MS = 2 * 60 * 60 * 1000;
@@ -910,7 +914,14 @@ async function buildOnixIndex(
     if (!complete) {
       console.warn(`[target-push] ⚠ ONIX index INCOMPLETE: fetched ${arr.length}/${indexExpectedCount} records (@odata.count). Matching may miss existing cards → risk of duplicate creation. AND-match no-match will be treated cautiously.`);
     }
-    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber, idToHKodFieldVal, expectedCount: indexExpectedCount, complete, fieldNonEmptyCount };
+    // Build usedHKodValues from whichever map actually reflects the configured H kód
+    // field, so a stale nextNumber counter can never re-generate a value that ONIX
+    // already has (cause 8). idToNsNumber is always populated; idToHKodFieldVal only
+    // when hKodField differs from Ns_Number.
+    const usedHKodValues = new Set<string>(
+      hKodField && hKodField !== "Ns_Number" ? idToHKodFieldVal.values() : idToNsNumber.values()
+    );
+    const entry: OnixIndexEntry = { fetchedAt: Date.now(), recordCount: indexedCount, fieldMap, idToRecExtId, idToNsNumber, idToHKodFieldVal, expectedCount: indexExpectedCount, complete, fieldNonEmptyCount, usedHKodValues };
     _onixIndexCache.set(cacheKey, entry);
     console.log(`[target-push] ONIX index built: captured RecordExternalIdentificator for ${idToRecExtId.size}/${indexedCount} records`);
     const sampleLog: string[] = [];
@@ -1641,8 +1652,22 @@ async function pushToOnix(
               console.log(`[target-push] H kód opätovne použitý (predchádzajúci run): ${prevAssigned} → ${hkField} (záznam ${globalIndex}, key=${_hkRecKey})`);
               hKodDecisions.push({ recordKey: _hkRecKey, onixId: onixId ? Number(onixId) : null, onixNsNumber: _hkOnixNsNum, decision: 'assigned', hCodeValue: prevAssigned, reason: 'reused-from-previous-run' });
             } else {
-              const _hkNum = hKodCounter++;
-              body[hkField] = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
+              // Self-heal (cause 8): if the stored nextNumber counter has fallen behind
+              // H kódy that already exist in ONIX (e.g. after a manual reset or a run that
+              // never advanced it), keep skipping forward instead of blindly reusing a
+              // number that is already assigned to a DIFFERENT card.
+              let _hkNum = hKodCounter++;
+              let _hkVal = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
+              if (onixIndex?.usedHKodValues?.size) {
+                let _hkGuard = 0;
+                while (onixIndex.usedHKodValues.has(_hkVal) && _hkGuard < 1_000_000) {
+                  console.warn(`[target-push] H kód kolízia: "${_hkVal}" už existuje v ONIX-e (counter zaostáva za existujúcimi kartami) — preskakujem na ďalšie číslo (záznam ${globalIndex}, key=${_hkRecKey})`);
+                  _hkNum = hKodCounter++;
+                  _hkVal = hKodCfg.prefix + (_hkPad > 0 ? String(_hkNum).padStart(_hkPad, '0') : String(_hkNum));
+                  _hkGuard++;
+                }
+              }
+              body[hkField] = _hkVal;
               console.log(`[target-push] H kód priradený: ${body[hkField]} → ${hkField} (genPfx="${hKodCfg.prefix}", pad=${_hkPad}, ${isUpdate ? "update-bez-hkod" : "nový záznam"}, existingNs="${existingFieldVal ?? "–"}", key=${_hkRecKey}${!isUpdate && _noMatchReason ? `, príčina: ${_noMatchReason}` : ""})`);
               // Audit the SPECIFIC cause for a brand-new card so duplicate root causes are traceable (step 7).
               const _newReason = isUpdate ? 'update-no-hkod' : `new-record: ${_noMatchReason || 'karta nenájdená v ONIX-e'}`;
