@@ -1511,8 +1511,37 @@ async function pushToOnix(
               } else if (nsIds.length > 1) {
                 console.warn(`[target-push] H kód fallback: Ns_Number="${prevHKod}" má ${nsIds.length} záznamov v ONIX — ambiguous, preskočené (záznam ${globalIndex})`);
               } else {
-                console.log(`[target-push] H kód fallback: Ns_Number="${prevHKod}" nenájdené v ONIX indexe — bude vytvorený nový záznam (záznam ${globalIndex}, key=${_snapKey})`);
+                console.log(`[target-push] H kód fallback: Ns_Number="${prevHKod}" nenájdené v ONIX indexe — záznam ${globalIndex} (key=${_snapKey})`);
               }
+            }
+          }
+
+          // Anti-duplicate guard (cause 7): record was previously synced (has a prior
+          // H-kód assignment) but we could NOT locate it — neither via matchFields nor
+          // via hkod_fallback Ns_Number search.  Creating a new ONIX product here would
+          // almost certainly produce a duplicate because the card almost certainly exists
+          // somewhere in ONIX under a Ns_Number the index could not see (ONIX API may not
+          // return all pages, or the product's Ns_Number was changed externally).
+          // → Skip with a clear, auditable message so the mismatch can be investigated.
+          // To force-create (e.g. after deliberate ONIX deletion), set onMissing="force"
+          // in the sync config — that mode is gated out at the top of this block.
+          if (!isUpdate && _snapKey && matchOptions?.prevHkodAssignments) {
+            const prevHKod = matchOptions.prevHkodAssignments.get(_snapKey);
+            if (prevHKod) {
+              const nsNum = resolveNsNumber(record, sourceRecords?.[i]);
+              console.warn(`[target-push] ANTI-DUPLIKÁT: záznam ${globalIndex} (key=${_snapKey}) má predchádzajúce H-kód priradenie "${prevHKod}" ale nebol nájdený v ONIX. Preskočené.`);
+              return {
+                created: 0, updated: 0, error: 0,
+                recResult: {
+                  sourceIndex: globalIndex,
+                  target_id: null,
+                  status: "skipped",
+                  errorMsg: `Anti-duplikát: záznam bol predtým synchronizovaný (H-kód=${prevHKod}) ale nebol nájdený v ONIX ani cez matchFields ani cez Ns_Number lookup. Nový produkt sa nevytvorí, aby sa zabránilo duplikátu. Skontrolujte ONIX produkt s Ns_Number="${prevHKod}". Na opätovné vytvorenie (po úmyselnom zmazaní z ONIX) nastavte onMissing=force.`,
+                  nsNumber: nsNum,
+                  recordKey: _snapKey,
+                },
+                latency: 0,
+              };
             }
           }
 
