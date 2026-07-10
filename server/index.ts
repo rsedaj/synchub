@@ -71,7 +71,9 @@ app.use((req, res, next) => {
 // Vite catch-all neprehral Bearer-token autentifikáciu.
 //
 // Query params:
-//   ?onixCode=<kód>   → priamy read-only lookup jednej karty priamo v ONIX (StockCode)
+//   ?onixCode=<kód>   → priamy read-only lookup jednej karty priamo v ONIX (StockCode);
+//                       odpoveď obsahuje aj prodReadiness (bez tajných hodnôt) —
+//                       či sú k dispozícii produkčné ONIX prihlasovacie údaje
 //   ?runId=<uuid>     → úplný detail jedného behu (všetky events + hkod decisions)
 //   ?configId=<uuid>  → deep-dive pre jeden config (posledných 10 runov + events + baselines)
 //   (nič)             → kompletný overview celej aplikácie
@@ -96,11 +98,19 @@ app.get("/api/diagnostics", async (req, res) => {
       const onixModule = modules.find((m: any) => m.code === "ONIX");
       if (!onixModule) return res.status(404).json({ error: "ONIX module not found" });
 
-      const { getOnixCreds } = await import("./onix-creds");
+      const { getOnixCreds, getOnixVaultStatus } = await import("./onix-creds");
       const creds = getOnixCreds((onixModule as any).config);
+      const cfg = ((onixModule as any).config || {}) as Record<string, any>;
+      const vaultStatus = getOnixVaultStatus();
+      const prodReadiness = {
+        ...vaultStatus,
+        hasProdConfigToken: !!cfg.prodApiToken,
+        hasProdConfigDatabasePath: !!cfg.prodDatabasePath,
+      };
       if (!creds.token) {
         return res.status(400).json({
           error: `No ONIX API token configured for environment=${creds.environment}`,
+          prodReadiness,
         });
       }
 
@@ -150,6 +160,7 @@ app.get("/api/diagnostics", async (req, res) => {
         query: onixCode,
         environment: creds.environment,
         databasePath: creds.databasePath || null,
+        prodReadiness,
         url,
         found: arr.length > 0,
         count: arr.length,
