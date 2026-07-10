@@ -71,6 +71,7 @@ app.use((req, res, next) => {
 // Vite catch-all neprehral Bearer-token autentifikáciu.
 //
 // Query params:
+//   ?onixCode=<kód>   → priamy read-only lookup jednej karty priamo v ONIX (StockCode)
 //   ?runId=<uuid>     → úplný detail jedného behu (všetky events + hkod decisions)
 //   ?configId=<uuid>  → deep-dive pre jeden config (posledných 10 runov + events + baselines)
 //   (nič)             → kompletný overview celej aplikácie
@@ -82,7 +83,87 @@ app.get("/api/diagnostics", async (req, res) => {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (token !== key) return res.status(401).json({ error: "Unauthorized" });
 
-  const { runId, configId } = req.query as Record<string, string | undefined>;
+  const { runId, configId, onixCode } = req.query as Record<string, string | undefined>;
+
+  // ── MODE 0: ?onixCode=xxx ── priamy read-only lookup jednej karty v ONIX ──
+  // Slúži na diagnostiku "prečo matchFields/Ns_Number lookup zlyhal" bez
+  // nutnosti prihlásiť sa do ONIX UI. Používa StockCode query param (podľa
+  // Swaggeru jediný podporovaný filter na GET /stockitems okrem tables/
+  // SupplierCode/$select), ktorý zodpovedá poľu Ns_Number.
+  if (onixCode) {
+    try {
+      const modules = await storage.getAllModules();
+      const onixModule = modules.find((m: any) => m.code === "ONIX");
+      if (!onixModule) return res.status(404).json({ error: "ONIX module not found" });
+
+      const { getOnixCreds } = await import("./onix-creds");
+      const creds = getOnixCreds((onixModule as any).config);
+      if (!creds.token) {
+        return res.status(400).json({
+          error: `No ONIX API token configured for environment=${creds.environment}`,
+        });
+      }
+
+      const baseUrl = ((onixModule as any).baseUrl || "https://onix-api.hauerland.sk/onix_api")
+        .replace(/\/onix_api$/i, "/ONIX_API");
+      const url = `${baseUrl}/api/v1/stockitems?tables=CustomColumns&StockCode=${encodeURIComponent(onixCode)}`;
+      const hdrs: Record<string, string> = {
+        "Authorization": `Bearer ${creds.token}`,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub-Diagnostics/1.0",
+      };
+      if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
+
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 30000);
+      let onixRes: Response;
+      try {
+        onixRes = await fetch(url, { headers: hdrs, signal: ctrl.signal });
+      } finally {
+        clearTimeout(t);
+      }
+
+      if (!onixRes.ok) {
+        const text = await onixRes.text().catch(() => "");
+        return res.status(502).json({
+          _mode: "onix-lookup",
+          query: onixCode,
+          environment: creds.environment,
+          url,
+          error: `ONIX HTTP ${onixRes.status}: ${text.slice(0, 500)}`,
+        });
+      }
+
+      const data = await onixRes.json();
+      const arr: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.value)
+          ? data.value
+          : Array.isArray(data?.items)
+            ? data.items
+            : data
+              ? [data]
+              : [];
+
+      return res.json({
+        _mode: "onix-lookup",
+        query: onixCode,
+        environment: creds.environment,
+        databasePath: creds.databasePath || null,
+        url,
+        found: arr.length > 0,
+        count: arr.length,
+        records: arr.map((item: any) => ({
+          IdRecord: item.IdRecord ?? item.Id ?? null,
+          Ns_Number: item.Ns_Number ?? null,
+          Name: item.Name ?? null,
+          CustomColumns: item.CustomColumns ?? null,
+        })),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `ONIX lookup failed: ${err.message}` });
+    }
+  }
 
   // Helper: formátuj run record
   const fmtRun = (r: any) => ({
