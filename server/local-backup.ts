@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 export function getLocalBackupBasePath(): string {
-  return process.env.LOCAL_BACKUP_PATH || "/app/data/backups";
+  return process.env.LOCAL_BACKUP_PATH || "/tmp/backups";
 }
 
 async function ensureDir(dirPath: string): Promise<void> {

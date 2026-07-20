@@ -61,6 +61,7 @@ import {
   GripVertical,
   History,
   ExternalLink,
+  RotateCcw,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { sk as skLocale } from "date-fns/locale";
@@ -690,6 +691,7 @@ export default function SyncConfigPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState>({ ...emptyEditor });
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [clearHkodConfirmId, setClearHkodConfirmId] = useState<string | null>(null);
   const [expandedConfig, setExpandedConfig] = useState<string | null>(null);
   const [vatPopover, setVatPopover] = useState<{ configId: string; rate: string } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -871,6 +873,24 @@ export default function SyncConfigPage() {
     onError: () => {
       setDeleteId(null);
       toast({ title: language === "sk" ? "Chyba pri mazaní" : "Failed to delete", variant: "destructive" });
+    },
+  });
+
+  const clearHkodMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/sync-configs/${id}/clear-hkod-history`),
+    onSuccess: (data: any) => {
+      setClearHkodConfirmId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+      toast({
+        title: language === "sk" ? "H-kód história vymazaná" : "H-kód history cleared",
+        description: language === "sk"
+          ? `Vymazaných ${data?.clearedCount ?? 0} záznamov. Ďalší beh vytvorí záznamy nanovo.`
+          : `Cleared ${data?.clearedCount ?? 0} records. Next run will recreate them.`,
+      });
+    },
+    onError: () => {
+      setClearHkodConfirmId(null);
+      toast({ title: language === "sk" ? "Chyba pri mazaní H-kód histórie" : "Failed to clear H-kód history", variant: "destructive" });
     },
   });
 
@@ -3477,6 +3497,25 @@ export default function SyncConfigPage() {
                           </div>
                         );
                       })()}
+
+                      {user?.role === "admin" && (config.hKodConfig as any)?.enabled && (
+                        <div className="mt-3 pt-3 border-t" data-testid={`section-hkod-reset-${config.id}`}>
+                          <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+                            <RotateCcw className="h-3 w-3" />
+                            {language === "sk" ? "H-kód história" : "H-kód history"}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
+                            onClick={e => { e.stopPropagation(); setClearHkodConfirmId(config.id); }}
+                            data-testid={`button-clear-hkod-${config.id}`}
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            {language === "sk" ? "Resetovať H-kód históriu" : "Reset H-kód history"}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </Card>
@@ -3526,6 +3565,33 @@ export default function SyncConfigPage() {
               data-testid="button-confirm-duplicate-fixed"
             >
               {language === "sk" ? "Uložiť aj tak" : "Save anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!clearHkodConfirmId} onOpenChange={() => setClearHkodConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {language === "sk" ? "Resetovať H-kód históriu?" : "Reset H-kód history?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === "sk"
+                ? "Tým sa vymažú všetky predchádzajúce priradenia H-kódov pre tento config. Ďalší beh synchronizácie bude tieto záznamy považovať za nové a vytvorí ich v ONIX-e (s novými H-kódmi). Ak tie záznamy v ONIX-e skutočne neexistujú, je to správna voľba. Ak existujú pod iným kódom, môžu vzniknúť duplikáty."
+                : "This will clear all previous H-kód assignments for this config. The next sync run will treat these records as new and create them in ONIX (with new H-kódy). If those records genuinely don't exist in ONIX, this is the correct choice. If they exist under a different code, duplicates may be created."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-clear-hkod">
+              {language === "sk" ? "Zrušiť" : "Cancel"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => clearHkodConfirmId && clearHkodMutation.mutate(clearHkodConfirmId)}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-clear-hkod"
+            >
+              {language === "sk" ? "Áno, resetovať" : "Yes, reset"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

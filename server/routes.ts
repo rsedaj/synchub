@@ -800,6 +800,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sync-configs/:id/clear-hkod-history", requireRole("admin"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(String(req.params.id));
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const cleared = await storage.clearHkodHistory(String(req.params.id));
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "clear_hkod_history",
+        entity: "sync_config",
+        entityId: String(req.params.id),
+        details: { name: config.name, clearedCount: cleared },
+        ipAddress: req.ip || null,
+      });
+      return res.json({ message: "H-kód história vymazaná", clearedCount: cleared });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to clear H-kód history" });
+    }
+  });
+
   app.get("/api/sync-configs/:id/runs", requireAuth, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;

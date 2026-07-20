@@ -72,6 +72,7 @@ export interface IStorage {
   getBaselines(configId: string): Promise<Map<string, string>>;
   upsertBaselines(configId: string, entries: Array<{ recordKey: string; fieldHash: string }>): Promise<void>;
   deleteBaselines(configId: string): Promise<void>;
+  clearHkodHistory(configId: string): Promise<number>;
 
   upsertRecordSnapshots(configId: string, runId: string, entries: Array<{
     recordKey: string;
@@ -445,6 +446,16 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBaselines(configId: string): Promise<void> {
     await db.delete(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
+  }
+
+  async clearHkodHistory(configId: string): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE sync_baselines
+      SET h_code = NULL, onix_ns_number = NULL, onix_record_id = NULL
+      WHERE sync_config_id = ${configId}
+        AND h_code IS NOT NULL
+    `);
+    return (result as any).rowCount ?? 0;
   }
 
   async upsertRecordSnapshots(configId: string, runId: string, entries: Array<{
