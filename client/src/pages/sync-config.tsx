@@ -3335,6 +3335,36 @@ export default function SyncConfigPage() {
 
                   {isExpanded && (
                     <div className="border-t px-4 py-3 bg-muted/20" data-testid={`detail-config-${config.id}`}>
+                      {user?.role === "admin" && (
+                        <div className="mb-3 pb-3 border-b space-y-1.5" data-testid={`section-admin-reset-${config.id}`}>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <RotateCcw className="h-3 w-3" />
+                            {language === "sk" ? "Správa histórie synchronizácie" : "Sync history management"}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
+                            onClick={e => { e.stopPropagation(); setClearBaselinesConfirmId(config.id); }}
+                            data-testid={`button-clear-baselines-${config.id}`}
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            {language === "sk" ? "Vymazať celú sync históriu (plný reset)" : "Clear all sync history (full reset)"}
+                          </Button>
+                          {(config.hKodConfig as any)?.enabled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
+                              onClick={e => { e.stopPropagation(); setClearHkodConfirmId(config.id); }}
+                              data-testid={`button-clear-hkod-${config.id}`}
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              {language === "sk" ? "Resetovať iba H-kód históriu" : "Reset H-kód history only"}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                       <h4 className="text-xs font-semibold mb-2">
                         {language === "sk" ? "Mapovanie polí" : "Field Mappings"}
                       </h4>
@@ -3517,36 +3547,6 @@ export default function SyncConfigPage() {
                         );
                       })()}
 
-                      {user?.role === "admin" && (
-                        <div className="mt-3 pt-3 border-t space-y-1.5" data-testid={`section-admin-reset-${config.id}`}>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <RotateCcw className="h-3 w-3" />
-                            {language === "sk" ? "Správa histórie synchronizácie" : "Sync history management"}
-                          </p>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
-                            onClick={e => { e.stopPropagation(); setClearBaselinesConfirmId(config.id); }}
-                            data-testid={`button-clear-baselines-${config.id}`}
-                          >
-                            <RotateCcw className="h-3 w-3" />
-                            {language === "sk" ? "Vymazať celú sync históriu (plný reset)" : "Clear all sync history (full reset)"}
-                          </Button>
-                          {(config.hKodConfig as any)?.enabled && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
-                              onClick={e => { e.stopPropagation(); setClearHkodConfirmId(config.id); }}
-                              data-testid={`button-clear-hkod-${config.id}`}
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              {language === "sk" ? "Resetovať iba H-kód históriu" : "Reset H-kód history only"}
-                            </Button>
-                          )}
-                        </div>
-                      )}
                     </div>
                   )}
                 </Card>
