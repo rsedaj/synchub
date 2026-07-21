@@ -807,7 +807,7 @@ export async function registerRoutes(
       await storage.deleteBaselines(String(req.params.id));
       await storage.createAuditLog({
         userId: req.user!.id,
-        action: "clear_baselines",
+        action: "delete",
         entity: "sync_config",
         entityId: String(req.params.id),
         details: { name: config.name },
@@ -815,7 +815,8 @@ export async function registerRoutes(
       });
       return res.json({ message: "Sync história vymazaná" });
     } catch (err: any) {
-      return res.status(500).json({ message: "Failed to clear baselines" });
+      console.error("[clear-baselines] error:", err?.message ?? err);
+      return res.status(500).json({ message: "Failed to clear baselines", detail: err?.message });
     }
   });
 
@@ -826,7 +827,7 @@ export async function registerRoutes(
       const cleared = await storage.clearHkodHistory(String(req.params.id));
       await storage.createAuditLog({
         userId: req.user!.id,
-        action: "clear_hkod_history",
+        action: "delete",
         entity: "sync_config",
         entityId: String(req.params.id),
         details: { name: config.name, clearedCount: cleared },
