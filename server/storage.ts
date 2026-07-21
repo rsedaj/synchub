@@ -446,6 +446,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBaselines(configId: string): Promise<void> {
     await db.delete(syncBaselines).where(eq(syncBaselines.syncConfigId, configId));
+    await db.delete(hkodDecisions).where(eq(hkodDecisions.syncConfigId, configId));
   }
 
   async clearHkodHistory(configId: string): Promise<number> {
