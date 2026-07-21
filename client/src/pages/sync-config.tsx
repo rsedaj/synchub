@@ -692,6 +692,7 @@ export default function SyncConfigPage() {
   const [editor, setEditor] = useState<EditorState>({ ...emptyEditor });
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [clearHkodConfirmId, setClearHkodConfirmId] = useState<string | null>(null);
+  const [clearBaselinesConfirmId, setClearBaselinesConfirmId] = useState<string | null>(null);
   const [expandedConfig, setExpandedConfig] = useState<string | null>(null);
   const [vatPopover, setVatPopover] = useState<{ configId: string; rate: string } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -873,6 +874,24 @@ export default function SyncConfigPage() {
     onError: () => {
       setDeleteId(null);
       toast({ title: language === "sk" ? "Chyba pri mazaní" : "Failed to delete", variant: "destructive" });
+    },
+  });
+
+  const clearBaselinesMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/sync-configs/${id}/clear-baselines`),
+    onSuccess: () => {
+      setClearBaselinesConfirmId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+      toast({
+        title: language === "sk" ? "Sync história vymazaná" : "Sync history cleared",
+        description: language === "sk"
+          ? "Všetky baselines a H-kód priradenia sú zmazané. Ďalší beh synchronizácie spracuje všetky záznamy odznova."
+          : "All baselines and H-kód assignments cleared. The next sync run will process all records from scratch.",
+      });
+    },
+    onError: () => {
+      setClearBaselinesConfirmId(null);
+      toast({ title: language === "sk" ? "Chyba pri mazaní histórie" : "Failed to clear history", variant: "destructive" });
     },
   });
 
@@ -3498,22 +3517,34 @@ export default function SyncConfigPage() {
                         );
                       })()}
 
-                      {user?.role === "admin" && (config.hKodConfig as any)?.enabled && (
-                        <div className="mt-3 pt-3 border-t" data-testid={`section-hkod-reset-${config.id}`}>
-                          <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+                      {user?.role === "admin" && (
+                        <div className="mt-3 pt-3 border-t space-y-1.5" data-testid={`section-admin-reset-${config.id}`}>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <RotateCcw className="h-3 w-3" />
-                            {language === "sk" ? "H-kód história" : "H-kód history"}
+                            {language === "sk" ? "Správa histórie synchronizácie" : "Sync history management"}
                           </p>
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
-                            onClick={e => { e.stopPropagation(); setClearHkodConfirmId(config.id); }}
-                            data-testid={`button-clear-hkod-${config.id}`}
+                            onClick={e => { e.stopPropagation(); setClearBaselinesConfirmId(config.id); }}
+                            data-testid={`button-clear-baselines-${config.id}`}
                           >
                             <RotateCcw className="h-3 w-3" />
-                            {language === "sk" ? "Resetovať H-kód históriu" : "Reset H-kód history"}
+                            {language === "sk" ? "Vymazať celú sync históriu (plný reset)" : "Clear all sync history (full reset)"}
                           </Button>
+                          {(config.hKodConfig as any)?.enabled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5 w-full text-destructive border-destructive/30 hover:bg-destructive/5"
+                              onClick={e => { e.stopPropagation(); setClearHkodConfirmId(config.id); }}
+                              data-testid={`button-clear-hkod-${config.id}`}
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              {language === "sk" ? "Resetovať iba H-kód históriu" : "Reset H-kód history only"}
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -3565,6 +3596,33 @@ export default function SyncConfigPage() {
               data-testid="button-confirm-duplicate-fixed"
             >
               {language === "sk" ? "Uložiť aj tak" : "Save anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!clearBaselinesConfirmId} onOpenChange={() => setClearBaselinesConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {language === "sk" ? "Vymazať celú sync históriu?" : "Clear all sync history?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === "sk"
+                ? "Tým sa vymažú VŠETKY baselines aj H-kód priradenia pre tento config (delta hashe aj H-kódy). Ďalší beh synchronizácie spracuje všetky záznamy odznova ako nové — záznamy, ktoré neexistujú v cieľovom systéme, budú vytvorené. Táto akcia je nevratná."
+                : "This will delete ALL baselines and H-kód assignments for this config (delta hashes and H-kódy). The next sync run will process all records from scratch as new — records not found in the target system will be created. This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-clear-baselines">
+              {language === "sk" ? "Zrušiť" : "Cancel"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => clearBaselinesConfirmId && clearBaselinesMutation.mutate(clearBaselinesConfirmId)}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-clear-baselines"
+            >
+              {language === "sk" ? "Áno, vymazať všetko" : "Yes, clear all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

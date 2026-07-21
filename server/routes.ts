@@ -800,6 +800,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sync-configs/:id/clear-baselines", requireRole("admin"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(String(req.params.id));
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      await storage.deleteBaselines(String(req.params.id));
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "clear_baselines",
+        entity: "sync_config",
+        entityId: String(req.params.id),
+        details: { name: config.name },
+        ipAddress: req.ip || null,
+      });
+      return res.json({ message: "Sync história vymazaná" });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to clear baselines" });
+    }
+  });
+
   app.post("/api/sync-configs/:id/clear-hkod-history", requireRole("admin"), async (req, res) => {
     try {
       const config = await storage.getSyncConfig(String(req.params.id));
