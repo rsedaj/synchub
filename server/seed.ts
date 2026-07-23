@@ -559,5 +559,30 @@ export async function runMigrations() {
     log(`Migration m002: žiadne PROMOTRON→ONIX configs nepotrebovali opravu polí (${promotronToOnixConfigs.length} skontrolovaných)`, "seed");
   }
 
+  // Migration m003: fix Stricker→ONIX matchField target CustomColumns.Product_Code → Product_Code
+  // Root cause: Product_Code is a top-level ONIX field, not a CustomColumns entry.
+  // Reading via CustomColumns.Product_Code always returns empty index → all records created as new every run.
+  const allConfigsM003 = await storage.getAllSyncConfigs();
+  let m003Count = 0;
+  for (const config of allConfigsM003) {
+    const mappings = (config.fieldMappings || []) as Array<{ sourceField: string; targetField: string; transform?: string }>;
+    const hasWrongMapping = mappings.some(
+      m => m.sourceField === "WebSku" && m.targetField === "CustomColumns.Product_Code"
+    );
+    if (!hasWrongMapping) continue;
+    const m003Mappings = mappings.map(m => {
+      if (m.sourceField === "WebSku" && m.targetField === "CustomColumns.Product_Code") {
+        log(`Migration m003: "${config.name}" — WebSku mapovanie opravené CustomColumns.Product_Code → Product_Code`, "seed");
+        return { ...m, targetField: "Product_Code" };
+      }
+      return m;
+    });
+    await storage.updateSyncConfig(config.id, { fieldMappings: m003Mappings });
+    m003Count++;
+  }
+  if (m003Count === 0) {
+    log(`Migration m003: žiadny config nepotreboval opravu WebSku→CustomColumns.Product_Code`, "seed");
+  }
+
   log("Data migrations complete", "seed");
 }
