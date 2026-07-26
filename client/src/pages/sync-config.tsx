@@ -2947,7 +2947,7 @@ export default function SyncConfigPage() {
                                       <div className="flex items-center gap-2 pt-0.5">
                                         <p className="text-[11px] text-muted-foreground">
                                           {language === "sk" ? "Navrhované ďalšie číslo:" : "Suggested next:"}
-                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}{hkodScan.result.suggestedNext}</span>
+                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}{editor.hKodConfig.padding > 0 ? String(hkodScan.result.suggestedNext).padStart(editor.hKodConfig.padding, "0") : hkodScan.result.suggestedNext}</span>
                                         </p>
                                         <Button
                                           type="button"
