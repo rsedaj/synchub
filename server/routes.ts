@@ -2562,12 +2562,13 @@ export async function registerRoutes(
       const creds = getOnixCreds(targetMod.config as Record<string, any>);
       if (!creds.token) return res.status(400).json({ message: `ONIX token nie je nakonfigurovaný (environment: ${creds.environment})` });
 
-      // Switch to SSE — flush headers immediately so proxy knows this is a streaming response
+      // SSE: disable Nagle so heartbeat bytes flush immediately to the proxy
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no"); // Nginx/Traefik: disable response buffering
       res.flushHeaders();
+      (req.socket as any)?.setNoDelay?.(true);
 
       // Heartbeat every 5 s keeps the proxy from closing an "idle" connection
       const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(": heartbeat\n\n"); }, 5000);
@@ -2576,6 +2577,10 @@ export async function registerRoutes(
         clearInterval(heartbeat);
         if (!res.writableEnded) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
       };
+
+      // Hard 25-second deadline — ensures we respond before any proxy timeout
+      const SCAN_DEADLINE = Date.now() + 25000;
+      const overDeadline = () => Date.now() >= SCAN_DEADLINE;
 
       try {
         const rawBase = ((targetMod as any).baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
@@ -2586,10 +2591,12 @@ export async function registerRoutes(
         };
         if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
 
-        // Fetch only Ns_Number — filter by detectionPrefix client-side after fetching all records
+        // Per-request timeout: leave 3 s for processing before the deadline
+        const pageTimeout = () => Math.max(3000, SCAN_DEADLINE - Date.now() - 3000);
+
         const fetchUrl = `${rawBase}/api/v1/stockitems?$select=Ns_Number&$count=true`;
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 300000);
+        const t = setTimeout(() => ctrl.abort(), pageTimeout());
         const resp = await fetch(fetchUrl, { headers: hdrs, signal: ctrl.signal });
         clearTimeout(t);
         if (!resp.ok) { finish({ type: "error", error: `ONIX API vrátilo HTTP ${resp.status}` }); return; }
@@ -2600,11 +2607,13 @@ export async function registerRoutes(
 
         const oDataCount = typeof data?.["@odata.count"] === "number" ? data["@odata.count"] as number : null;
         let nextLink: string | null = typeof data?.["@odata.nextLink"] === "string" ? data["@odata.nextLink"] : null;
+        let partial = false;
 
         if (nextLink) {
           let safetyLimit = 10000;
           while (nextLink && safetyLimit-- > 0) {
-            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+            if (overDeadline()) { partial = true; break; }
+            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), pageTimeout());
             try {
               const r2: globalThis.Response = await fetch(nextLink, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
               if (!r2.ok) break;
@@ -2618,8 +2627,9 @@ export async function registerRoutes(
           const PAGE_SIZE = arr.length > 0 ? arr.length : 500;
           let safetyLimit = 10000;
           while (arr.length < oDataCount && safetyLimit-- > 0) {
+            if (overDeadline()) { partial = true; break; }
             const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), pageTimeout());
             try {
               const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
               if (!r2.ok) break;
@@ -2633,8 +2643,9 @@ export async function registerRoutes(
           const PAGE_SIZE = arr.length; const firstId = arr[0]?.IdRecord ?? arr[0]?.Id ?? null;
           let maxPages = 10000;
           while (maxPages-- > 0) {
+            if (overDeadline()) { partial = true; break; }
             const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+            const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), pageTimeout());
             try {
               const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
               if (!r2.ok) break;
@@ -2660,7 +2671,7 @@ export async function registerRoutes(
           if (maxNum === null || num > maxNum) { maxNum = num; maxCode = ns; }
         }
 
-        finish({ type: "done", result: { prefix, scannedTotal: arr.length, matchingCount, maxNumber: maxNum, maxCode, suggestedNext: maxNum !== null ? maxNum + 1 : 1 } });
+        finish({ type: "done", partial, result: { prefix, scannedTotal: arr.length, matchingCount, maxNumber: maxNum, maxCode, suggestedNext: maxNum !== null ? maxNum + 1 : 1 } });
       } catch (err: any) {
         finish({ type: "error", error: err.message });
       }

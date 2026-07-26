@@ -777,7 +777,7 @@ export default function SyncConfigPage() {
 
   // Cleanup hkod scan poll interval on unmount
   useEffect(() => {
-    return () => { if (hkodScanEsRef.current) { hkodScanEsRef.current.close(); hkodScanEsRef.current = null; } };
+    return () => { if (hkodScanAbortRef.current) { hkodScanAbortRef.current.abort(); hkodScanAbortRef.current = null; } };
   }, []);
 
   const { data: filterCountData, isFetching: filterCountFetching } = useQuery<{ total: number; matched: number; capped?: boolean }>({
@@ -1319,7 +1319,7 @@ export default function SyncConfigPage() {
   const [showDuplicateFixedWarning, setShowDuplicateFixedWarning] = useState(false);
   const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
   const dragFixedFieldIdx = useRef<number | null>(null);
-  const hkodScanEsRef = useRef<EventSource | null>(null);
+  const hkodScanAbortRef = useRef<AbortController | null>(null);
   const [dragOverFixedFieldIdx, setDragOverFixedFieldIdx] = useState<number | null>(null);
 
   const suggestions = useMemo(() => {
@@ -2890,30 +2890,48 @@ export default function SyncConfigPage() {
                                         disabled={hkodScan.status === "scanning"}
                                         data-testid="button-hkod-scan"
                                         title={language === "sk" ? "Prehľadá ONIX a navrhne ďalšie číslo" : "Scans ONIX and suggests the next number"}
-                                        onClick={() => {
-                                          if (hkodScanEsRef.current) { hkodScanEsRef.current.close(); hkodScanEsRef.current = null; }
+                                        onClick={async () => {
+                                          if (hkodScanAbortRef.current) { hkodScanAbortRef.current.abort(); hkodScanAbortRef.current = null; }
+                                          const ctrl = new AbortController();
+                                          hkodScanAbortRef.current = ctrl;
                                           setHkodScan({ status: "scanning" });
-                                          const es = new EventSource(`/api/sync-configs/${editor.id}/scan-hkod`);
-                                          hkodScanEsRef.current = es;
-                                          es.onmessage = (event) => {
-                                            try {
-                                              const payload = JSON.parse(event.data);
-                                              if (payload.type === "done") {
-                                                setHkodScan({ status: "done", result: payload.result });
-                                              } else if (payload.type === "error") {
-                                                setHkodScan({ status: "error", error: payload.error ?? "Neznáma chyba" });
+                                          try {
+                                            const resp = await fetch(`/api/sync-configs/${editor.id}/scan-hkod`, {
+                                              credentials: "include",
+                                              signal: ctrl.signal,
+                                            });
+                                            if (!resp.ok) {
+                                              const errBody = await resp.json().catch(() => ({ message: `HTTP ${resp.status}` }));
+                                              setHkodScan({ status: "error", error: errBody.message ?? `HTTP ${resp.status}` });
+                                              hkodScanAbortRef.current = null;
+                                              return;
+                                            }
+                                            const reader = resp.body!.getReader();
+                                            const dec = new TextDecoder();
+                                            let buf = "";
+                                            while (true) {
+                                              const { done, value } = await reader.read();
+                                              if (done) break;
+                                              buf += dec.decode(value, { stream: true });
+                                              const parts = buf.split("\n\n");
+                                              buf = parts.pop() ?? "";
+                                              for (const block of parts) {
+                                                for (const line of block.split("\n")) {
+                                                  if (line.startsWith("data: ")) {
+                                                    try {
+                                                      const ev = JSON.parse(line.slice(6));
+                                                      if (ev.type === "done") setHkodScan({ status: "done", result: ev.result });
+                                                      else if (ev.type === "error") setHkodScan({ status: "error", error: ev.error ?? "Neznáma chyba" });
+                                                    } catch {}
+                                                  }
+                                                }
                                               }
-                                            } catch (e: any) {
-                                              setHkodScan({ status: "error", error: e.message });
                                             }
-                                            es.close(); hkodScanEsRef.current = null;
-                                          };
-                                          es.onerror = () => {
-                                            if (hkodScanEsRef.current) {
-                                              setHkodScan({ status: "error", error: language === "sk" ? "Chyba spojenia so serverom" : "Server connection error" });
-                                              es.close(); hkodScanEsRef.current = null;
-                                            }
-                                          };
+                                            hkodScanAbortRef.current = null;
+                                          } catch (e: any) {
+                                            if (e.name !== "AbortError") setHkodScan({ status: "error", error: e.message });
+                                            hkodScanAbortRef.current = null;
+                                          }
                                         }}
                                       >
                                         {hkodScan.status === "scanning"
