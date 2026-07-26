@@ -2898,7 +2898,7 @@ export default function SyncConfigPage() {
                                             const { jobId } = await startResp.json();
                                             hkodScanPollRef.current = setInterval(async () => {
                                               try {
-                                                const pollResp = await fetch(`/api/scan-hkod/poll/${jobId}`, { credentials: "include" });
+                                                const pollResp = await fetch(`/api/sync-configs/${editor.id}/scan-hkod/poll/${jobId}`, { credentials: "include" });
                                                 if (!pollResp.ok) {
                                                   clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
                                                   setHkodScan({ status: "error", error: `Poll chyba: ${pollResp.status}` });

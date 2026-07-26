@@ -2695,7 +2695,7 @@ export async function registerRoutes(
   });
 
   // GET: poll H-kód scan job status
-  app.get("/api/scan-hkod/poll/:jobId", requireRole("admin", "operator"), (req, res) => {
+  app.get("/api/sync-configs/:id/scan-hkod/poll/:jobId", requireRole("admin", "operator"), (req, res) => {
     const job = hkodScanJobs.get(String(req.params.jobId));
     if (!job) return res.status(404).json({ message: "Job nenájdený alebo expiroval" });
     return res.json(job);
