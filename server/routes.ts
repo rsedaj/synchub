@@ -2568,8 +2568,8 @@ export async function registerRoutes(
       };
       if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
 
-      // Fetch only Ns_Number to keep response lightweight
-      const fetchUrl = `${rawBase}/api/v1/stockitems?$select=Ns_Number&$count=true`;
+      // Fetch only Ns_Number matching the detection prefix to keep response lightweight and accurate
+      const fetchUrl = `${rawBase}/api/v1/stockitems?$select=Ns_Number&$count=true&$filter=startswith(Ns_Number,'${prefix}')`;
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 300000);
       const resp = await fetch(fetchUrl, { headers: hdrs, signal: ctrl.signal });
