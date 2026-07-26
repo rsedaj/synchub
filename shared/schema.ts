@@ -204,6 +204,24 @@ export const hkodDecisions = pgTable("hkod_decisions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Audit trail for every change to hKodConfig.nextNumber
+// changeReason: "manual" | "scan" | "restored" | "initial"
+export const hkodCounterHistory = pgTable("hkod_counter_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncConfigId: varchar("sync_config_id").notNull(),
+  configName: text("config_name").notNull(),
+  prefix: text("prefix").notNull().default("H"),
+  previousNumber: integer("previous_number"),
+  newNumber: integer("new_number").notNull(),
+  changedBy: text("changed_by"),
+  changeReason: text("change_reason").notNull().default("manual"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type HkodCounterHistory = typeof hkodCounterHistory.$inferSelect;
+export type InsertHkodCounterHistory = typeof hkodCounterHistory.$inferInsert;
+
 export const syncBaselines = pgTable("sync_baselines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   syncConfigId: varchar("sync_config_id").notNull().references(() => syncConfigs.id),

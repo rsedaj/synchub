@@ -490,6 +490,28 @@ export async function runMigrations() {
     log("Schema m014: config_snapshots migration skipped", "seed");
   }
 
+  // Schema migration m015: hkod_counter_history — audit trail for H-kód counter changes
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS hkod_counter_history (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        sync_config_id varchar NOT NULL,
+        config_name text NOT NULL,
+        prefix text NOT NULL DEFAULT 'H',
+        previous_number integer,
+        new_number integer NOT NULL,
+        changed_by text,
+        change_reason text NOT NULL DEFAULT 'manual',
+        note text,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_hkod_counter_history_config_id ON hkod_counter_history(sync_config_id, created_at DESC)`);
+    log("Schema m015: hkod_counter_history table created", "seed");
+  } catch (_e) {
+    log("Schema m015: hkod_counter_history migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 

@@ -831,6 +831,9 @@ export default function SyncConfigPage() {
     result?: { prefix: string; scannedTotal: number; matchingCount: number; maxNumber: number | null; maxCode: string | null; suggestedNext: number };
     error?: string;
   }>({ status: "idle" });
+  const [hkodApplyReason, setHkodApplyReason] = useState<string>("manual");
+  const [hkodApplyNote, setHkodApplyNote] = useState<string | null>(null);
+  const [hkodHistoryExpanded, setHkodHistoryExpanded] = useState(false);
 
   async function handleSnapshotConfig(configId: string) {
     setSnapshottingConfigId(configId);
@@ -918,6 +921,32 @@ export default function SyncConfigPage() {
     },
   });
 
+  // H-kód counter change history (per-config, loaded when editor is open)
+  const { data: hkodCounterHistory } = useQuery<any[]>({
+    queryKey: ["/api/sync-configs", editor.id, "hkod-counter-history"],
+    queryFn: () => apiRequest("GET", `/api/sync-configs/${editor.id}/hkod-counter-history`).then(r => r.json()),
+    enabled: !!editor.id && editorOpen,
+    staleTime: 10000,
+  });
+
+  const revertHkodNumberMutation = useMutation({
+    mutationFn: ({ id, targetNumber, note }: { id: string; targetNumber: number; note?: string }) =>
+      apiRequest("POST", `/api/sync-configs/${id}/revert-hkod-number`, { targetNumber, note }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sync-configs", vars.id, "hkod-counter-history"] });
+      // Also update editor state to reflect the reverted value
+      setEditor(prev => ({ ...prev, hKodConfig: { ...prev.hKodConfig, nextNumber: vars.targetNumber } }));
+      toast({
+        title: language === "sk" ? "H-kód počítadlo obnovené" : "H-code counter restored",
+        description: language === "sk" ? `Počítadlo nastavené na ${vars.targetNumber}` : `Counter set to ${vars.targetNumber}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: language === "sk" ? "Chyba pri obnovení" : "Restore failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: ({ id, isEnabled }: { id: string; isEnabled: boolean }) =>
       apiRequest("PATCH", `/api/sync-configs/${id}`, { isEnabled }),
@@ -980,16 +1009,25 @@ export default function SyncConfigPage() {
     setEditorOpen(false);
     setEditor({ ...emptyEditor });
     setHkodScan({ status: "idle" });
+    setHkodApplyReason("manual");
+    setHkodApplyNote(null);
+    setHkodHistoryExpanded(false);
   }
 
   function openNewEditor() {
     setEditor({ ...emptyEditor });
     setHkodScan({ status: "idle" });
+    setHkodApplyReason("manual");
+    setHkodApplyNote(null);
+    setHkodHistoryExpanded(false);
     setEditorOpen(true);
   }
 
   function openEditEditor(config: EnrichedSyncConfig) {
     setHkodScan({ status: "idle" });
+    setHkodApplyReason("manual");
+    setHkodApplyNote(null);
+    setHkodHistoryExpanded(false);
     const schedule = (config.schedule || { enabled: false, frequency: "daily" }) as Schedule & { backupBeforeSync?: boolean };
     const targetMod = modules?.find(m => m.id === config.targetModuleId);
     const targetOpts = targetMod ? (SOURCE_OPTIONS[targetMod.code] || []) : [];
@@ -1113,10 +1151,13 @@ export default function SyncConfigPage() {
     };
 
     if (editor.id) {
-      updateMutation.mutate({ id: editor.id, data: payload });
+      updateMutation.mutate({ id: editor.id, data: { ...payload, hkodChangeReason: hkodApplyReason, hkodChangeNote: hkodApplyNote } });
     } else {
       createMutation.mutate(payload);
     }
+    // Reset hkod change tracking after save
+    setHkodApplyReason("manual");
+    setHkodApplyNote(null);
   }
 
   function addMapping() {
@@ -2810,10 +2851,14 @@ export default function SyncConfigPage() {
                                       className="h-8 text-xs font-mono w-32"
                                       placeholder="45120"
                                       value={editor.hKodConfig.nextNumber}
-                                      onChange={e => setEditor(prev => ({
-                                        ...prev,
-                                        hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
-                                      }))}
+                                      onChange={e => {
+                                        setEditor(prev => ({
+                                          ...prev,
+                                          hKodConfig: { ...prev.hKodConfig, nextNumber: parseInt(e.target.value) || 0 },
+                                        }));
+                                        setHkodApplyReason("manual");
+                                        setHkodApplyNote(null);
+                                      }}
                                       data-testid="input-hkod-next-number"
                                     />
                                     <Button
@@ -2909,10 +2954,15 @@ export default function SyncConfigPage() {
                                           size="sm"
                                           className="h-6 text-[11px] px-2"
                                           onClick={() => {
+                                            const r = hkodScan.result!;
                                             setEditor(prev => ({
                                               ...prev,
-                                              hKodConfig: { ...prev.hKodConfig, nextNumber: hkodScan.result!.suggestedNext },
+                                              hKodConfig: { ...prev.hKodConfig, nextNumber: r.suggestedNext },
                                             }));
+                                            setHkodApplyReason("scan");
+                                            setHkodApplyNote(r.maxCode
+                                              ? `ONIX scan: max=${r.maxCode}, total=${r.matchingCount}`
+                                              : `ONIX scan: ${r.matchingCount} H kódov`);
                                             setHkodScan({ status: "idle" });
                                           }}
                                           data-testid="button-hkod-use-suggested"
@@ -2961,6 +3011,95 @@ export default function SyncConfigPage() {
                                 </div>
                               </div>
                             </div>
+
+                            {/* H-kód counter change history */}
+                            {editor.id && (
+                              <div className="border rounded overflow-hidden">
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs hover:bg-muted/50 transition-colors"
+                                  onClick={() => setHkodHistoryExpanded(v => !v)}
+                                >
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    <History className="h-3.5 w-3.5 text-muted-foreground" />
+                                    {language === "sk" ? "História zmien počítadla" : "Counter change history"}
+                                    {hkodCounterHistory && hkodCounterHistory.length > 0 && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{hkodCounterHistory.length}</Badge>
+                                    )}
+                                  </span>
+                                  {hkodHistoryExpanded
+                                    ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                                    : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                                </button>
+                                {hkodHistoryExpanded && (
+                                  <div className="border-t">
+                                    {!hkodCounterHistory || hkodCounterHistory.length === 0 ? (
+                                      <p className="text-[11px] text-muted-foreground px-2.5 py-2">
+                                        {language === "sk"
+                                          ? "Žiadne záznamy ešte. Zmeny počítadla sa tu zobrazia po uložení."
+                                          : "No records yet. Counter changes appear here after saving."}
+                                      </p>
+                                    ) : (
+                                      <div className="max-h-56 overflow-y-auto divide-y">
+                                        {hkodCounterHistory.map((entry: any) => {
+                                          const emoji: Record<string, string> = { manual: "✏️", scan: "🔍", restored: "↩️", initial: "🆕" };
+                                          const labelSk: Record<string, string> = { manual: "ručne", scan: "sken ONIX", restored: "obnovené", initial: "init" };
+                                          const labelEn: Record<string, string> = { manual: "manual", scan: "ONIX scan", restored: "restored", initial: "init" };
+                                          const icon = emoji[entry.changeReason] ?? "•";
+                                          const label = language === "sk"
+                                            ? (labelSk[entry.changeReason] ?? entry.changeReason)
+                                            : (labelEn[entry.changeReason] ?? entry.changeReason);
+                                          return (
+                                            <div key={entry.id} className="flex items-start gap-2 px-2.5 py-1.5 hover:bg-muted/30 group">
+                                              <span className="text-[11px] shrink-0 mt-0.5">{icon}</span>
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <span className="text-[11px] font-mono font-semibold text-foreground">
+                                                    {entry.prefix}{entry.previousNumber ?? "?"} → {entry.prefix}{entry.newNumber}
+                                                  </span>
+                                                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">{label}</Badge>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                                  <span className="text-[10px] text-muted-foreground">
+                                                    {format(new Date(entry.createdAt), "d.M.yyyy HH:mm")}
+                                                  </span>
+                                                  {entry.changedBy && (
+                                                    <span className="text-[10px] text-muted-foreground">· {entry.changedBy}</span>
+                                                  )}
+                                                  {entry.note && (
+                                                    <span className="text-[10px] text-muted-foreground truncate max-w-[180px]" title={entry.note}>
+                                                      · {entry.note}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 px-1.5 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 gap-1"
+                                                disabled={revertHkodNumberMutation.isPending}
+                                                title={language === "sk"
+                                                  ? `Obnoviť počítadlo na ${entry.newNumber}`
+                                                  : `Restore counter to ${entry.newNumber}`}
+                                                onClick={() => revertHkodNumberMutation.mutate({
+                                                  id: editor.id!,
+                                                  targetNumber: entry.newNumber,
+                                                  note: `Revert to ${entry.prefix}${entry.newNumber} (${label})`,
+                                                })}
+                                              >
+                                                <RotateCcw className="h-3 w-3" />
+                                                {entry.newNumber}
+                                              </Button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             <div className="bg-muted/40 border rounded p-2.5 text-[11px] text-muted-foreground space-y-0.5">
                               <p className="font-semibold text-foreground text-xs mb-1">{language === "sk" ? "Logika pri synchu:" : "Sync logic:"}</p>

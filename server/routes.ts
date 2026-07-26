@@ -745,6 +745,10 @@ export async function registerRoutes(
 
   app.patch("/api/sync-configs/:id", requireRole("admin", "operator"), async (req, res) => {
     try {
+      // Read hkod change metadata BEFORE Zod strips unknown fields
+      const hkodChangeReason = String((req.body as any)?.hkodChangeReason || "manual");
+      const hkodChangeNote = ((req.body as any)?.hkodChangeNote as string | null) ?? null;
+
       const parsed = updateSyncConfigSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten().fieldErrors });
@@ -774,6 +778,26 @@ export async function registerRoutes(
         details: { name: config.name, changedFields, before: beforeValues, after: afterValues },
         ipAddress: req.ip || null,
       });
+      // Log hKodConfig.nextNumber change to dedicated history table
+      {
+        const oldHkod = (beforeConfig as any)?.hKodConfig as any;
+        const newHkod = (config as any)?.hKodConfig as any;
+        const oldNext = oldHkod?.nextNumber;
+        const newNext = newHkod?.nextNumber;
+        if (newHkod?.enabled && oldNext !== undefined && newNext !== undefined && Number(oldNext) !== Number(newNext)) {
+          const validReasons = ["manual", "scan", "restored", "initial"];
+          storage.createHkodCounterHistory({
+            syncConfigId: config.id,
+            configName: config.name,
+            prefix: String(newHkod.prefix || "H"),
+            previousNumber: Number(oldNext),
+            newNumber: Number(newNext),
+            changedBy: (req.user as any)?.username || req.user!.id,
+            changeReason: validReasons.includes(hkodChangeReason) ? hkodChangeReason : "manual",
+            note: hkodChangeNote,
+          }).catch((e: any) => console.warn("[hkod-history] Failed to log counter change:", e.message));
+        }
+      }
       res.json(config);
       snapshotConfigAsync(config, req.user!.id);
       return;
@@ -2463,6 +2487,60 @@ export async function registerRoutes(
     }
   });
 
+  // H-kód counter change history
+  app.get("/api/sync-configs/:id/hkod-counter-history", requireAuth, async (req, res) => {
+    try {
+      const history = await storage.getHkodCounterHistory(String(req.params.id), 30);
+      return res.json(history);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Revert hKodConfig.nextNumber to a specific value from history
+  app.post("/api/sync-configs/:id/revert-hkod-number", requireRole("admin", "operator"), async (req, res) => {
+    try {
+      const config = await storage.getSyncConfig(String(req.params.id));
+      if (!config) return res.status(404).json({ message: "Sync config not found" });
+      const { targetNumber, note } = req.body;
+      if (typeof targetNumber !== "number" || !Number.isInteger(targetNumber) || targetNumber < 0) {
+        return res.status(400).json({ message: "targetNumber musí byť kladné celé číslo" });
+      }
+      const currentHkod = (config as any)?.hKodConfig as any;
+      if (!currentHkod) return res.status(400).json({ message: "H-kód nie je nakonfigurovaný pre túto konfiguráciu" });
+
+      const prevNumber = Number(currentHkod.nextNumber);
+      const updated = await storage.updateSyncConfig(String(req.params.id), {
+        hKodConfig: { ...currentHkod, nextNumber: targetNumber },
+      } as any);
+      if (!updated) return res.status(404).json({ message: "Sync config not found" });
+
+      await storage.createHkodCounterHistory({
+        syncConfigId: config.id,
+        configName: config.name,
+        prefix: String(currentHkod.prefix || "H"),
+        previousNumber: prevNumber,
+        newNumber: targetNumber,
+        changedBy: (req.user as any)?.username || req.user!.id,
+        changeReason: "restored",
+        note: note || null,
+      });
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "update",
+        entity: "sync_config",
+        entityId: config.id,
+        details: { name: config.name, changedFields: ["hKodConfig.nextNumber"], before: { nextNumber: prevNumber }, after: { nextNumber: targetNumber }, changeReason: "restored" },
+        ipAddress: req.ip || null,
+      });
+      res.json({ ok: true, previousNumber: prevNumber, newNumber: targetNumber });
+      snapshotConfigAsync(updated, req.user!.id);
+      return;
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   // Scan ONIX for existing H-codes and suggest the next number
   app.get("/api/sync-configs/:id/scan-hkod", requireRole("admin", "operator"), async (req, res) => {
     try {
@@ -2510,11 +2588,13 @@ export async function registerRoutes(
       if (nextLink) {
         let safetyLimit = 10000;
         while (nextLink && safetyLimit-- > 0) {
-          const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+          const c2 = new AbortController();
+          const t2 = setTimeout(() => c2.abort(), 300000);
           try {
-            const r2 = await fetch(nextLink, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
+            const r2: globalThis.Response = await fetch(nextLink, { headers: hdrs, signal: c2.signal });
+            clearTimeout(t2);
             if (!r2.ok) break;
-            const d2 = await r2.json();
+            const d2: any = await r2.json();
             const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
             arr.push(...page);
             nextLink = typeof d2?.['@odata.nextLink'] === 'string' ? d2['@odata.nextLink'] : null;
@@ -2525,11 +2605,13 @@ export async function registerRoutes(
         let safetyLimit = 10000;
         while (arr.length < oDataCount && safetyLimit-- > 0) {
           const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-          const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+          const c2 = new AbortController();
+          const t2 = setTimeout(() => c2.abort(), 300000);
           try {
-            const r2 = await fetch(pageUrl, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
+            const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
+            clearTimeout(t2);
             if (!r2.ok) break;
-            const d2 = await r2.json();
+            const d2: any = await r2.json();
             const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
             if (page.length === 0) break;
             arr.push(...page);
@@ -2541,11 +2623,13 @@ export async function registerRoutes(
         let maxPages = 10000;
         while (maxPages-- > 0) {
           const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-          const c2 = new AbortController(); const t2 = setTimeout(() => c2.abort(), 300000);
+          const c2 = new AbortController();
+          const t2 = setTimeout(() => c2.abort(), 300000);
           try {
-            const r2 = await fetch(pageUrl, { headers: hdrs, signal: c2.signal }); clearTimeout(t2);
+            const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
+            clearTimeout(t2);
             if (!r2.ok) break;
-            const d2 = await r2.json();
+            const d2: any = await r2.json();
             const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
             if (page.length === 0) break;
             const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? null;

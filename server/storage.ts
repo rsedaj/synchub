@@ -1,7 +1,7 @@
 import { eq, desc, count, and, gte, sql, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncRunEvents, syncBackups, syncBaselines, onixBackups, hkodDecisions, configSnapshots,
+  users, apiModules, syncLogs, auditLogs, syncConfigs, syncRuns, syncRunEvents, syncBackups, syncBaselines, onixBackups, hkodDecisions, configSnapshots, hkodCounterHistory,
   type User, type InsertUser,
   type ApiModule, type InsertApiModule,
   type SyncLog, type InsertSyncLog,
@@ -12,6 +12,7 @@ import {
   type SyncBackup, type InsertSyncBackup,
   type OnixBackup, type InsertOnixBackup,
   type ConfigSnapshot, type InsertConfigSnapshot,
+  type HkodCounterHistory, type InsertHkodCounterHistory,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -139,6 +140,10 @@ export interface IStorage {
   getConfigSnapshots(syncConfigId?: string): Promise<ConfigSnapshot[]>;
   deleteConfigSnapshot(id: string): Promise<void>;
   pruneConfigSnapshots(syncConfigId: string, maxCount: number): Promise<void>;
+
+  createHkodCounterHistory(entry: InsertHkodCounterHistory): Promise<HkodCounterHistory>;
+  getHkodCounterHistory(syncConfigId: string, limit?: number): Promise<HkodCounterHistory[]>;
+  pruneHkodCounterHistory(syncConfigId: string, maxCount: number): Promise<void>;
 
   getAnalyticsOverview(days: number): Promise<{
     perDay: Array<{
@@ -808,6 +813,30 @@ export class DatabaseStorage implements IStorage {
     if (all.length > maxCount) {
       const toDelete = all.slice(maxCount).map(r => r.id);
       await db.delete(configSnapshots).where(inArray(configSnapshots.id, toDelete));
+    }
+  }
+
+  async createHkodCounterHistory(entry: InsertHkodCounterHistory): Promise<HkodCounterHistory> {
+    const [created] = await db.insert(hkodCounterHistory).values(entry).returning();
+    await this.pruneHkodCounterHistory(entry.syncConfigId, 50);
+    return created;
+  }
+
+  async getHkodCounterHistory(syncConfigId: string, limit = 30): Promise<HkodCounterHistory[]> {
+    return db.select().from(hkodCounterHistory)
+      .where(eq(hkodCounterHistory.syncConfigId, syncConfigId))
+      .orderBy(desc(hkodCounterHistory.createdAt))
+      .limit(limit);
+  }
+
+  async pruneHkodCounterHistory(syncConfigId: string, maxCount: number): Promise<void> {
+    const all = await db.select({ id: hkodCounterHistory.id })
+      .from(hkodCounterHistory)
+      .where(eq(hkodCounterHistory.syncConfigId, syncConfigId))
+      .orderBy(desc(hkodCounterHistory.createdAt));
+    if (all.length > maxCount) {
+      const toDelete = all.slice(maxCount).map(r => r.id);
+      await db.delete(hkodCounterHistory).where(inArray(hkodCounterHistory.id, toDelete));
     }
   }
 
