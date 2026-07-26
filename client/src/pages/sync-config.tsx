@@ -826,6 +826,11 @@ export default function SyncConfigPage() {
   }).filter(s => s.code);
 
   const [snapshottingConfigId, setSnapshottingConfigId] = useState<string | null>(null);
+  const [hkodScan, setHkodScan] = useState<{
+    status: "idle" | "scanning" | "done" | "error";
+    result?: { prefix: string; scannedTotal: number; matchingCount: number; maxNumber: number | null; maxCode: string | null; suggestedNext: number };
+    error?: string;
+  }>({ status: "idle" });
 
   async function handleSnapshotConfig(configId: string) {
     setSnapshottingConfigId(configId);
@@ -974,14 +979,17 @@ export default function SyncConfigPage() {
   function closeEditor() {
     setEditorOpen(false);
     setEditor({ ...emptyEditor });
+    setHkodScan({ status: "idle" });
   }
 
   function openNewEditor() {
     setEditor({ ...emptyEditor });
+    setHkodScan({ status: "idle" });
     setEditorOpen(true);
   }
 
   function openEditEditor(config: EnrichedSyncConfig) {
+    setHkodScan({ status: "idle" });
     const schedule = (config.schedule || { enabled: false, frequency: "daily" }) as Schedule & { backupBeforeSync?: boolean };
     const targetMod = modules?.find(m => m.id === config.targetModuleId);
     const targetOpts = targetMod ? (SOURCE_OPTIONS[targetMod.code] || []) : [];
@@ -2796,7 +2804,7 @@ export default function SyncConfigPage() {
                                   <label className="text-xs text-muted-foreground">
                                     {language === "sk" ? "Ďalšie číslo" : "Next number"}
                                   </label>
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <Input
                                       type="number"
                                       className="h-8 text-xs font-mono w-32"
@@ -2822,7 +2830,108 @@ export default function SyncConfigPage() {
                                     >
                                       {language === "sk" ? "Reset na 0" : "Reset to 0"}
                                     </Button>
+                                    {editor.id && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs px-2 whitespace-nowrap gap-1.5"
+                                        disabled={hkodScan.status === "scanning"}
+                                        data-testid="button-hkod-scan"
+                                        title={language === "sk" ? "Prehľadá ONIX a navrhne ďalšie číslo" : "Scans ONIX and suggests the next number"}
+                                        onClick={async () => {
+                                          setHkodScan({ status: "scanning" });
+                                          try {
+                                            const resp = await apiRequest("GET", `/api/sync-configs/${editor.id}/scan-hkod`);
+                                            if (!resp.ok) {
+                                              const err = await resp.json().catch(() => ({ message: resp.statusText }));
+                                              setHkodScan({ status: "error", error: err.message });
+                                              return;
+                                            }
+                                            const result = await resp.json();
+                                            setHkodScan({ status: "done", result });
+                                          } catch (e: any) {
+                                            setHkodScan({ status: "error", error: e.message });
+                                          }
+                                        }}
+                                      >
+                                        {hkodScan.status === "scanning"
+                                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                                          : <RefreshCw className="h-3 w-3" />}
+                                        {language === "sk" ? "Skenovať ONIX" : "Scan ONIX"}
+                                      </Button>
+                                    )}
                                   </div>
+
+                                  {/* Scan progress bar */}
+                                  {hkodScan.status === "scanning" && (
+                                    <div className="mt-1.5 space-y-1">
+                                      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                        <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary animate-[scan-slide_1.4s_ease-in-out_infinite]" />
+                                      </div>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        {language === "sk" ? "Sťahujem záznamy z ONIX…" : "Fetching records from ONIX…"}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* Scan result */}
+                                  {hkodScan.status === "done" && hkodScan.result && (
+                                    <div className="mt-1.5 rounded border bg-muted/40 px-2.5 py-2 space-y-1.5" data-testid="hkod-scan-result">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[11px] text-muted-foreground leading-snug">
+                                          {language === "sk"
+                                            ? <>Prefix <span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}</span>: nájdených <span className="font-semibold text-foreground">{hkodScan.result.matchingCount.toLocaleString()}</span> H kódov z <span className="font-semibold text-foreground">{hkodScan.result.scannedTotal.toLocaleString()}</span> záznamov.</>
+                                            : <>Prefix <span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}</span>: found <span className="font-semibold text-foreground">{hkodScan.result.matchingCount.toLocaleString()}</span> H codes out of <span className="font-semibold text-foreground">{hkodScan.result.scannedTotal.toLocaleString()}</span> records.</>
+                                          }
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                          onClick={() => setHkodScan({ status: "idle" })}
+                                        ><X className="h-3 w-3" /></Button>
+                                      </div>
+                                      {hkodScan.result.maxCode && (
+                                        <p className="text-[11px] text-muted-foreground">
+                                          {language === "sk" ? "Posledný H kód:" : "Last H code:"}
+                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.maxCode}</span>
+                                        </p>
+                                      )}
+                                      <div className="flex items-center gap-2 pt-0.5">
+                                        <p className="text-[11px] text-muted-foreground">
+                                          {language === "sk" ? "Navrhované ďalšie číslo:" : "Suggested next:"}
+                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}{hkodScan.result.suggestedNext}</span>
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="h-6 text-[11px] px-2"
+                                          onClick={() => {
+                                            setEditor(prev => ({
+                                              ...prev,
+                                              hKodConfig: { ...prev.hKodConfig, nextNumber: hkodScan.result!.suggestedNext },
+                                            }));
+                                            setHkodScan({ status: "idle" });
+                                          }}
+                                          data-testid="button-hkod-use-suggested"
+                                        >
+                                          {language === "sk" ? "Použiť" : "Use"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Scan error */}
+                                  {hkodScan.status === "error" && (
+                                    <div className="mt-1.5 flex items-start gap-1.5 rounded border border-destructive/40 bg-destructive/5 px-2.5 py-1.5">
+                                      <XCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                                      <p className="text-[11px] text-destructive flex-1">{hkodScan.error}</p>
+                                      <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0" onClick={() => setHkodScan({ status: "idle" })}><X className="h-3 w-3" /></Button>
+                                    </div>
+                                  )}
+
                                   {editor.id && (() => {
                                     const liveCfg = liveEditedConfig ?? configs?.find(c => c.id === editor.id);
                                     const savedNext = (liveCfg as any)?.hKodConfig?.nextNumber;
