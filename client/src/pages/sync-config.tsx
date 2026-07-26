@@ -777,7 +777,7 @@ export default function SyncConfigPage() {
 
   // Cleanup hkod scan poll interval on unmount
   useEffect(() => {
-    return () => { if (hkodScanPollRef.current) clearInterval(hkodScanPollRef.current); };
+    return () => { if (hkodScanEsRef.current) { hkodScanEsRef.current.close(); hkodScanEsRef.current = null; } };
   }, []);
 
   const { data: filterCountData, isFetching: filterCountFetching } = useQuery<{ total: number; matched: number; capped?: boolean }>({
@@ -1319,7 +1319,7 @@ export default function SyncConfigPage() {
   const [showDuplicateFixedWarning, setShowDuplicateFixedWarning] = useState(false);
   const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
   const dragFixedFieldIdx = useRef<number | null>(null);
-  const hkodScanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hkodScanEsRef = useRef<EventSource | null>(null);
   const [dragOverFixedFieldIdx, setDragOverFixedFieldIdx] = useState<number | null>(null);
 
   const suggestions = useMemo(() => {
@@ -2890,36 +2890,30 @@ export default function SyncConfigPage() {
                                         disabled={hkodScan.status === "scanning"}
                                         data-testid="button-hkod-scan"
                                         title={language === "sk" ? "Prehľadá ONIX a navrhne ďalšie číslo" : "Scans ONIX and suggests the next number"}
-                                        onClick={async () => {
-                                          if (hkodScanPollRef.current) { clearInterval(hkodScanPollRef.current); hkodScanPollRef.current = null; }
+                                        onClick={() => {
+                                          if (hkodScanEsRef.current) { hkodScanEsRef.current.close(); hkodScanEsRef.current = null; }
                                           setHkodScan({ status: "scanning" });
-                                          try {
-                                            const startResp = await apiRequest("POST", `/api/sync-configs/${editor.id}/scan-hkod/start`);
-                                            const { jobId } = await startResp.json();
-                                            hkodScanPollRef.current = setInterval(async () => {
-                                              try {
-                                                const pollResp = await fetch(`/api/sync-configs/${editor.id}/scan-hkod/poll/${jobId}`, { credentials: "include" });
-                                                if (!pollResp.ok) {
-                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
-                                                  setHkodScan({ status: "error", error: `Poll chyba: ${pollResp.status}` });
-                                                  return;
-                                                }
-                                                const job = await pollResp.json();
-                                                if (job.status === "done") {
-                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
-                                                  setHkodScan({ status: "done", result: job.result });
-                                                } else if (job.status === "error") {
-                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
-                                                  setHkodScan({ status: "error", error: job.error ?? "Neznáma chyba" });
-                                                }
-                                              } catch (e: any) {
-                                                clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
-                                                setHkodScan({ status: "error", error: e.message });
+                                          const es = new EventSource(`/api/sync-configs/${editor.id}/scan-hkod`);
+                                          hkodScanEsRef.current = es;
+                                          es.onmessage = (event) => {
+                                            try {
+                                              const payload = JSON.parse(event.data);
+                                              if (payload.type === "done") {
+                                                setHkodScan({ status: "done", result: payload.result });
+                                              } else if (payload.type === "error") {
+                                                setHkodScan({ status: "error", error: payload.error ?? "Neznáma chyba" });
                                               }
-                                            }, 2000);
-                                          } catch (e: any) {
-                                            setHkodScan({ status: "error", error: e.message });
-                                          }
+                                            } catch (e: any) {
+                                              setHkodScan({ status: "error", error: e.message });
+                                            }
+                                            es.close(); hkodScanEsRef.current = null;
+                                          };
+                                          es.onerror = () => {
+                                            if (hkodScanEsRef.current) {
+                                              setHkodScan({ status: "error", error: language === "sk" ? "Chyba spojenia so serverom" : "Server connection error" });
+                                              es.close(); hkodScanEsRef.current = null;
+                                            }
+                                          };
                                         }}
                                       >
                                         {hkodScan.status === "scanning"
