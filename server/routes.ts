@@ -25,6 +25,20 @@ import { z } from "zod";
 // Auto-retry schedule: configId → { fireAt, failedRunId }
 const retrySchedule = new Map<string, { fireAt: number; failedRunId: string }>();
 
+// H-kód scan background jobs (in-memory, TTL 10 min)
+const hkodScanJobs = new Map<string, {
+  status: "running" | "done" | "error";
+  result?: { prefix: string; scannedTotal: number; matchingCount: number; maxNumber: number | null; maxCode: string | null; suggestedNext: number };
+  error?: string;
+  createdAt: number;
+}>();
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  hkodScanJobs.forEach((job, id) => {
+    if (job.createdAt < cutoff) hkodScanJobs.delete(id);
+  });
+}, 5 * 60 * 1000).unref();
+
 async function checkAutoRetries() {
   const now = Date.now();
 
@@ -2541,8 +2555,8 @@ export async function registerRoutes(
     }
   });
 
-  // Scan ONIX for existing H-codes and suggest the next number
-  app.get("/api/sync-configs/:id/scan-hkod", requireRole("admin", "operator"), async (req, res) => {
+  // POST: start a background H-kód scan job, returns jobId immediately (avoids proxy timeout)
+  app.post("/api/sync-configs/:id/scan-hkod/start", requireRole("admin", "operator"), async (req, res) => {
     try {
       const config = await storage.getSyncConfig(String(req.params.id));
       if (!config) return res.status(404).json({ message: "Sync config not found" });
@@ -2560,111 +2574,131 @@ export async function registerRoutes(
       const creds = getOnixCreds(targetMod.config as Record<string, any>);
       if (!creds.token) return res.status(400).json({ message: `ONIX token nie je nakonfigurovaný (environment: ${creds.environment})` });
 
-      const rawBase = ((targetMod as any).baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
-      const hdrs: Record<string, string> = {
-        "Accept": "application/json",
-        "Authorization": `Bearer ${creds.token}`,
-        "User-Agent": "SyncHub/1.0",
-      };
-      if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
+      // Generate jobId and register immediately
+      const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      hkodScanJobs.set(jobId, { status: "running", createdAt: Date.now() });
 
-      // Fetch only Ns_Number — filter by detectionPrefix client-side after fetching all records
-      const fetchUrl = `${rawBase}/api/v1/stockitems?$select=Ns_Number&$count=true`;
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 300000);
-      const resp = await fetch(fetchUrl, { headers: hdrs, signal: ctrl.signal });
-      clearTimeout(t);
-      if (!resp.ok) return res.status(502).json({ message: `ONIX API vrátilo HTTP ${resp.status}` });
+      // Run scan in background — does NOT block this HTTP response
+      (async () => {
+        try {
+          const rawBase = ((targetMod as any).baseUrl || "https://onix-api.hauerland.sk/onix_api").replace(/\/onix_api$/i, "/ONIX_API");
+          const hdrs: Record<string, string> = {
+            "Accept": "application/json",
+            "Authorization": `Bearer ${creds.token}`,
+            "User-Agent": "SyncHub/1.0",
+          };
+          if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
 
-      const data = await resp.json();
-      const arr: any[] = Array.isArray(data) ? data :
-        (Array.isArray(data?.value) ? data.value :
-          (Array.isArray(data?.data) ? data.data : []));
+          // Fetch only Ns_Number — filter by detectionPrefix client-side after fetching all records
+          const fetchUrl = `${rawBase}/api/v1/stockitems?$select=Ns_Number&$count=true`;
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 300000);
+          const resp = await fetch(fetchUrl, { headers: hdrs, signal: ctrl.signal });
+          clearTimeout(t);
+          if (!resp.ok) {
+            hkodScanJobs.set(jobId, { ...hkodScanJobs.get(jobId)!, status: "error", error: `ONIX API vrátilo HTTP ${resp.status}` });
+            return;
+          }
 
-      // Paginate (mirrors buildOnixIndex logic)
-      const oDataCount = typeof data?.['@odata.count'] === 'number' ? data['@odata.count'] as number : null;
-      let nextLink: string | null = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : null;
+          const data = await resp.json();
+          const arr: any[] = Array.isArray(data) ? data :
+            (Array.isArray(data?.value) ? data.value :
+              (Array.isArray(data?.data) ? data.data : []));
 
-      if (nextLink) {
-        let safetyLimit = 10000;
-        while (nextLink && safetyLimit-- > 0) {
-          const c2 = new AbortController();
-          const t2 = setTimeout(() => c2.abort(), 300000);
-          try {
-            const r2: globalThis.Response = await fetch(nextLink, { headers: hdrs, signal: c2.signal });
-            clearTimeout(t2);
-            if (!r2.ok) break;
-            const d2: any = await r2.json();
-            const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
-            arr.push(...page);
-            nextLink = typeof d2?.['@odata.nextLink'] === 'string' ? d2['@odata.nextLink'] : null;
-          } catch { clearTimeout(t2); break; }
+          const oDataCount = typeof data?.['@odata.count'] === 'number' ? data['@odata.count'] as number : null;
+          let nextLink: string | null = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : null;
+
+          if (nextLink) {
+            let safetyLimit = 10000;
+            while (nextLink && safetyLimit-- > 0) {
+              const c2 = new AbortController();
+              const t2 = setTimeout(() => c2.abort(), 300000);
+              try {
+                const r2: globalThis.Response = await fetch(nextLink, { headers: hdrs, signal: c2.signal });
+                clearTimeout(t2);
+                if (!r2.ok) break;
+                const d2: any = await r2.json();
+                const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
+                arr.push(...page);
+                nextLink = typeof d2?.['@odata.nextLink'] === 'string' ? d2['@odata.nextLink'] : null;
+              } catch { clearTimeout(t2); break; }
+            }
+          } else if (oDataCount && oDataCount > arr.length) {
+            const PAGE_SIZE = arr.length > 0 ? arr.length : 500;
+            let safetyLimit = 10000;
+            while (arr.length < oDataCount && safetyLimit-- > 0) {
+              const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
+              const c2 = new AbortController();
+              const t2 = setTimeout(() => c2.abort(), 300000);
+              try {
+                const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
+                clearTimeout(t2);
+                if (!r2.ok) break;
+                const d2: any = await r2.json();
+                const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
+                if (page.length === 0) break;
+                arr.push(...page);
+              } catch { clearTimeout(t2); break; }
+            }
+          } else if (!nextLink && !oDataCount && arr.length > 0) {
+            const PAGE_SIZE = arr.length;
+            const firstId = arr[0]?.IdRecord ?? arr[0]?.Id ?? null;
+            let maxPages = 10000;
+            while (maxPages-- > 0) {
+              const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
+              const c2 = new AbortController();
+              const t2 = setTimeout(() => c2.abort(), 300000);
+              try {
+                const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
+                clearTimeout(t2);
+                if (!r2.ok) break;
+                const d2: any = await r2.json();
+                const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
+                if (page.length === 0) break;
+                const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? null;
+                if (pageFirstId !== null && pageFirstId === firstId) break;
+                arr.push(...page);
+                if (page.length < PAGE_SIZE) break;
+              } catch { clearTimeout(t2); break; }
+            }
+          }
+
+          // Filter by prefix and find max
+          let maxNum: number | null = null;
+          let maxCode: string | null = null;
+          let matchingCount = 0;
+          for (const item of arr) {
+            const ns: string = item.Ns_Number ?? item.ns_number ?? "";
+            if (!ns.startsWith(prefix)) continue;
+            const numStr = ns.slice(prefix.length);
+            if (!/^\d+$/.test(numStr)) continue;
+            const num = parseInt(numStr, 10);
+            matchingCount++;
+            if (maxNum === null || num > maxNum) { maxNum = num; maxCode = ns; }
+          }
+
+          hkodScanJobs.set(jobId, {
+            ...hkodScanJobs.get(jobId)!,
+            status: "done",
+            result: { prefix, scannedTotal: arr.length, matchingCount, maxNumber: maxNum, maxCode, suggestedNext: maxNum !== null ? maxNum + 1 : 1 },
+          });
+        } catch (err: any) {
+          const j = hkodScanJobs.get(jobId);
+          if (j) hkodScanJobs.set(jobId, { ...j, status: "error", error: err.message });
         }
-      } else if (oDataCount && oDataCount > arr.length) {
-        const PAGE_SIZE = arr.length > 0 ? arr.length : 500;
-        let safetyLimit = 10000;
-        while (arr.length < oDataCount && safetyLimit-- > 0) {
-          const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-          const c2 = new AbortController();
-          const t2 = setTimeout(() => c2.abort(), 300000);
-          try {
-            const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
-            clearTimeout(t2);
-            if (!r2.ok) break;
-            const d2: any = await r2.json();
-            const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
-            if (page.length === 0) break;
-            arr.push(...page);
-          } catch { clearTimeout(t2); break; }
-        }
-      } else if (!nextLink && !oDataCount && arr.length > 0) {
-        const PAGE_SIZE = arr.length;
-        const firstId = arr[0]?.IdRecord ?? arr[0]?.Id ?? null;
-        let maxPages = 10000;
-        while (maxPages-- > 0) {
-          const pageUrl = `${fetchUrl}&$skip=${arr.length}&$top=${PAGE_SIZE}`;
-          const c2 = new AbortController();
-          const t2 = setTimeout(() => c2.abort(), 300000);
-          try {
-            const r2: globalThis.Response = await fetch(pageUrl, { headers: hdrs, signal: c2.signal });
-            clearTimeout(t2);
-            if (!r2.ok) break;
-            const d2: any = await r2.json();
-            const page: any[] = Array.isArray(d2) ? d2 : (Array.isArray(d2?.value) ? d2.value : []);
-            if (page.length === 0) break;
-            const pageFirstId = page[0]?.IdRecord ?? page[0]?.Id ?? null;
-            if (pageFirstId !== null && pageFirstId === firstId) break;
-            arr.push(...page);
-            if (page.length < PAGE_SIZE) break;
-          } catch { clearTimeout(t2); break; }
-        }
-      }
+      })();
 
-      // Filter by prefix and find max
-      let maxNum: number | null = null;
-      let maxCode: string | null = null;
-      let matchingCount = 0;
-      for (const item of arr) {
-        const ns: string = item.Ns_Number ?? item.ns_number ?? "";
-        if (!ns.startsWith(prefix)) continue;
-        const numStr = ns.slice(prefix.length);
-        if (!/^\d+$/.test(numStr)) continue;
-        const num = parseInt(numStr, 10);
-        matchingCount++;
-        if (maxNum === null || num > maxNum) { maxNum = num; maxCode = ns; }
-      }
-
-      return res.json({
-        prefix,
-        scannedTotal: arr.length,
-        matchingCount,
-        maxNumber: maxNum,
-        maxCode,
-        suggestedNext: maxNum !== null ? maxNum + 1 : 1,
-      });
+      return res.json({ jobId });
     } catch (err: any) {
       return res.status(500).json({ message: err.message });
     }
+  });
+
+  // GET: poll H-kód scan job status
+  app.get("/api/scan-hkod/poll/:jobId", requireRole("admin", "operator"), (req, res) => {
+    const job = hkodScanJobs.get(String(req.params.jobId));
+    if (!job) return res.status(404).json({ message: "Job nenájdený alebo expiroval" });
+    return res.json(job);
   });
 
   // H kód decisions for a given sync run

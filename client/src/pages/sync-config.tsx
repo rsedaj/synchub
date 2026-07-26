@@ -775,6 +775,11 @@ export default function SyncConfigPage() {
     return () => clearTimeout(timer);
   }, [activeFilters]);
 
+  // Cleanup hkod scan poll interval on unmount
+  useEffect(() => {
+    return () => { if (hkodScanPollRef.current) clearInterval(hkodScanPollRef.current); };
+  }, []);
+
   const { data: filterCountData, isFetching: filterCountFetching } = useQuery<{ total: number; matched: number; capped?: boolean }>({
     queryKey: ["/api/modules", editor.sourceModuleId, "filter-count", editor.sourceDataSource, editor.sourceRecordLimit, debouncedFilterKey],
     enabled: !!editor.sourceModuleId && !!editor.sourceDataSource && editorOpen && activeFilters.length > 0,
@@ -1314,6 +1319,7 @@ export default function SyncConfigPage() {
   const [showDuplicateFixedWarning, setShowDuplicateFixedWarning] = useState(false);
   const fixedFieldValueRefs = useRef<Map<number, HTMLInputElement>>(new Map());
   const dragFixedFieldIdx = useRef<number | null>(null);
+  const hkodScanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dragOverFixedFieldIdx, setDragOverFixedFieldIdx] = useState<number | null>(null);
 
   const suggestions = useMemo(() => {
@@ -2885,16 +2891,32 @@ export default function SyncConfigPage() {
                                         data-testid="button-hkod-scan"
                                         title={language === "sk" ? "Prehľadá ONIX a navrhne ďalšie číslo" : "Scans ONIX and suggests the next number"}
                                         onClick={async () => {
+                                          if (hkodScanPollRef.current) { clearInterval(hkodScanPollRef.current); hkodScanPollRef.current = null; }
                                           setHkodScan({ status: "scanning" });
                                           try {
-                                            const resp = await apiRequest("GET", `/api/sync-configs/${editor.id}/scan-hkod`);
-                                            if (!resp.ok) {
-                                              const err = await resp.json().catch(() => ({ message: resp.statusText }));
-                                              setHkodScan({ status: "error", error: err.message });
-                                              return;
-                                            }
-                                            const result = await resp.json();
-                                            setHkodScan({ status: "done", result });
+                                            const startResp = await apiRequest("POST", `/api/sync-configs/${editor.id}/scan-hkod/start`);
+                                            const { jobId } = await startResp.json();
+                                            hkodScanPollRef.current = setInterval(async () => {
+                                              try {
+                                                const pollResp = await fetch(`/api/scan-hkod/poll/${jobId}`, { credentials: "include" });
+                                                if (!pollResp.ok) {
+                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
+                                                  setHkodScan({ status: "error", error: `Poll chyba: ${pollResp.status}` });
+                                                  return;
+                                                }
+                                                const job = await pollResp.json();
+                                                if (job.status === "done") {
+                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
+                                                  setHkodScan({ status: "done", result: job.result });
+                                                } else if (job.status === "error") {
+                                                  clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
+                                                  setHkodScan({ status: "error", error: job.error ?? "Neznáma chyba" });
+                                                }
+                                              } catch (e: any) {
+                                                clearInterval(hkodScanPollRef.current!); hkodScanPollRef.current = null;
+                                                setHkodScan({ status: "error", error: e.message });
+                                              }
+                                            }, 2000);
                                           } catch (e: any) {
                                             setHkodScan({ status: "error", error: e.message });
                                           }
