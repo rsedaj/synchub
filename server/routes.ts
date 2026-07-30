@@ -2671,7 +2671,9 @@ export async function registerRoutes(
           if (maxNum === null || num > maxNum) { maxNum = num; maxCode = ns; }
         }
 
-        finish({ type: "done", partial, result: { prefix, scannedTotal: arr.length, matchingCount, maxNumber: maxNum, maxCode, suggestedNext: maxNum !== null ? maxNum + 1 : 1 } });
+        // Detect padding from the actual digits in maxCode (e.g. "H1107654" → prefix "H11", digits "07654" → padding 5)
+        const detectedPadding = maxCode ? maxCode.slice(prefix.length).length : 0;
+        finish({ type: "done", partial, result: { prefix, scannedTotal: arr.length, matchingCount, maxNumber: maxNum, maxCode, suggestedNext: maxNum !== null ? maxNum + 1 : 1, detectedPadding } });
       } catch (err: any) {
         finish({ type: "error", error: err.message });
       }

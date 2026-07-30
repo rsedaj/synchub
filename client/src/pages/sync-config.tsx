@@ -833,7 +833,7 @@ export default function SyncConfigPage() {
   const [snapshottingConfigId, setSnapshottingConfigId] = useState<string | null>(null);
   const [hkodScan, setHkodScan] = useState<{
     status: "idle" | "scanning" | "done" | "error";
-    result?: { prefix: string; scannedTotal: number; matchingCount: number; maxNumber: number | null; maxCode: string | null; suggestedNext: number };
+    result?: { prefix: string; scannedTotal: number; matchingCount: number; maxNumber: number | null; maxCode: string | null; suggestedNext: number; detectedPadding: number };
     error?: string;
   }>({ status: "idle" });
   const [hkodApplyReason, setHkodApplyReason] = useState<string>("manual");
@@ -2981,7 +2981,7 @@ export default function SyncConfigPage() {
                                       <div className="flex items-center gap-2 pt-0.5">
                                         <p className="text-[11px] text-muted-foreground">
                                           {language === "sk" ? "Navrhované ďalšie číslo:" : "Suggested next:"}
-                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}{editor.hKodConfig.padding > 0 ? String(hkodScan.result.suggestedNext).padStart(editor.hKodConfig.padding, "0") : hkodScan.result.suggestedNext}</span>
+                                          {" "}<span className="font-mono font-semibold text-foreground">{hkodScan.result.prefix}{hkodScan.result.detectedPadding > 0 ? String(hkodScan.result.suggestedNext).padStart(hkodScan.result.detectedPadding, "0") : hkodScan.result.suggestedNext}</span>
                                         </p>
                                         <Button
                                           type="button"
@@ -2991,7 +2991,7 @@ export default function SyncConfigPage() {
                                             const r = hkodScan.result!;
                                             setEditor(prev => ({
                                               ...prev,
-                                              hKodConfig: { ...prev.hKodConfig, nextNumber: r.suggestedNext },
+                                              hKodConfig: { ...prev.hKodConfig, nextNumber: r.suggestedNext, ...(r.detectedPadding > 0 ? { padding: r.detectedPadding } : {}) },
                                             }));
                                             setHkodApplyReason("scan");
                                             setHkodApplyNote(r.maxCode
