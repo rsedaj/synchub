@@ -707,25 +707,44 @@ async function buildOnixIndex(
   console.log(`[target-push] ONIX pre-fetch: building index url=${fetchUrl} fields=${targetFields.join(",")}`);
   const fetchStart = Date.now();
 
-  try {
+  // Helper: fetch first page and return parsed array + raw data
+  const fetchFirstPage = async (url: string): Promise<{ arr: any[]; data: any } | null> => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 300000);
     const fetchHdrs = { ...hdrs };
     delete fetchHdrs["Content-Type"];
-
-    const res = await fetch(fetchUrl, { headers: fetchHdrs, signal: ctrl.signal });
+    const res = await fetch(url, { headers: fetchHdrs, signal: ctrl.signal });
     clearTimeout(t);
-
     if (!res.ok) {
-      console.warn(`[target-push] ONIX index fetch failed: HTTP ${res.status}`);
+      console.warn(`[target-push] ONIX index fetch failed: HTTP ${res.status} url=${url}`);
       return null;
     }
-
     const data = await res.json();
     const arr: any[] = Array.isArray(data) ? data :
       (Array.isArray(data?.value) ? data.value :
         (Array.isArray(data?.data) ? data.data :
           (Array.isArray(data?.items) ? data.items : [])));
+    return { arr, data };
+  };
+
+  try {
+    const fetchHdrs = { ...hdrs };
+    delete fetchHdrs["Content-Type"];
+
+    let firstPageResult = await fetchFirstPage(fetchUrl);
+    if (!firstPageResult) return null;
+
+    // Safety fallback: if StockCode filter returned 0 records (parameter may not filter by
+    // stock group in this ONIX instance), retry without the StockCode filter so we still
+    // build a usable index over all records (in-memory stock filter still applies below).
+    if (firstPageResult.arr.length === 0 && stockCodeParam) {
+      const fallbackUrl = fetchUrl.replace(stockCodeParam, "");
+      console.warn(`[target-push] ONIX index StockCode=${targetStock} returned 0 records — falling back to unfiltered index (url=${fallbackUrl})`);
+      firstPageResult = await fetchFirstPage(fallbackUrl);
+      if (!firstPageResult) return null;
+    }
+
+    const { arr, data } = firstPageResult;
 
     // Log OData metadata present in the response (key diagnostic for pagination verification)
     {
