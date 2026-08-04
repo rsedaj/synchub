@@ -259,6 +259,7 @@ interface EditorState {
   matchOperator: "and" | "or";
   matchNormalization: MatchNormalization;
   onMissing: "create" | "skip" | "force";
+  onixEmptyIndexAction: "abort" | "warn";
   targetStock: string;
   sourceFilters: SourceFilter[];
   hKodConfig: HKodConfig;
@@ -283,6 +284,7 @@ const emptyEditor: EditorState = {
   matchOperator: "and",
   matchNormalization: { ...emptyMatchNormalization },
   onMissing: "create",
+  onixEmptyIndexAction: "abort",
   targetStock: "",
   sourceFilters: [],
   hKodConfig: { enabled: false, prefix: "H20", detectionPrefix: "H20", nextNumber: 125892, field: "Ns_Number", padding: 0 },
@@ -1050,6 +1052,7 @@ export default function SyncConfigPage() {
       matchOperator: ((config as any).matchOperator as "and" | "or") || "and",
       matchNormalization: { ...emptyMatchNormalization, ...((config as any).matchNormalization || {}) },
       onMissing: ((config as any).onMissing as "create" | "skip") || "create",
+      onixEmptyIndexAction: ((config as any).onixEmptyIndexAction as "abort" | "warn") || "abort",
       targetStock: (config as any).targetStock || "",
       sourceFilters: (config as any).sourceFilters || [],
       hKodConfig: (config as any).hKodConfig
@@ -1144,6 +1147,7 @@ export default function SyncConfigPage() {
       matchOperator: editor.matchOperator,
       matchNormalization: editor.matchNormalization,
       onMissing: editor.onMissing,
+      onixEmptyIndexAction: editor.onixEmptyIndexAction || "abort",
       targetStock: editor.targetStock || null,
       sourceFilters: editor.sourceFilters.filter(f => f.field && f.value),
       hKodConfig: editor.hKodConfig,
@@ -2479,6 +2483,62 @@ export default function SyncConfigPage() {
                 {selectedTargetModule?.code === "ONIX" && (
                   <>
                     <Separator />
+
+                    {/* Empty-index action — visible only when match fields are configured */}
+                    {editor.matchFields.filter(f => f && f.trim()).length > 0 && (
+                      <div data-testid="section-onix-empty-index-action">
+                        <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                          <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">ONIX</span>
+                          {language === "sk" ? "Prázdny index zhody" : "Empty match index"}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {language === "sk"
+                            ? "Čo urobiť, ak ONIX obsahuje záznamy, ale všetky párovacích polia (napr. CustomColumns.Product_Code) majú 0 indexovaných hodnôt — čo by spôsobilo, že každý záznam sa vytvorí ako nový namiesto aktualizácie existujúceho."
+                            : "What to do if ONIX has records but all match fields (e.g. CustomColumns.Product_Code) have 0 indexed values — which would cause every record to be created as new instead of updating existing ones."}
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="onix-empty-index-action"
+                              value="abort"
+                              checked={editor.onixEmptyIndexAction === "abort"}
+                              onChange={() => setEditor(prev => ({ ...prev, onixEmptyIndexAction: "abort" }))}
+                              className="mt-1"
+                              data-testid="radio-empty-index-abort"
+                            />
+                            <div className="text-sm">
+                              <div>{language === "sk" ? "Zastaviť synchronizáciu (odporúčané)" : "Abort the sync (recommended)"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {language === "sk"
+                                  ? "Synchronizácia sa zastaví pred zápisom akýchkoľvek záznamov. Zabraňuje vzniku duplikátov."
+                                  : "The sync is stopped before writing any records. Prevents duplicates from being created."}
+                              </div>
+                            </div>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="onix-empty-index-action"
+                              value="warn"
+                              checked={editor.onixEmptyIndexAction === "warn"}
+                              onChange={() => setEditor(prev => ({ ...prev, onixEmptyIndexAction: "warn" }))}
+                              className="mt-1"
+                              data-testid="radio-empty-index-warn"
+                            />
+                            <div className="text-sm">
+                              <div>{language === "sk" ? "Upozorniť a pokračovať" : "Warn and continue"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {language === "sk"
+                                  ? "Synchronizácia pokračuje s varovaním. Použite len ak viete, že žiadne záznamy ešte neexistujú v ONIX."
+                                  : "The sync continues with a warning. Use only if you know no records exist in ONIX yet."}
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
                     <div data-testid="section-onix-fixed-fields">
                       <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
                         <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">ONIX</span>

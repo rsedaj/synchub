@@ -82,6 +82,7 @@ export const syncConfigs = pgTable("sync_configs", {
   sourceFilters: jsonb("source_filters").$type<Array<{ field: string; operator: string; value: string }>>().default([]),
   hKodConfig: jsonb("h_kod_config").$type<{ enabled: boolean; prefix: string; nextNumber: number; field: string; detectionPrefix?: string; padding?: number } | null>(),
   onixFixedFields: jsonb("onix_fixed_fields").$type<Array<{ field: string; value: string; condition: "always" | "if_empty" }> | null>(),
+  onixEmptyIndexAction: text("onix_empty_index_action").default("abort"),
   schedule: jsonb("schedule").$type<{ enabled: boolean; frequency: string; timeOfDay?: string; dayOfWeek?: string; backupBeforeSync?: boolean }>().default({ enabled: false, frequency: "daily", backupBeforeSync: true }),
   notes: text("notes"),
   isEnabled: boolean("is_enabled").notNull().default(true),
@@ -365,6 +366,7 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs, {
     )
     .nullable()
     .optional(),
+  onixEmptyIndexAction: z.enum(["abort", "warn"]).nullable().optional(),
 }).pick({
   name: true,
   targetModuleId: true,
@@ -382,6 +384,7 @@ export const insertSyncConfigSchema = createInsertSchema(syncConfigs, {
   hKodConfig: true,
   schedule: true,
   onixFixedFields: true,
+  onixEmptyIndexAction: true,
   notes: true,
   isEnabled: true,
   autoRetry: true,
