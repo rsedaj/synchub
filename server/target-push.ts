@@ -877,6 +877,18 @@ async function buildOnixIndex(
     const idToNsNumber = new Map<number, string>();
     const idToHKodFieldVal = new Map<number, string>();
     const fieldNonEmptyCount = new Map<string, number>();
+    // Pre-initialise all configured match target fields to 0 so that fields
+    // with NO indexed values still appear in fieldNonEmptyCount (and therefore
+    // in PushResult.onixIndexFieldStats).  A count of 0 is the definitive
+    // signal that matching will always fail for that field; without this
+    // pre-init, a zero-count field would simply be absent from the map and
+    // the dashboard ⚠ row would never render for it.
+    // Only targetFields (the caller-supplied match fields) are seeded — NOT the
+    // extra Ns_Number added to fieldsToIndex for H kód fallback, so the count
+    // map stays scoped to what the operator actually configured.
+    for (const tf of targetFields) {
+      fieldNonEmptyCount.set(tf, 0);
+    }
 
     let filteredByStock = 0;
     for (const item of arr) {
