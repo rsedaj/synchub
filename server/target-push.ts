@@ -76,6 +76,10 @@ export interface PushResult {
   onixIndexComplete?: boolean;
   onixIndexRecordCount?: number;
   onixIndexExpectedCount?: number | null;
+  // Per-field counts of non-empty values indexed. Key = target field name (e.g. "CustomColumns.Product_Code").
+  // A count of 0 means the field is configured as a match field but no ONIX records had a value for it —
+  // this is the definitive signal that matching will always fail and creates will happen instead of updates.
+  onixIndexFieldStats?: Record<string, number>;
 }
 
 async function sleep(ms: number) {
@@ -2089,5 +2093,8 @@ async function pushToOnix(
     onixIndexComplete: onixIndex ? onixIndex.complete : undefined,
     onixIndexRecordCount: onixIndex ? onixIndex.recordCount : undefined,
     onixIndexExpectedCount: onixIndex ? onixIndex.expectedCount : undefined,
+    onixIndexFieldStats: onixIndex
+      ? Object.fromEntries(Array.from(onixIndex.fieldNonEmptyCount.entries()))
+      : undefined,
   };
 }

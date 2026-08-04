@@ -826,6 +826,7 @@ async function executeAsync(
     let onixIndexIncomplete = false;
     let onixIndexRecordCount = 0;
     let onixIndexExpectedCount: number | null = null;
+    let onixIndexFieldStats: Record<string, number> | undefined = undefined;
     let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
@@ -969,6 +970,9 @@ async function executeAsync(
             onixIndexIncomplete = true;
             onixIndexRecordCount = pushResult.onixIndexRecordCount ?? 0;
             onixIndexExpectedCount = pushResult.onixIndexExpectedCount ?? null;
+          }
+          if (pushResult.onixIndexFieldStats && !onixIndexFieldStats) {
+            onixIndexFieldStats = pushResult.onixIndexFieldStats;
           }
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
@@ -1376,13 +1380,14 @@ async function executeAsync(
         deferredIncompleteIndexItems,
         syncedRecords,
         completionSummary,
-        onixIndex: onixIndexIncomplete
+        onixIndex: (onixIndexIncomplete || onixIndexFieldStats)
           ? {
-              incomplete: true,
-              recordCount: onixIndexRecordCount,
+              incomplete: onixIndexIncomplete || undefined,
+              recordCount: onixIndexRecordCount || undefined,
               expectedCount: onixIndexExpectedCount,
-              deferredCount: totalDeferredIncompleteIndex,
-              deferredItems: deferredIncompleteIndexItems.slice(0, 200),
+              deferredCount: onixIndexIncomplete ? totalDeferredIncompleteIndex : undefined,
+              deferredItems: onixIndexIncomplete ? deferredIncompleteIndexItems.slice(0, 200) : undefined,
+              fieldStats: onixIndexFieldStats,
             }
           : undefined,
       },
