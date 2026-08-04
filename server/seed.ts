@@ -512,6 +512,14 @@ export async function runMigrations() {
     log("Schema m015: hkod_counter_history migration skipped", "seed");
   }
 
+  // Schema migration m016: onix_empty_index_action — per-config abort-vs-warn setting
+  try {
+    await db.execute(sql`ALTER TABLE sync_configs ADD COLUMN IF NOT EXISTS onix_empty_index_action text DEFAULT 'abort'`);
+    log("Schema m016: sync_configs.onix_empty_index_action added", "seed");
+  } catch (_e) {
+    log("Schema m016: onix_empty_index_action migration skipped", "seed");
+  }
+
   const promotronModule = await storage.getModuleByCode("PROMOTRON");
   const onixModule = await storage.getModuleByCode("ONIX");
 
