@@ -3110,7 +3110,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       const batchErrors: Array<{ batch?: number; index?: number; message: string }> = det?.batchErrors ?? [];
                       const skippedItems: Array<{ nsNumber: string; reason: string }> = det?.skippedItems ?? [];
                       const completionSummary: string | undefined = det?.completionSummary;
-                      const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null; deferredCount?: number; deferredItems?: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> } | undefined = det?.onixIndex;
+                      const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null; deferredCount?: number; deferredItems?: Array<{ recordKey?: string; nsNumber?: string; reason?: string }>; fieldStats?: Record<string, number> } | undefined = det?.onixIndex;
                       const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> = onixIndexInfo?.deferredItems ?? [];
                       const deferredCount: number = onixIndexInfo?.deferredCount ?? deferredItems.length;
                       const isExpLog = expandedLogRunId === run.id;
@@ -3244,6 +3244,45 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   </div>
                                 </div>
                               )}
+
+                              {/* ONIX match index field stats */}
+                              {onixIndexInfo?.fieldStats && Object.keys(onixIndexInfo.fieldStats).length > 0 && (() => {
+                                const fieldStats = onixIndexInfo.fieldStats!;
+                                const hasZeroField = Object.values(fieldStats).some(v => v === 0);
+                                return (
+                                  <div
+                                    className={`rounded border px-3 py-2 ${hasZeroField ? "border-red-500/40 bg-red-500/10" : "border-green-500/30 bg-green-500/8"}`}
+                                    data-testid={`section-onix-field-stats-${run.id}`}
+                                  >
+                                    <p className={`font-semibold mb-1.5 ${hasZeroField ? "text-red-600 dark:text-red-400" : "text-green-700 dark:text-green-400"}`}>
+                                      {t("syncDash.onixFieldStatsTitle")}
+                                    </p>
+                                    <div className="space-y-0.5">
+                                      {Object.entries(fieldStats).map(([field, count]) => {
+                                        const isZero = count === 0;
+                                        return (
+                                          <p
+                                            key={field}
+                                            className={`flex items-start gap-1.5 text-sm ${isZero ? "text-red-600 dark:text-red-400 font-semibold" : "text-green-700 dark:text-green-400"}`}
+                                            title={isZero ? t("syncDash.onixFieldStatsZeroTitle") : undefined}
+                                            data-testid={`onix-field-stat-${run.id}-${field}`}
+                                          >
+                                            <span className="shrink-0">{isZero ? "⚠" : "✓"}</span>
+                                            <span>
+                                              <span className="font-mono">{field}</span>
+                                              {" — "}
+                                              {isZero
+                                                ? t("syncDash.onixFieldStatsZeroWarn")
+                                                : t("syncDash.onixFieldStatsOk").replace("{count}", count.toLocaleString())
+                                              }
+                                            </span>
+                                          </p>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Records deferred specifically due to incomplete ONIX index */}
                               {deferredItems.length > 0 && (
