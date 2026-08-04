@@ -1329,6 +1329,9 @@ async function executeAsync(
             last: hKodNextNumber - 1,
             count: hKodNextNumber - hKodStartNumber,
           } : undefined,
+          // Surface ONIX index field stats in live view so admins can see match health
+          // while the run is still in progress (not just in the completed summary).
+          onixIndexFieldStats: onixIndexFieldStats ?? undefined,
         },
       }, `batch:${currentBatch}`);
 

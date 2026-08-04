@@ -1744,6 +1744,47 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           );
                         })()}
 
+                        {/* ONIX index field stats — shown as soon as first batch arrives */}
+                        {(() => {
+                          const liveFieldStats = (trackedRun.details as any)?.onixIndexFieldStats as Record<string, number> | undefined;
+                          if (!liveFieldStats || Object.keys(liveFieldStats).length === 0) return null;
+                          const entries = Object.entries(liveFieldStats);
+                          const hasZero = entries.some(([, c]) => c === 0);
+                          return (
+                            <div
+                              className={`rounded-md border px-3 py-2 text-xs ${hasZero ? "border-destructive/40 bg-destructive/5" : "border-green-500/30 bg-green-500/5"}`}
+                              data-testid="panel-live-onix-field-stats"
+                            >
+                              <div className="flex items-center gap-1.5 mb-1.5 font-medium">
+                                {hasZero
+                                  ? <><AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" /><span className="text-destructive">{language === "sk" ? "ONIX index — prázdne match polia!" : "ONIX index — empty match fields!"}</span></>
+                                  : <><CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 flex-shrink-0" /><span className="text-green-700 dark:text-green-400">{language === "sk" ? "ONIX index — match polia OK" : "ONIX index — match fields OK"}</span></>
+                                }
+                              </div>
+                              <div className="space-y-0.5">
+                                {entries.map(([field, count]) => (
+                                  <div key={field} className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${count === 0 ? "bg-destructive" : "bg-green-500"}`} />
+                                    <span className="font-mono text-[11px] truncate text-muted-foreground flex-1">{field}</span>
+                                    <span className={`font-semibold tabular-nums flex-shrink-0 ${count === 0 ? "text-destructive" : "text-foreground"}`}>
+                                      {count === 0
+                                        ? (language === "sk" ? "⚠ 0 hodnôt" : "⚠ 0 values")
+                                        : count.toLocaleString()}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              {hasZero && (
+                                <p className="mt-1.5 text-[10px] text-destructive/80">
+                                  {language === "sk"
+                                    ? "Záznamy sa vytvárajú ako nové namiesto aktualizácie existujúcich — zvážte zastavenie."
+                                    : "Records are being created as new instead of updating existing ones — consider cancelling."}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
                             <span className="text-muted-foreground">{language === "sk" ? "Odoslaných do ONIX:" : "Pushed to target:"}</span>
