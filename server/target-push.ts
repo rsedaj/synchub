@@ -997,6 +997,10 @@ export interface OnixIndexCheckResult {
   recordCount: number;
   expectedCount: number | null;
   message?: string;
+  // Per match-target-field count of non-empty indexed values.
+  // A count of 0 while recordCount > 0 means the field is never populated on
+  // ONIX cards → match will always fail → every record would be created as new.
+  fieldNonEmptyCount?: Record<string, number>;
 }
 
 export async function checkOnixIndexComplete(
@@ -1061,7 +1065,11 @@ export async function checkOnixIndexComplete(
     return { available: false, complete: false, recordCount: 0, expectedCount: null, message: "Failed to build the ONIX index (fetch error)" };
   }
 
-  return { available: true, complete: onixIndex.complete, recordCount: onixIndex.recordCount, expectedCount: onixIndex.expectedCount };
+  const fieldNonEmptyCount: Record<string, number> = {};
+  for (const f of targetFieldsForIndex) {
+    fieldNonEmptyCount[f] = onixIndex.fieldNonEmptyCount.get(f) ?? 0;
+  }
+  return { available: true, complete: onixIndex.complete, recordCount: onixIndex.recordCount, expectedCount: onixIndex.expectedCount, fieldNonEmptyCount };
 }
 
 function sanitizeOnixBody(body: Record<string, any>): Record<string, any> {

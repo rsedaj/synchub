@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { fetchModuleData } from "./data-fetcher";
 import { uploadBackup, downloadBackup, deleteBackupFile } from "./google-drive";
 import { saveLocalBackup, deleteLocalBackup } from "./local-backup";
-import { pushToTarget, clearOnixIndexCache, deriveRecordKey } from "./target-push";
+import { pushToTarget, clearOnixIndexCache, deriveRecordKey, checkOnixIndexComplete } from "./target-push";
 import { computeEffectiveFullSync, restrictToDeferredSet } from "./deferred-rerun";
 import { createHash } from "crypto";
 import type { SyncConfig, SyncRun, InsertSyncRunEvent } from "@shared/schema";
@@ -413,6 +413,88 @@ async function executeAsync(
           } catch {}
           activeRuns.delete(runId);
           return;
+        }
+      }
+    }
+
+    // Preflight: ONIX empty-index guard.
+    // If matchFields are configured and the ONIX index has 0 non-empty values for
+    // EVERY match field while ONIX reports at least one existing record, the sync
+    // would create a new card for every source item — silently duplicating all existing
+    // ONIX records. Abort (or warn, when onixEmptyIndexAction = "warn") before any
+    // records are written.
+    if (targetModule.code === "ONIX") {
+      const cfgMatchFieldsPF = ((config as any).matchFields || []).filter((f: string) => f && f.trim());
+      const onMissingPF = ((config as any).onMissing as string) || "create";
+      if (cfgMatchFieldsPF.length > 0 && onMissingPF !== "skip") {
+        log("Preflight: overujem ONIX index pre nakonfigurované match polia…");
+        try {
+          const indexCheck = await checkOnixIndexComplete(
+            targetModule,
+            config.targetDataSource || null,
+            {
+              matchFields: cfgMatchFieldsPF,
+              mappings: mappings as Array<{ sourceField: string; targetField: string }>,
+              targetStock: (config as any).targetStock || undefined,
+              hKodConfig: (config as any).hKodConfig?.enabled ? (config as any).hKodConfig : null,
+              matchNormalization: (config as any).matchNormalization || null,
+            }
+          );
+
+          if (indexCheck.available && indexCheck.recordCount > 0 && indexCheck.fieldNonEmptyCount) {
+            const emptyFields = Object.entries(indexCheck.fieldNonEmptyCount)
+              .filter(([, count]) => count === 0)
+              .map(([field]) => field);
+
+            if (emptyFields.length > 0 && emptyFields.length === Object.keys(indexCheck.fieldNonEmptyCount).length) {
+              // All configured match fields returned 0 indexed values — every record would be created as new.
+              const emptyFieldsList = emptyFields.join(", ");
+              const emptyIndexAction = ((config as any).onixEmptyIndexAction as string) || "abort";
+              const warnMsg = `ONIX preflight: ONIX obsahuje ${indexCheck.recordCount} záznamov, ale všetky nakonfigurované match polia (${emptyFieldsList}) majú 0 indexovaných hodnôt. Synchronizácia by vytvorila nové karty pre každý zdrojový záznam namiesto aktualizovania existujúcich — riziko duplikátov. Skontrolujte, či ONIX vracia tieto polia (CustomColumns musia byť povolené cez ?tables=CustomColumns) a či sú správne nakonfigurované.`;
+
+              if (emptyIndexAction === "warn") {
+                log(`[PREFLIGHT UPOZORNENIE] ${warnMsg}`, "warn");
+                log("Preflight: pokračujem napriek prázdnym match poliam (onixEmptyIndexAction=warn).", "warn");
+              } else {
+                // Default: abort
+                log(`[PREFLIGHT ERROR] ${warnMsg}`, "error");
+                const abortMsg = `ONIX preflight: všetky match polia (${emptyFieldsList}) majú 0 hodnôt pri ${indexCheck.recordCount} existujúcich záznamoch v ONIX — synchronizácia zrušená kvôli riziku duplikátov. Nastavte onixEmptyIndexAction=warn pre varovanie namiesto zastavenia.`;
+                await storage.updateSyncRun(runId, {
+                  status: "error",
+                  errorMessage: abortMsg,
+                  completedAt: new Date(),
+                  details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight"), onixEmptyIndexFields: emptyFields, onixIndexRecordCount: indexCheck.recordCount },
+                });
+                try {
+                  await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: abortMsg.slice(0, 500), triggeredBy: null });
+                } catch {}
+                try {
+                  await storage.createAuditLog({
+                    userId: config.createdBy || "system",
+                    action: "sync_complete",
+                    entity: "sync_config",
+                    entityId: config.id,
+                    details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: abortMsg, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+                  });
+                } catch {}
+                activeRuns.delete(runId);
+                return;
+              }
+            } else {
+              // At least one field has values — index looks healthy
+              const fieldsSummary = Object.entries(indexCheck.fieldNonEmptyCount)
+                .map(([f, c]) => `${f}: ${c}`)
+                .join(", ");
+              log(`Preflight OK: ONIX index obsahuje ${indexCheck.recordCount} záznamov, match polia: ${fieldsSummary}`);
+            }
+          } else if (!indexCheck.available) {
+            log(`Preflight: ONIX index check nedostupný (${indexCheck.message ?? "unknown"}) — pokračujem`, "warn");
+          } else {
+            log(`Preflight: ONIX má ${indexCheck.recordCount} záznamov (index OK)`);
+          }
+        } catch (preflightErr: any) {
+          // Index-check errors must never block a sync run — log and continue.
+          log(`Preflight: chyba pri ONIX index check (${preflightErr.message}) — pokračujem`, "warn");
         }
       }
     }
