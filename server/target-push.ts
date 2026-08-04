@@ -654,9 +654,15 @@ async function buildOnixIndex(
   normOpts?: MatchNormalizationOpts | null,
   forceRefresh?: boolean
 ): Promise<OnixIndexEntry | null> {
-  // Build the actual fetch URL — ONIX GET /stockitems doesn't support Default_Stock as query filter
-  // (per Swagger: only `tables`, `StockCode`, `SupplierCode`, `$select` are supported).
-  // Stock filtering is done in-memory after fetch.
+  // Build the actual fetch URL.
+  // ONIX GET /stockitems supports these query params (per Swagger): tables, StockCode, SupplierCode, $select.
+  // Default_Stock is NOT a query filter — it is a record field only. Stock filtering by Default_Stock
+  // is done in-memory after fetch (see filteredByStock counter below).
+  //
+  // StockCode IS a supported API filter: when targetStock is set we append &StockCode=<targetStock>
+  // so ONIX returns only records for that stock group. This reduces the index from potentially
+  // 100k+ total records down to the few thousand that actually belong to this sync's stock,
+  // making index build fast and preventing pagination gaps from causing missed matches.
   //
   // IMPORTANT: ONIX does NOT include CustomColumns in the response by default.
   // When any target match field is a CustomColumns.* field, we must append
@@ -666,9 +672,10 @@ async function buildOnixIndex(
   // $count=true is required by OData v4 spec to ask the server to return @odata.count.
   // Without it ONIX will NOT include @odata.count even if pagination is active.
   const needsCustomColumns = targetFields.some(f => f.startsWith("CustomColumns."));
+  const stockCodeParam = targetStock ? `&StockCode=${encodeURIComponent(targetStock)}` : "";
   const fetchUrl = needsCustomColumns
-    ? `${baseUrl}${endpoint}?tables=CustomColumns&$count=true`
-    : `${baseUrl}${endpoint}?$count=true`;
+    ? `${baseUrl}${endpoint}?tables=CustomColumns&$count=true${stockCodeParam}`
+    : `${baseUrl}${endpoint}?$count=true${stockCodeParam}`;
   // databasePath is included so prod and test ONIX environments never share the same index.
   const _dbPathForKey = hdrs["DatabasePath"] ?? "";
   // Normalization opts are part of the cache key — different normalization produces
