@@ -969,6 +969,10 @@ async function executeAsync(
     let onixIndexRecordCount = 0;
     let onixIndexExpectedCount: number | null = null;
     let onixIndexFieldStats: Record<string, number> | undefined = undefined;
+    // ONIX duplicate-match auto-resolutions aggregated across all batches; persisted
+    // in run details so admins can review and clean up ONIX duplicates post-run.
+    const allDuplicateResolutions: Array<{ matchDesc: string; candidates: Array<{ id: number; nsNumber: string | null }>; chosenId: number; chosenNsNumber: string | null }> = [];
+    const MAX_DUPLICATE_RESOLUTIONS_STORED = 500;
     let currentBatch = Math.floor(startOffset / BATCH_SIZE);
     let consecutiveFailBatches = 0;
     const allErrors: Array<{ batch: number; index: number; message: string }> = resumeFrom?.errors ? [...resumeFrom.errors] : [];
@@ -1121,6 +1125,9 @@ async function executeAsync(
           // into the run event log so admins can clean the duplicates up later.
           if (pushResult.duplicateResolutions && pushResult.duplicateResolutions.length > 0) {
             for (const dr of pushResult.duplicateResolutions) {
+              if (allDuplicateResolutions.length < MAX_DUPLICATE_RESOLUTIONS_STORED) {
+                allDuplicateResolutions.push(dr);
+              }
               log(
                 `[ONIX DUPLICITA] ${dr.matchDesc}: ${dr.candidates.map(c => `IdRecord=${c.id}/Ns_Number=${c.nsNumber ?? "?"}`).join(", ")} → automaticky vybraná najnovšia karta Ns_Number=${dr.chosenNsNumber} (IdRecord=${dr.chosenId}); ostatné duplicity ostávajú v ONIX-e nezmenené — odporúčame ich vyčistiť`,
                 "warn"
@@ -1403,6 +1410,9 @@ async function executeAsync(
           // Surface ONIX index field stats in live view so admins can see match health
           // while the run is still in progress (not just in the completed summary).
           onixIndexFieldStats: onixIndexFieldStats ?? undefined,
+          // Live view of ONIX duplicate auto-resolutions so admins can review them
+          // while the run is still in progress.
+          duplicateResolutions: allDuplicateResolutions.length > 0 ? allDuplicateResolutions.slice() : undefined,
         },
       }, `batch:${currentBatch}`);
 
@@ -1546,6 +1556,7 @@ async function executeAsync(
               fieldStats: onixIndexFieldStats,
             }
           : undefined,
+        duplicateResolutions: allDuplicateResolutions.length > 0 ? allDuplicateResolutions : undefined,
       },
     }, "completion");
 
