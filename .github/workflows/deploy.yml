@@ -17,6 +17,10 @@ jobs:
   test:
     name: API safety checks
     runs-on: ubuntu-latest
+    # Hard cap so a hung run (dev server never starts, health check stalls)
+    # fails fast instead of blocking the PR for hours. A failure triggers
+    # the "CI alert" workflow_run notification.
+    timeout-minutes: 10
 
     services:
       postgres:

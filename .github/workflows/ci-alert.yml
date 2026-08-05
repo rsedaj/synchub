@@ -1,0 +1,90 @@
+name: CI alert
+
+# Notifies the team when the PR CI gate ("Build & Deploy" on pull_request)
+# either fails or runs longer than the threshold. Combined with the
+# `timeout-minutes: 10` cap on the test job, a hung run turns into a failed
+# run within ~10 minutes and this workflow pings the Slack webhook.
+#
+# Requires the SLACK_WEBHOOK_URL repository secret (a Slack incoming-webhook
+# URL). If it is not configured, the job logs a notice and exits successfully.
+
+on:
+  workflow_run:
+    workflows: ["Build & Deploy"]
+    types: [completed]
+
+jobs:
+  notify:
+    name: Notify on slow or failed PR CI
+    runs-on: ubuntu-latest
+    # Only care about PR-triggered runs of the CI gate
+    if: github.event.workflow_run.event == 'pull_request'
+    permissions:
+      actions: read
+
+    env:
+      THRESHOLD_SECONDS: "600" # 10 minutes
+
+    steps:
+      - name: Evaluate run duration and conclusion
+        id: evaluate
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+          RUN_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          START=$(date -d "$RUN_STARTED_AT" +%s)
+          END=$(date -d "$RUN_UPDATED_AT" +%s)
+          DURATION=$(( END - START ))
+          echo "Run $RUN_ID: conclusion=$RUN_CONCLUSION duration=${DURATION}s (threshold=${THRESHOLD_SECONDS}s)"
+
+          SHOULD_NOTIFY=false
+          REASON=""
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            SHOULD_NOTIFY=true
+            REASON="CI concluded with '$RUN_CONCLUSION'"
+          elif [ "$DURATION" -gt "$THRESHOLD_SECONDS" ]; then
+            SHOULD_NOTIFY=true
+            REASON="CI took ${DURATION}s (over $(( THRESHOLD_SECONDS / 60 ))-minute threshold)"
+          fi
+
+          MINUTES=$(( DURATION / 60 ))
+          SECONDS_REM=$(( DURATION % 60 ))
+          {
+            echo "should_notify=$SHOULD_NOTIFY"
+            echo "reason=$REASON"
+            echo "duration_human=${MINUTES}m ${SECONDS_REM}s"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post Slack notification
+        if: steps.evaluate.outputs.should_notify == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REASON: ${{ steps.evaluate.outputs.reason }}
+          DURATION_HUMAN: ${{ steps.evaluate.outputs.duration_human }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "::notice::SLACK_WEBHOOK_URL secret is not set — skipping notification. Reason was: $REASON"
+            exit 0
+          fi
+
+          SHORT_SHA=$(echo "$HEAD_SHA" | cut -c1-7)
+          TEXT=":rotating_light: *PR CI gate needs attention* — ${REASON}
+          • Branch: \`${HEAD_BRANCH}\` (\`${SHORT_SHA}\`)
+          • Conclusion: \`${RUN_CONCLUSION}\` after ${DURATION_HUMAN}
+          • Run: ${RUN_URL}"
+
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          curl --silent --fail --show-error \
+            -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+          echo "Slack notification sent."
