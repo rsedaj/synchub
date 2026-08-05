@@ -80,6 +80,20 @@ export interface PushResult {
   // A count of 0 means the field is configured as a match field but no ONIX records had a value for it —
   // this is the definitive signal that matching will always fail and creates will happen instead of updates.
   onixIndexFieldStats?: Record<string, number>;
+  // Audit trail of ONIX duplicate-match auto-resolutions: when a match value maps to
+  // MULTIPLE ONIX cards (with distinct Ns_Numbers), the sync picks the newest card
+  // (highest IdRecord) instead of skipping, and records the full decision here so
+  // admins can clean up the duplicates later. Skip still happens only when the
+  // duplicates share the SAME Ns_Number (unresolvable via the ONIX API).
+  duplicateResolutions?: DuplicateResolution[];
+}
+
+export interface DuplicateResolution {
+  // Human-readable description of the match that was ambiguous, e.g. CustomColumns.Product_Code="6898805"
+  matchDesc: string;
+  candidates: Array<{ id: number; nsNumber: string | null }>;
+  chosenId: number;
+  chosenNsNumber: string | null;
 }
 
 async function sleep(ms: number) {
@@ -1261,17 +1275,47 @@ async function pushToOnix(
     return id != null && !isNaN(Number(id)) && Number(id) > 0 ? Number(id) : null;
   }
 
+  // Audit trail of duplicate-match auto-resolutions for this batch (surfaced in PushResult).
+  const duplicateResolutions: DuplicateResolution[] = [];
+
+  // A match value maps to MULTIPLE ONIX cards. If they have distinct Ns_Numbers we can
+  // still safely target ONE of them (updates go through POST upsert-by-Ns_Number), so
+  // pick the NEWEST card (highest IdRecord), log the full decision and continue — the
+  // sync must not stall on ONIX data-quality issues. Only when the duplicates share
+  // the SAME Ns_Number is the record truly unresolvable via the API → ambiguous skip.
+  function resolveDuplicateMatch(
+    cands: Array<{ id: number; nsNumber: string | null }>,
+    matchDesc: string,
+  ): { id: number | null; ambiguous: boolean } {
+    const withNs = cands.filter((c): c is { id: number; nsNumber: string } => c.nsNumber != null && c.nsNumber !== "");
+    const distinctNs = new Set(withNs.map(c => c.nsNumber));
+    if (distinctNs.size < 2) {
+      // Either all candidates share the SAME Ns_Number (POST upsert-by-Ns_Number cannot
+      // target one card) or Ns_Number is unknown — targeting cannot be verified safe → skip.
+      const nsInfo = distinctNs.size === 1 ? `zdieľajú ROVNAKÝ Ns_Number="${Array.from(distinctNs)[0]}"` : "bez známeho Ns_Number";
+      console.warn(`[target-push] ONIX DUPLICITA ${matchDesc}: ${cands.length} kariet ${nsInfo} — API nevie bezpečne cieliť konkrétnu kartu, záznam preskočený (vyžaduje ručné čistenie v ONIX-e)`);
+      return { id: null, ambiguous: true };
+    }
+    // Pick the NEWEST card = highest IdRecord (must have a known Ns_Number so the update can target it).
+    const chosen = withNs.reduce((a, b) => (b.id > a.id ? b : a));
+    duplicateResolutions.push({ matchDesc, candidates: cands, chosenId: chosen.id, chosenNsNumber: chosen.nsNumber });
+    console.warn(
+      `[target-push] ONIX DUPLICITA ${matchDesc}: ${cands.map(c => `IdRecord=${c.id}/Ns_Number=${c.nsNumber ?? "?"}`).join(", ")} → automaticky vybraná NAJNOVŠIA karta IdRecord=${chosen.id} (Ns_Number=${chosen.nsNumber}), ostatné duplicity ponechané bez zmeny. Odporúčame duplicitu v ONIX-e vyčistiť.`
+    );
+    return { id: chosen.id, ambiguous: false };
+  }
+
   async function lookupOnixByField(targetField: string, value: string, expectedValues: Array<{ targetField: string; value: string }>): Promise<{ id: number | null; ambiguous: boolean }> {
     if (onixIndex) {
       const vMap = onixIndex.fieldMap.get(targetField);
       const ids = vMap?.get(value) ?? [];
       if (ids.length > 1) {
-        // ONIX has duplicate records sharing this Ns_Number. The ONIX REST API has no
-        // endpoint to update a specific IdRecord — POST /stockitems upserts by Ns_Number
-        // and rejects when duplicates exist. We mark this as ambiguous so the engine
-        // can skip the record with a clear message instead of failing the sync.
-        console.warn(`[target-push] ONIX duplicate ${targetField}="${value}": ${ids.length} records (${ids.join(",")}) — record will be SKIPPED (ONIX data quality issue)`);
-        return { id: null, ambiguous: true };
+        // Duplicate cards share this match value — auto-resolve to the newest card
+        // (distinct Ns_Numbers) or skip if truly unresolvable (same Ns_Number).
+        return resolveDuplicateMatch(
+          ids.map(id => ({ id, nsNumber: onixIndex!.idToNsNumber.get(id) ?? null })),
+          `${targetField}="${value}"`,
+        );
       }
       return { id: ids[0] ?? null, ambiguous: false };
     }
@@ -1307,9 +1351,11 @@ async function pushToOnix(
         return true;
       });
       if (matches.length > 1) {
-        // Pick the lowest IdRecord among duplicates
-        const sorted = matches.map((m: any) => extractOnixId(m)).filter((id: number | null): id is number => id !== null).sort((a: number, b: number) => a - b);
-        return { id: sorted[0] ?? null, ambiguous: false };
+        // Duplicate cards in the API response — same auto-resolution as the index path.
+        const cands = matches
+          .map((m: any) => ({ id: extractOnixId(m), nsNumber: m?.Ns_Number != null && String(m.Ns_Number).trim() !== "" ? String(m.Ns_Number).trim() : null }))
+          .filter((c: any): c is { id: number; nsNumber: string | null } => c.id !== null);
+        return resolveDuplicateMatch(cands, `${targetField}="${value}" (API lookup)`);
       }
       return { id: extractOnixId(matches[0]), ambiguous: false };
     } catch {
@@ -1417,12 +1463,14 @@ async function pushToOnix(
       }
       const finalIds = candidateIds ? Array.from(candidateIds) : [];
       if (finalIds.length > 1) {
-        // ONIX has duplicate records sharing the match key. The ONIX REST API has no
-        // endpoint to update a specific IdRecord — POST /stockitems upserts by Ns_Number
-        // and rejects when duplicates exist. Mark as ambiguous so the engine skips
-        // the record cleanly with a clear message instead of a hard failure.
-        console.warn(`[target-push] ONIX duplicate match (AND): ${fieldValues.map(fv => `${fv.targetField}="${fv.value}"`).join(" + ")} → ${finalIds.length} records (${finalIds.join(",")}) — record will be SKIPPED (ONIX data quality issue)`);
-        return { id: null, ambiguous: true };
+        // Duplicate cards share the full AND-match key — auto-resolve to the newest
+        // card (distinct Ns_Numbers) or skip if truly unresolvable (same Ns_Number).
+        const resolved = resolveDuplicateMatch(
+          finalIds.map(id => ({ id, nsNumber: onixIndex!.idToNsNumber.get(id) ?? null })),
+          fieldValues.map(fv => `${fv.targetField}="${fv.value}"`).join(" + "),
+        );
+        if (resolved.id !== null) matchCache.set(ck, resolved.id);
+        return resolved;
       }
       const result = finalIds[0] ?? null;
       if (result === null && _noMatchDebugCount < 3 && onixIndex) {
@@ -1481,10 +1529,13 @@ async function pushToOnix(
         return true;
       });
       if (matches.length > 1) {
-        // ONIX has duplicate records (API fallback path) — same as the index path,
-        // ONIX won't allow targeting a specific IdRecord, so skip cleanly.
-        console.warn(`[target-push] ONIX duplicate match (API fallback): ${expectedValues.map(ev => `${ev.targetField}="${ev.value}"`).join(" + ")} → ${matches.length} records — record will be SKIPPED (ONIX data quality issue)`);
-        return { id: null, ambiguous: true };
+        // Duplicate cards (API fallback path) — same auto-resolution as the index path.
+        const cands = matches
+          .map((m: any) => ({ id: extractOnixId(m), nsNumber: m?.Ns_Number != null && String(m.Ns_Number).trim() !== "" ? String(m.Ns_Number).trim() : null }))
+          .filter((c: any): c is { id: number; nsNumber: string | null } => c.id !== null);
+        const resolved = resolveDuplicateMatch(cands, `${expectedValues.map(ev => `${ev.targetField}="${ev.value}"`).join(" + ")} (API fallback)`);
+        if (resolved.id !== null) matchCache.set(ck, resolved.id);
+        return resolved;
       }
       const numericId = extractOnixId(matches[0]);
       matchCache.set(ck, numericId);
@@ -2116,5 +2167,6 @@ async function pushToOnix(
     onixIndexFieldStats: onixIndex
       ? Object.fromEntries(Array.from(onixIndex.fieldNonEmptyCount.entries()))
       : undefined,
+    duplicateResolutions: duplicateResolutions.length > 0 ? duplicateResolutions : undefined,
   };
 }
