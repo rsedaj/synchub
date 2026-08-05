@@ -1116,6 +1116,17 @@ async function executeAsync(
           if (pushResult.onixIndexFieldStats && !onixIndexFieldStats) {
             onixIndexFieldStats = pushResult.onixIndexFieldStats;
           }
+          // ONIX duplicate auto-resolutions: a match value mapped to multiple ONIX cards
+          // and the sync picked the newest one instead of skipping. Log each decision
+          // into the run event log so admins can clean the duplicates up later.
+          if (pushResult.duplicateResolutions && pushResult.duplicateResolutions.length > 0) {
+            for (const dr of pushResult.duplicateResolutions) {
+              log(
+                `[ONIX DUPLICITA] ${dr.matchDesc}: ${dr.candidates.map(c => `IdRecord=${c.id}/Ns_Number=${c.nsNumber ?? "?"}`).join(", ")} → automaticky vybraná najnovšia karta Ns_Number=${dr.chosenNsNumber} (IdRecord=${dr.chosenId}); ostatné duplicity ostávajú v ONIX-e nezmenené — odporúčame ich vyčistiť`,
+                "warn"
+              );
+            }
+          }
           batchErrorCount = pushResult.errorCount;
           lastPushRecords = pushResult.records;
           if (pushResult.avgLatencyMs != null && pushResult.avgLatencyMs > 0) {
