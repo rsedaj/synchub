@@ -167,17 +167,48 @@ jobs:
       - name: Wait for /api/health to respond
         run: |
           echo "Waiting for container to become healthy..."
+
+          # Background watchdog: if the container exits early, dump logs and kill the wait loop
+          (
+            while true; do
+              sleep 2
+              if [ "$(docker inspect --format='{{.State.Running}}' smoke 2>/dev/null)" != "true" ]; then
+                EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' smoke 2>/dev/null || echo "unknown")
+                echo ""
+                echo "Container stopped unexpectedly (exit code: ${EXIT_CODE}). Container logs:"
+                docker logs smoke
+                # Signal the main loop to stop by creating a sentinel file
+                touch /tmp/smoke_container_died
+                exit 0
+              fi
+            done
+          ) &
+          WATCHDOG_PID=$!
+
+          FAILED=0
           for i in $(seq 1 30); do
+            if [ -f /tmp/smoke_container_died ]; then
+              echo "Aborting health-check loop — container is no longer running."
+              FAILED=1
+              break
+            fi
             if curl -sf http://127.0.0.1:5000/api/health; then
               echo ""
               echo "Health check passed on attempt $i"
+              kill "$WATCHDOG_PID" 2>/dev/null || true
               exit 0
             fi
             echo "Attempt $i/30 — not ready yet, retrying in 2s..."
             sleep 2
           done
-          echo "Health check failed after 60s. Container logs:"
-          docker logs smoke
+
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+
+          if [ "$FAILED" -eq 0 ]; then
+            EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' smoke 2>/dev/null || echo "unknown")
+            echo "Health check failed after 60s (container exit code: ${EXIT_CODE}). Container logs:"
+            docker logs smoke
+          fi
           exit 1
 
       - name: Stop container
