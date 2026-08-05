@@ -61,38 +61,12 @@ jobs:
       - name: Initialize database schema
         run: npx drizzle-kit push --force
 
-      - name: Start application
-        run: |
-          npm run dev > server.log 2>&1 &
-          echo "APP_PID=$!" >> "$GITHUB_ENV"
-
-      - name: Wait for the server to be ready
-        run: |
-          for i in $(seq 1 60); do
-            if curl --silent --fail http://127.0.0.1:5000/api/health > /dev/null; then
-              echo "Server is up"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Server did not become ready in time" >&2
-          cat server.log >&2 || true
-          exit 1
-
       - name: Run API safety tests
         env:
           BASE_URL: http://127.0.0.1:5000
           TEST_USERNAME: admin
           TEST_PASSWORD: admin123
-        run: npx tsx --test tests/api/*.test.ts
-
-      - name: Dump server log on failure
-        if: failure()
-        run: cat server.log || true
-
-      - name: Stop application
-        if: always()
-        run: kill "$APP_PID" || true
+        run: npm run test:ci
 
   build-and-push:
     name: Build Docker image
