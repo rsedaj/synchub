@@ -41,6 +41,10 @@ SERVER_PID=$!
 echo "⏳  Waiting for server at ${HEALTH_URL} (timeout ${TIMEOUT}s)…"
 elapsed=0
 until curl -sf "${HEALTH_URL}" > /dev/null 2>&1; do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "✗  Dev server process (PID $SERVER_PID) exited before becoming ready — aborting." >&2
+    exit 1
+  fi
   if [ $elapsed -ge $TIMEOUT ]; then
     echo "✗  Server did not become ready within ${TIMEOUT}s — aborting." >&2
     exit 1
