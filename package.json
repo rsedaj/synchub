@@ -12,7 +12,8 @@
     "test:server": "npx tsx script/test-server.ts",
     "test:api": "npx tsx script/test-api.ts",
     "test:all": "npm run test:server && npm run test:api",
-    "test:ci": "bash script/ci-test.sh"
+    "test:ci": "bash script/ci-test.sh",
+    "test:ci-crash": "bash script/test-ci-crash-detection.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
