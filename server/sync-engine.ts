@@ -488,13 +488,73 @@ async function executeAsync(
               log(`Preflight OK: ONIX index obsahuje ${indexCheck.recordCount} záznamov, match polia: ${fieldsSummary}`);
             }
           } else if (!indexCheck.available) {
-            log(`Preflight: ONIX index check nedostupný (${indexCheck.message ?? "unknown"}) — pokračujem`, "warn");
+            // Index is unavailable (fetch returned null / non-200 / empty).
+            // For configs that default to aborting on an empty/unavailable index,
+            // treat an unreachable index the same as an empty one: we cannot
+            // confirm match safety so we must not proceed.
+            const emptyIndexActionUnavail = ((config as any).onixEmptyIndexAction as string) || "abort";
+            if (emptyIndexActionUnavail === "warn") {
+              log(`Preflight: ONIX index check nedostupný (${indexCheck.message ?? "unknown"}) — pokračujem (onixEmptyIndexAction=warn)`, "warn");
+            } else {
+              const abortMsg = `ONIX preflight: ONIX index nie je dostupný (${indexCheck.message ?? "unknown"}) — synchronizácia zrušená, pretože bezpečnosť match operácie nie je možné overiť. Nastavte onixEmptyIndexAction=warn pre pokračovanie napriek nedostupnosti indexu.`;
+              log(`[PREFLIGHT ERROR] ${abortMsg}`, "error");
+              await storage.updateSyncRun(runId, {
+                status: "error",
+                errorMessage: abortMsg,
+                completedAt: new Date(),
+                details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
+              });
+              try {
+                await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: abortMsg.slice(0, 500), triggeredBy: null });
+              } catch {}
+              try {
+                await storage.createAuditLog({
+                  userId: config.createdBy || "system",
+                  action: "sync_complete",
+                  entity: "sync_config",
+                  entityId: config.id,
+                  details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: abortMsg, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+                });
+              } catch {}
+              activeRuns.delete(runId);
+              return;
+            }
           } else {
             log(`Preflight: ONIX má ${indexCheck.recordCount} záznamov (index OK)`);
           }
         } catch (preflightErr: any) {
-          // Index-check errors must never block a sync run — log and continue.
-          log(`Preflight: chyba pri ONIX index check (${preflightErr.message}) — pokračujem`, "warn");
+          // The index fetch itself failed (network timeout, 500, auth error, etc.).
+          // For configs that abort on an unavailable index (the default), treat a
+          // failed fetch the same as an unavailable index: we cannot confirm match
+          // safety so we must not proceed. Only configs with onixEmptyIndexAction=
+          // "warn" are allowed to continue past a fetch failure.
+          const emptyIndexActionErr = ((config as any).onixEmptyIndexAction as string) || "abort";
+          if (emptyIndexActionErr === "warn") {
+            log(`Preflight: chyba pri ONIX index check (${preflightErr.message}) — pokračujem (onixEmptyIndexAction=warn)`, "warn");
+          } else {
+            const abortMsg = `ONIX preflight: chyba pri načítaní ONIX indexu (${preflightErr.message ?? "unknown"}) — synchronizácia zrušená, pretože bezpečnosť match operácie nie je možné overiť. Nastavte onixEmptyIndexAction=warn pre pokračovanie napriek chybe indexu.`;
+            log(`[PREFLIGHT ERROR] ${abortMsg}`, "error");
+            await storage.updateSyncRun(runId, {
+              status: "error",
+              errorMessage: abortMsg,
+              completedAt: new Date(),
+              details: { phase: "error", phaseHistory: buildErrorPhaseHistory("preflight") },
+            });
+            try {
+              await storage.createSyncLog({ moduleId: config.sourceModuleId, direction: "import", status: "error", recordsProcessed: 0, recordsFailed: 0, errorMessage: abortMsg.slice(0, 500), triggeredBy: null });
+            } catch {}
+            try {
+              await storage.createAuditLog({
+                userId: config.createdBy || "system",
+                action: "sync_complete",
+                entity: "sync_config",
+                entityId: config.id,
+                details: { runId, configName: config.name, sourceModule: sourceModule.code, targetModule: targetModule.code, status: "error", error: abortMsg, duration: Date.now() - startTime, durationFormatted: `${Math.round((Date.now() - startTime) / 1000)}s` },
+              });
+            } catch {}
+            activeRuns.delete(runId);
+            return;
+          }
         }
       }
     }

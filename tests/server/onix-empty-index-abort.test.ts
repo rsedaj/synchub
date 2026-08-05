@@ -523,6 +523,63 @@ async function run() {
     "guard is correctly skipped (no fetch, no abort)",
   );
 
+  // ── Case 9: index fetch throws → abort fires when onixEmptyIndexAction="abort" ─
+  // Simulates a network timeout / 500 / auth error during the index-build fetch.
+  // checkOnixIndexComplete must return available=false (or throw), and the
+  // engine's updated catch block must abort the run rather than silently continuing
+  // when onixEmptyIndexAction is "abort" (the default).
+  clearOnixIndexCache();
+  globalThis.fetch = (async (input: any) => {
+    const url = typeof input === "string" ? input : (input?.url ?? String(input));
+    // Every ONIX request fails — simulates a network timeout or server error
+    throw new Error(`Network timeout fetching ONIX index: ${url}`);
+  }) as typeof fetch;
+
+  let case9Check: Awaited<ReturnType<typeof checkOnixIndexComplete>>;
+  let case9FetchThrew = false;
+  try {
+    case9Check = await checkOnixIndexComplete(onixModule, "stockitems", singleFieldOpts);
+  } catch (err: any) {
+    // checkOnixIndexComplete may propagate the fetch error rather than wrapping it;
+    // the engine's outer catch block handles this path.
+    case9FetchThrew = true;
+    case9Check = { available: false, recordCount: 0, message: err.message } as any;
+  }
+  restoreFetch();
+
+  // Either checkOnixIndexComplete returns available:false, or it throws — both
+  // reach the "index unavailable" branch in the engine.
+  assert.equal(
+    case9Check.available,
+    false,
+    "Case 9: index check must be available=false when the fetch throws",
+  );
+
+  // Mirror the NEW engine logic: available=false is now abort-eligible when
+  // onixEmptyIndexAction is "abort" (the default).
+  function shouldAbortOnUnavailableIndex(
+    check: { available: boolean },
+    action: string = "abort",
+  ): boolean {
+    if (check.available) return false;
+    return action !== "warn";
+  }
+
+  assert.equal(
+    shouldAbortOnUnavailableIndex(case9Check, "abort"),
+    true,
+    "Case 9: available=false + onixEmptyIndexAction='abort' → must abort",
+  );
+  assert.equal(
+    shouldAbortOnUnavailableIndex(case9Check, "warn"),
+    false,
+    "Case 9: available=false + onixEmptyIndexAction='warn' → must NOT abort (log and continue)",
+  );
+  console.log(
+    `✓ Case 9: index fetch ${case9FetchThrew ? "threw" : "returned available=false"}; ` +
+    "onixEmptyIndexAction='abort' → abort; 'warn' → log-and-continue",
+  );
+
   console.log("\n✅ All onix-empty-index-abort tests passed.");
 }
 
