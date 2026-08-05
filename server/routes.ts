@@ -18,7 +18,7 @@ import { createSyncConfigSchema, updateSyncConfigSchema } from "./sync-config-va
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { insertUserSchema, insertApiModuleSchema, insertSyncLogSchema, loginSchema, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { APP_VERSION } from "@shared/version";
 import { z } from "zod";
 
@@ -182,8 +182,19 @@ export async function registerRoutes(
 
   app.use("/attached_assets", express.static(path.resolve(process.cwd(), "attached_assets")));
 
-  app.get("/api/health", (_req, res) => {
-    res.json({
+  app.get("/api/health", async (_req, res) => {
+    try {
+      await db.execute(sql`SELECT 1`);
+    } catch (_err) {
+      return res.status(503).json({
+        status: "error",
+        db: "unreachable",
+        version: APP_VERSION,
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+      });
+    }
+    return res.json({
       status: "ok",
       version: APP_VERSION,
       timestamp: new Date().toISOString(),
