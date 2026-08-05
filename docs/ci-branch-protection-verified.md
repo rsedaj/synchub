@@ -26,12 +26,41 @@ File: `.github/workflows/deploy.yml`, job `test` (name: `API safety checks`)
 Triggers: `push: [main]`, `pull_request: [main]`, `workflow_dispatch`
 
 Steps run on every PR:
-1. Check server / client / orphan import graphs resolve (`tsx scripts/check-*.ts`)
-2. Initialize DB schema (`drizzle-kit push`)
-3. Verify CI crash-detection guard (`npm run test:ci-crash`)
-4. Run API safety tests against a live dev server (`npm run test:ci`)
+1. Verify the import guard catches a broken import (`npm run test:import-guard` — negative self-test, see below)
+2. Check server / client / orphan import graphs resolve (`tsx scripts/check-*.ts`)
+3. Initialize DB schema (`drizzle-kit push`)
+4. Verify CI crash-detection guard (`npm run test:ci-crash`)
+5. Run API safety tests against a live dev server (`npm run test:ci`)
 
-All four must succeed for the status check to turn green and unblock the merge.
+All five must succeed for the status check to turn green and unblock the merge.
+
+## Negative test: proving the guard catches a real regression
+
+It is not enough that the happy path passes — the gate must demonstrably FAIL
+when an actual regression (e.g. a missing/renamed module) is introduced. The
+automated negative test `script/test-import-guard.sh` (`npm run test:import-guard`)
+runs as the first step of the `test` job on every PR and:
+
+1. Runs `scripts/check-server-imports.ts` on the clean tree → must pass.
+2. Appends a deliberately broken import (`import "./__ci_import_guard_probe__";`,
+   a module that does not exist) to `server/index.ts`.
+3. Re-runs the check → asserts it **exits non-zero** and names the missing module.
+4. Restores `server/index.ts` (guaranteed via a `trap`, even on interrupt) and
+   re-runs the check → must pass again.
+
+If the guard ever stops detecting broken imports (e.g. an esbuild config change
+makes resolution errors non-fatal), this self-test fails the whole workflow, so
+the regression in the guard itself blocks the PR.
+
+### Manual procedure (equivalent)
+
+```bash
+npm run test:import-guard        # automated version
+# or by hand:
+echo 'import "./no-such-module";' >> server/index.ts
+npx tsx scripts/check-server-imports.ts; echo "exit=$?"   # expect exit=1
+git checkout -- server/index.ts
+```
 
 ## Important fix made during verification
 

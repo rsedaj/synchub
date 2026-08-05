@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
 
+      - name: Verify import guard catches a broken import
+        run: npm run test:import-guard
+
       - name: Check server import graph resolves
         run: npx tsx scripts/check-server-imports.ts
 
