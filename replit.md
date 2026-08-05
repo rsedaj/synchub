@@ -59,6 +59,30 @@ validates the token against the GitHub API after every merge:
 3. Copy the new token and update the `GITHUB_TOKEN` secret in this Repl
    (Secrets pane / environment), replacing the old value.
 
+## Running Tests in CI (cold start — no pre-started server)
+
+Use `npm run test:ci` (alias for `bash script/ci-test.sh`) when running the
+full test suite from a clean environment where no dev server is already running:
+
+```bash
+npm run test:ci
+```
+
+The wrapper (`script/ci-test.sh`) does the following automatically:
+1. Starts `npm run dev` in the background.
+2. Polls `http://127.0.0.1:5000/api/health` for up to 60 seconds.
+3. Runs `npm run test:all` (`test:server` + `test:api`) once the server is ready.
+4. Always kills the background server via an EXIT/INT/TERM trap — even if the
+   tests fail or the script is interrupted.
+
+The `PORT` environment variable is respected (defaults to `5000`).
+
+If the dev server is **already running** (e.g. in a local terminal), use the
+lower-level scripts directly instead:
+- `npm run test:server` — offline backend/unit tests only (no server needed).
+- `npm run test:api`    — black-box HTTP tests (server must be running first).
+- `npm run test:all`    — both in sequence (server must be running first).
+
 ## Automated Checks
 
 There is ONE canonical command for the automated test gate — use it instead of

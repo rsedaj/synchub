@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "test:server": "npx tsx script/test-server.ts",
     "test:api": "npx tsx script/test-api.ts",
-    "test:all": "npm run test:server && npm run test:api"
+    "test:all": "npm run test:server && npm run test:api",
+    "test:ci": "bash script/ci-test.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
