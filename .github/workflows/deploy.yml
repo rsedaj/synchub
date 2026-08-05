@@ -196,11 +196,18 @@ jobs:
               FAILED=1
               break
             fi
-            if curl -sf http://127.0.0.1:5000/api/health; then
-              echo ""
-              echo "Health check passed on attempt $i"
-              kill "$WATCHDOG_PID" 2>/dev/null || true
-              exit 0
+            BODY=$(curl -sf http://127.0.0.1:5000/api/health 2>/dev/null) || true
+            if [ -n "$BODY" ]; then
+              STATUS=$(echo "$BODY" | jq -r '.status // empty' 2>/dev/null)
+              VERSION=$(echo "$BODY" | jq -r '.version // empty' 2>/dev/null)
+              if [ "$STATUS" = "ok" ] && [ -n "$VERSION" ]; then
+                echo ""
+                echo "Health check passed on attempt $i (status=$STATUS, version=$VERSION)"
+                kill "$WATCHDOG_PID" 2>/dev/null || true
+                exit 0
+              else
+                echo "Attempt $i/30 — server returned 200 but body is degraded (status=${STATUS:-<missing>}, version=${VERSION:-<missing>}), retrying in 2s..."
+              fi
             fi
             echo "Attempt $i/30 — not ready yet, retrying in 2s..."
             sleep 2
