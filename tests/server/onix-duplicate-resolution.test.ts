@@ -102,6 +102,41 @@ async function main() {
     check("case3: no duplicateResolutions", !res.duplicateResolutions);
   }
 
+  // ── Case 4: OR-match, repeated SAME unresolvable key across records → consistently skipped ──
+  // Guards the cache fix: an ambiguous outcome must NOT be cached as a plain no-match,
+  // otherwise the 2nd record with the same key would silently create a duplicate.
+  {
+    const posted: any[] = [];
+    clearOnixIndexCache();
+    globalThis.fetch = (async (url: any, init?: any) => {
+      if (init?.method === "POST") {
+        posted.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ IdRecord: 999999 }), text: async () => "" } as any;
+      }
+      return onixIndexResponse([card(10, "H1100001", "555"), card(20, "H1100001", "555")]);
+    }) as any;
+    const sourceRecords = [
+      { id: "555", name: "Duplicitná karta A" },
+      { id: "555", name: "Duplicitná karta B" },
+    ];
+    const mapped = sourceRecords.map(r => ({ "CustomColumns.Product_Code": r.id, Name: r.name }));
+    const res = await pushToTarget(
+      { code: "ONIX", baseUrl: "https://onix-api.hauerland.sk/onix_api", config: { apiToken: "t" } } as any,
+      "stockitems",
+      mapped,
+      0,
+      sourceRecords,
+      {
+        matchFields: ["id"],
+        matchOperator: "or",
+        onMissing: "create",
+        mappings: [{ sourceField: "id", targetField: "CustomColumns.Product_Code" }],
+      } as any,
+    );
+    check("case4: BOTH records with same ambiguous OR key skipped", (res.skippedCount ?? 0) === 2 && res.createdCount === 0, res);
+    check("case4: nothing POSTed despite onMissing:create", posted.length === 0, posted);
+  }
+
   globalThis.fetch = realFetch;
   if (failures > 0) {
     console.error(`\n${failures} test(s) FAILED`);

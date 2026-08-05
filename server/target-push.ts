@@ -1290,8 +1290,11 @@ async function pushToOnix(
     const withNs = cands.filter((c): c is { id: number; nsNumber: string } => c.nsNumber != null && c.nsNumber !== "");
     const distinctNs = new Set(withNs.map(c => c.nsNumber));
     if (distinctNs.size < 2) {
-      // Either all candidates share the SAME Ns_Number (POST upsert-by-Ns_Number cannot
-      // target one card) or Ns_Number is unknown — targeting cannot be verified safe → skip.
+      // DELIBERATE POLICY: skip when (a) all candidates share the SAME Ns_Number
+      // (POST upsert-by-Ns_Number cannot target one card) or (b) Ns_Number is unknown
+      // for all/most candidates — updates are addressed BY Ns_Number, so choosing a
+      // card whose Ns_Number we don't know could write to the wrong card. Auto-resolve
+      // only proceeds when ≥2 candidates have known, distinct Ns_Numbers.
       const nsInfo = distinctNs.size === 1 ? `zdieľajú ROVNAKÝ Ns_Number="${Array.from(distinctNs)[0]}"` : "bez známeho Ns_Number";
       console.warn(`[target-push] ONIX DUPLICITA ${matchDesc}: ${cands.length} kariet ${nsInfo} — API nevie bezpečne cieliť konkrétnu kartu, záznam preskočený (vyžaduje ručné čistenie v ONIX-e)`);
       return { id: null, ambiguous: true };
@@ -1414,7 +1417,10 @@ async function pushToOnix(
           continue;
         }
         const result = await lookupOnixByField(m.targetField, value, [{ targetField: m.targetField, value }]);
-        matchCache.set(ck, result.id);
+        // Cache only non-ambiguous outcomes: caching an ambiguous result as `null`
+        // would make later records with the same key look like a plain no-match and
+        // silently create duplicates instead of skipping consistently.
+        if (!result.ambiguous) matchCache.set(ck, result.id);
         if (result.ambiguous) return { id: null, ambiguous: true };
         if (result.id !== null) return { id: result.id, ambiguous: false };
       }
