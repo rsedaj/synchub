@@ -1932,6 +1932,15 @@ async function pushToOnix(
         }
       }
 
+      // SAFETY NET (main-stock rejection fix): re-assert Default_Stock for creates AFTER
+      // all body transformations (fixed fields, array flattening, key removal) so nothing
+      // can clobber it. Without a main stock ONIX rejects new cards with
+      // "ID_STOCKS_DEFAULT - Nie je zadaný hlavný sklad skladovej karty".
+      if (source === "stockitems" && !isUpdate && !hasVal(body.Default_Stock)) {
+        body.Default_Stock = matchOptions?.targetStock || config?.defaultStock || "SYN";
+        console.warn(`[target-push] Default_Stock chýbal po transformáciách — doplnený "${body.Default_Stock}" (záznam ${globalIndex}, key=${_snapKey || "–"})`);
+      }
+
       if (body.Default_Price !== undefined && body.Default_Price !== null) {
         const dp = typeof body.Default_Price === "string"
           ? parseFloat(body.Default_Price.replace(/[a-zA-Z€$£ ]/g, "").replace(",", ".")) 
@@ -1969,6 +1978,14 @@ async function pushToOnix(
       let fetchLatency = 0;
       const MAX_RETRIES = 3;
 
+      // sendPass 1 = normal POST. If ONIX rejects it with the missing-main-stock error
+      // ("ID_STOCKS_DEFAULT - Nie je zadaný hlavný sklad skladovej karty") — which happens
+      // when a record classified as UPDATE is actually CREATED by ONIX (Ns_Number not found
+      // on ONIX side, ONIX upserts → create path needs a main stock we didn't send) —
+      // sendPass 2 retries once with Default_Stock filled in. Safe: ONIX only raises this
+      // error while creating a new card, so supplying the configured stock is correct.
+      for (let sendPass = 1; sendPass <= 2; sendPass++) {
+      res = null;
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         const controller = new AbortController();
         const timeoutMs = attempt === 1 ? 20000 : 30000;
@@ -2061,6 +2078,15 @@ async function pushToOnix(
         } catch {}
 
         if (onixRejected) {
+          // Missing-main-stock rejection → retry once with Default_Stock supplied.
+          const isMissingStockErr = /ID_STOCKS_DEFAULT/i.test(onixRejectMsg) ||
+            /hlavn\S* sklad/i.test(onixRejectMsg);
+          if (isMissingStockErr && sendPass === 1) {
+            const retryStock = matchOptions?.targetStock || config?.defaultStock || "SYN";
+            body.Default_Stock = retryStock;
+            console.warn(`[target-push] ONIX odmietol kartu pre chýbajúci hlavný sklad — retry s Default_Stock="${retryStock}" (záznam ${globalIndex}, key=${_snapKey || "–"}, isUpdate=${isUpdate})`);
+            continue;
+          }
           return {
             created: 0, updated: 0, error: 1, latency: fetchLatency,
             errEntry: { index: globalIndex, message: `ONIX rejected: ${onixRejectMsg}` },
@@ -2097,6 +2123,8 @@ async function pushToOnix(
           recResult: { sourceIndex: globalIndex, target_id: null, status: "error", errorMsg: errMsg, recordKey: _snapKey, hCode: _snapHCode, onixNsNumber: _snapNsNum, onixRecordId: _snapRecId },
         };
       }
+      } // end sendPass loop
+      throw new Error("unreachable: ONIX send loop exited without result");
     } catch (err: any) {
       const errMsg = err.name === "AbortError" ? "Request timed out (30s)" : (err.message || "Unknown error");
       return {
