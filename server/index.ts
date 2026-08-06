@@ -147,6 +147,94 @@ app.get("/api/diagnostics", async (req, res) => {
     }
   }
 
+  // ── MODE 0c: ?apply=easygifts-prod-setup ── jednorazové, idempotentné vytvorenie
+  // konfigurácie "Easy Gifts - Onix" ako klonu "Macma - Onix" (chránené DIAGNOSTICS_KEY).
+  // Zmeny oproti MACMA: zdrojový modul EASYGIFTS, H kódy H24+5-miestne číslo (od H2400001).
+  // Ak konfig s týmto názvom už existuje, nič nemení a vráti ho.
+  if (apply === "easygifts-prod-setup") {
+    try {
+      const MACMA_CFG_ID = "a537be86-7f7b-4453-be57-41ddcb3c14af";
+      const NEW_NAME = "Easy Gifts - Onix";
+
+      const existingConfigs = await storage.getAllSyncConfigs();
+      const existing: any = (existingConfigs as any[]).find((c: any) => c.name === NEW_NAME);
+      if (existing) {
+        return res.json({
+          _mode: "apply",
+          apply: "easygifts-prod-setup",
+          created: false,
+          note: "Config already exists — nothing changed",
+          configId: existing.id,
+          hKodConfig: existing.hKodConfig,
+        });
+      }
+
+      let src: any = await storage.getSyncConfig(MACMA_CFG_ID);
+      if (!src) src = (existingConfigs as any[]).find((c: any) => c.name === "Macma - Onix");
+      if (!src) return res.status(404).json({ error: "Source config (Macma - Onix) not found" });
+
+      const modules = await storage.getAllModules();
+      const egModule: any = modules.find((m: any) => m.code === "EASYGIFTS");
+      if (!egModule) return res.status(404).json({ error: "EASYGIFTS module not found" });
+
+      const created: any = await storage.createSyncConfig({
+        name: NEW_NAME,
+        sourceModuleId: egModule.id,
+        targetModuleId: src.targetModuleId,
+        sourceDataSource: src.sourceDataSource,
+        targetDataSource: src.targetDataSource,
+        sourceRecordLimit: src.sourceRecordLimit,
+        fieldMappings: src.fieldMappings,
+        matchFields: src.matchFields,
+        matchOperator: src.matchOperator,
+        matchNormalization: src.matchNormalization,
+        onMissing: src.onMissing,
+        targetStock: src.targetStock,
+        sourceFilters: src.sourceFilters,
+        hKodConfig: {
+          enabled: true,
+          prefix: "H24",
+          nextNumber: 1,
+          padding: 5,
+          field: "Ns_Number",
+          detectionPrefix: "H24",
+        },
+        onixFixedFields: src.onixFixedFields,
+        onixEmptyIndexAction: src.onixEmptyIndexAction,
+        schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
+        notes: "Klon konfigurácie Macma - Onix pre Easy Gifts. H kódy: H24 + 5-miestne číslo (od H2400001).",
+        isEnabled: true,
+        autoRetry: src.autoRetry,
+        retryDelayMin: src.retryDelayMin,
+      } as any);
+
+      await storage.createAuditLog({
+        action: "create",
+        entity: "diagnostics-apply",
+        entityId: created.id,
+        details: {
+          apply: "easygifts-prod-setup",
+          clonedFrom: MACMA_CFG_ID,
+          sourceModule: "EASYGIFTS",
+          hKodConfig: created.hKodConfig,
+        },
+      } as any);
+
+      return res.json({
+        _mode: "apply",
+        apply: "easygifts-prod-setup",
+        created: true,
+        configId: created.id,
+        name: created.name,
+        sourceModule: egModule.code,
+        hKodConfig: created.hKodConfig,
+        firstHKodExample: "H2400001",
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `apply failed: ${err.message}` });
+    }
+  }
+
   // ── MODE 0b: ?onixSample=1 ── stiahne PRVÚ stránku /stockitems (tables=CustomColumns)
   // z aktuálne nakonfigurovaného ONIX prostredia a ukáže vzorku záznamov + štatistiku
   // CustomColumns kľúčov. Read-only; slúži na overenie, ako reálne vyzerajú karty
