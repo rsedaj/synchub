@@ -85,7 +85,7 @@ app.get("/api/diagnostics", async (req, res) => {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (token !== key) return res.status(401).json({ error: "Unauthorized" });
 
-  const { runId, configId, onixCode, onixSample } = req.query as Record<string, string | undefined>;
+  const { runId, configId, onixCode, onixSample, onixTables } = req.query as Record<string, string | undefined>;
 
   // ── MODE 0b: ?onixSample=1 ── stiahne PRVÚ stránku /stockitems (tables=CustomColumns)
   // z aktuálne nakonfigurovaného ONIX prostredia a ukáže vzorku záznamov + štatistiku
@@ -101,7 +101,8 @@ app.get("/api/diagnostics", async (req, res) => {
       if (!creds.token) return res.status(400).json({ error: `No ONIX API token for environment=${creds.environment}` });
       const baseUrl = ((onixModule as any).baseUrl || "https://onix-api.hauerland.sk/onix_api")
         .replace(/\/onix_api$/i, "/ONIX_API");
-      const url = `${baseUrl}/api/v1/stockitems?tables=CustomColumns&$count=true`;
+      const tablesParam = (onixTables && /^[\w,]+$/.test(onixTables)) ? onixTables : "CustomColumns";
+      const url = `${baseUrl}/api/v1/stockitems?tables=${encodeURIComponent(tablesParam)}&$count=true`;
       const hdrs: Record<string, string> = {
         "Authorization": `Bearer ${creds.token}`,
         "Accept": "application/json",
@@ -120,6 +121,22 @@ app.get("/api/diagnostics", async (req, res) => {
       const arr: any[] = Array.isArray(data) ? data
         : Array.isArray(data?.value) ? data.value
         : Array.isArray(data?.items) ? data.items : [];
+      // ?onixSample=<prefix> (iné než "1"): vráť KOMPLETNÉ surové záznamy, ktorých
+      // Ns_Number začína daným prefixom (napr. H11) — na zistenie, v ktorom poli
+      // reálne žije produktový kód.
+      if (onixSample !== "1") {
+        const matches = arr.filter((it: any) => typeof it?.Ns_Number === "string" && it.Ns_Number.startsWith(onixSample));
+        return res.json({
+          _mode: "onix-sample-prefix",
+          environment: creds.environment,
+          databasePath: creds.databasePath || null,
+          url,
+          prefix: onixSample,
+          totalRecords: arr.length,
+          matchCount: matches.length,
+          rawRecords: matches.slice(0, 2),
+        });
+      }
       // Štatistika CustomColumns kľúčov + počet neprázdnych hodnôt na prvej stránke
       const ccKeyCounts: Record<string, number> = {};
       let ccRecords = 0;
