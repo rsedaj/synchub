@@ -85,7 +85,81 @@ app.get("/api/diagnostics", async (req, res) => {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (token !== key) return res.status(401).json({ error: "Unauthorized" });
 
-  const { runId, configId, onixCode } = req.query as Record<string, string | undefined>;
+  const { runId, configId, onixCode, onixSample } = req.query as Record<string, string | undefined>;
+
+  // ── MODE 0b: ?onixSample=1 ── stiahne PRVÚ stránku /stockitems (tables=CustomColumns)
+  // z aktuálne nakonfigurovaného ONIX prostredia a ukáže vzorku záznamov + štatistiku
+  // CustomColumns kľúčov. Read-only; slúži na overenie, ako reálne vyzerajú karty
+  // (názvy custom stĺpcov, kde žije H-kód / produktový kód) bez prístupu do ONIX UI.
+  if (onixSample) {
+    try {
+      const modules = await storage.getAllModules();
+      const onixModule = modules.find((m: any) => m.code === "ONIX");
+      if (!onixModule) return res.status(404).json({ error: "ONIX module not found" });
+      const { getOnixCreds } = await import("./onix-creds");
+      const creds = getOnixCreds((onixModule as any).config);
+      if (!creds.token) return res.status(400).json({ error: `No ONIX API token for environment=${creds.environment}` });
+      const baseUrl = ((onixModule as any).baseUrl || "https://onix-api.hauerland.sk/onix_api")
+        .replace(/\/onix_api$/i, "/ONIX_API");
+      const url = `${baseUrl}/api/v1/stockitems?tables=CustomColumns&$count=true`;
+      const hdrs: Record<string, string> = {
+        "Authorization": `Bearer ${creds.token}`,
+        "Accept": "application/json",
+        "User-Agent": "SyncHub-Diagnostics/1.0",
+      };
+      if (creds.databasePath) hdrs["DatabasePath"] = creds.databasePath;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 120000);
+      let onixRes: Response;
+      try { onixRes = await fetch(url, { headers: hdrs, signal: ctrl.signal }); } finally { clearTimeout(t); }
+      if (!onixRes.ok) {
+        const text = await onixRes.text().catch(() => "");
+        return res.status(502).json({ _mode: "onix-sample", url, error: `ONIX HTTP ${onixRes.status}: ${text.slice(0, 500)}` });
+      }
+      const data: any = await onixRes.json();
+      const arr: any[] = Array.isArray(data) ? data
+        : Array.isArray(data?.value) ? data.value
+        : Array.isArray(data?.items) ? data.items : [];
+      // Štatistika CustomColumns kľúčov + počet neprázdnych hodnôt na prvej stránke
+      const ccKeyCounts: Record<string, number> = {};
+      let ccRecords = 0;
+      let hPrefixed = 0;
+      for (const item of arr) {
+        const cc = item?.CustomColumns;
+        if (cc) {
+          ccRecords++;
+          const entries: Array<[string, any]> = Array.isArray(cc)
+            ? cc.map((c: any) => [c?.ColumnName ?? c?.Name ?? c?.Code ?? "?", c?.Value ?? c?.ColumnValue] as [string, any])
+            : Object.entries(cc);
+          for (const [k, v] of entries) {
+            if (v != null && String(v).trim() !== "") ccKeyCounts[k] = (ccKeyCounts[k] || 0) + 1;
+          }
+        }
+        if (typeof item?.Ns_Number === "string" && /^H\d/.test(item.Ns_Number)) hPrefixed++;
+      }
+      return res.json({
+        _mode: "onix-sample",
+        environment: creds.environment,
+        databasePath: creds.databasePath || null,
+        url,
+        odataCount: data?.["@odata.count"] ?? null,
+        pageSize: arr.length,
+        nextLink: data?.["@odata.nextLink"] ?? null,
+        recordsWithCustomColumns: ccRecords,
+        customColumnNonEmptyCounts: ccKeyCounts,
+        nsNumbersStartingWithH: hPrefixed,
+        sampleRecords: arr.slice(0, 3).map((item: any) => ({
+          IdRecord: item.IdRecord ?? item.Id ?? null,
+          Ns_Number: item.Ns_Number ?? null,
+          StockCode: item.StockCode ?? null,
+          Name: item.Name ?? null,
+          CustomColumns: item.CustomColumns ?? null,
+        })),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `ONIX sample failed: ${err.message}` });
+    }
+  }
 
   // ── MODE 0: ?onixCode=xxx ── priamy read-only lookup jednej karty v ONIX ──
   // Slúži na diagnostiku "prečo matchFields/Ns_Number lookup zlyhal" bez

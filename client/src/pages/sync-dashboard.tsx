@@ -1785,6 +1785,33 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                           );
                         })()}
 
+                        {/* ONIX duplicate auto-resolutions — live view while run is in progress */}
+                        {(() => {
+                          const liveDupRes = (trackedRun.details as any)?.duplicateResolutions as Array<{ matchDesc: string; candidates: Array<{ id: number; nsNumber: string | null }>; chosenId: number; chosenNsNumber: string | null }> | undefined;
+                          if (!liveDupRes || liveDupRes.length === 0) return null;
+                          return (
+                            <div
+                              className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+                              data-testid="panel-live-duplicate-resolutions"
+                            >
+                              <div className="flex items-center gap-1.5 mb-1.5 font-medium">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                                <span className="text-amber-700 dark:text-amber-400">
+                                  {t("syncDash.dupResTitle")} ({liveDupRes.length.toLocaleString()})
+                                </span>
+                              </div>
+                              <div className="space-y-1 max-h-40 overflow-auto">
+                                {liveDupRes.map((dr, i) => (
+                                  <div key={i} className="text-[11px]">
+                                    <span className="font-mono break-all">{dr.matchDesc}</span>
+                                    <span className="text-muted-foreground"> → Ns_Number={dr.chosenNsNumber ?? "?"} (IdRecord={dr.chosenId})</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                           <div>
                             <span className="text-muted-foreground">{language === "sk" ? "Odoslaných do ONIX:" : "Pushed to target:"}</span>
@@ -3153,6 +3180,7 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                       const completionSummary: string | undefined = det?.completionSummary;
                       const onixIndexInfo: { incomplete?: boolean; recordCount?: number; expectedCount?: number | null; deferredCount?: number; deferredItems?: Array<{ recordKey?: string; nsNumber?: string; reason?: string }>; fieldStats?: Record<string, number> } | undefined = det?.onixIndex;
                       const deferredItems: Array<{ recordKey?: string; nsNumber?: string; reason?: string }> = onixIndexInfo?.deferredItems ?? [];
+                      const duplicateResolutions: Array<{ matchDesc: string; candidates: Array<{ id: number; nsNumber: string | null }>; chosenId: number; chosenNsNumber: string | null }> = det?.duplicateResolutions ?? [];
                       const deferredCount: number = onixIndexInfo?.deferredCount ?? deferredItems.length;
                       const isExpLog = expandedLogRunId === run.id;
                       const duration = run.startedAt && run.completedAt
@@ -3324,6 +3352,38 @@ export default function SyncDashboardPage({ initialTab }: { initialTab?: "overvi
                                   </div>
                                 );
                               })()}
+
+                              {/* ONIX duplicate-match auto-resolutions */}
+                              {duplicateResolutions.length > 0 && (
+                                <div
+                                  className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                                  data-testid={`section-duplicate-resolutions-${run.id}`}
+                                >
+                                  <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                                    {t("syncDash.dupResTitle")} ({duplicateResolutions.length.toLocaleString()})
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mb-2">{t("syncDash.dupResDesc")}</p>
+                                  <div className="space-y-1.5">
+                                    {duplicateResolutions.map((dr, i) => (
+                                      <div key={i} className="text-sm" data-testid={`duplicate-resolution-${run.id}-${i}`}>
+                                        <p className="font-mono text-xs break-all">{dr.matchDesc}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {t("syncDash.dupResCandidates")}:{" "}
+                                          {dr.candidates.map((c, j) => (
+                                            <span key={j}>
+                                              {j > 0 && ", "}
+                                              <span className={c.id === dr.chosenId ? "font-semibold text-amber-700 dark:text-amber-400" : ""}>
+                                                IdRecord={c.id}/Ns_Number={c.nsNumber ?? "?"}
+                                                {c.id === dr.chosenId ? ` (${t("syncDash.dupResChosen")})` : ""}
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Records deferred specifically due to incomplete ONIX index */}
                               {deferredItems.length > 0 && (
