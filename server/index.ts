@@ -85,7 +85,67 @@ app.get("/api/diagnostics", async (req, res) => {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (token !== key) return res.status(401).json({ error: "Unauthorized" });
 
-  const { runId, configId, onixCode, onixSample, onixTables } = req.query as Record<string, string | undefined>;
+  const { runId, configId, onixCode, onixSample, onixTables, apply } = req.query as Record<string, string | undefined>;
+
+  // ── MODE 0a: ?apply=macma-prod-setup ── jednorazová, idempotentná oprava konfigurácie
+  // (chránená DIAGNOSTICS_KEY). Vykoná presne dve zmeny potrebné pre ostrý beh MACMA→ONIX:
+  //  1. V konfigu "Macma - Onix" zmení match/mapping cieľ z CustomColumns.Product_Code
+  //     na štandardné pole Product_Code (v ostrej DB custom stĺpec neexistuje).
+  //  2. Prepne ONIX modul na environment=production.
+  // Nič iné nemení; zapíše audit log.
+  if (apply === "macma-prod-setup") {
+    try {
+      const MACMA_CFG_ID = "a537be86-7f7b-4453-be57-41ddcb3c14af";
+      const cfgRec: any = await storage.getSyncConfig(MACMA_CFG_ID);
+      if (!cfgRec) return res.status(404).json({ error: "Config not found" });
+      const before = {
+        mappings: cfgRec.fieldMappings,
+        onixEnvironment: null as string | null,
+      };
+      const newMappings = (cfgRec.fieldMappings || []).map((m: any) =>
+        m.targetField === "CustomColumns.Product_Code" ? { ...m, targetField: "Product_Code" } : m
+      );
+      const mappingChanged = JSON.stringify(newMappings) !== JSON.stringify(cfgRec.fieldMappings);
+      if (mappingChanged) {
+        await storage.updateSyncConfig(MACMA_CFG_ID, { fieldMappings: newMappings } as any);
+      }
+
+      const modules = await storage.getAllModules();
+      const onixModule: any = modules.find((m: any) => m.code === "ONIX");
+      if (!onixModule) return res.status(404).json({ error: "ONIX module not found" });
+      const modCfg = { ...(onixModule.config || {}) } as Record<string, any>;
+      before.onixEnvironment = modCfg.environment ?? "test";
+      const envChanged = modCfg.environment !== "production";
+      if (envChanged) {
+        modCfg.environment = "production";
+        await storage.updateModule(onixModule.id, { config: modCfg } as any);
+      }
+
+      await storage.createAuditLog({
+        action: "update",
+        entity: "diagnostics-apply",
+        entityId: MACMA_CFG_ID,
+        details: {
+          apply: "macma-prod-setup",
+          mappingChanged,
+          envChanged,
+          before,
+          after: { mappings: newMappings, onixEnvironment: "production" },
+        },
+      } as any);
+
+      return res.json({
+        _mode: "apply",
+        apply: "macma-prod-setup",
+        mappingChanged,
+        envChanged,
+        matchTargetNow: "Product_Code",
+        onixEnvironmentNow: "production",
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `apply failed: ${err.message}` });
+    }
+  }
 
   // ── MODE 0b: ?onixSample=1 ── stiahne PRVÚ stránku /stockitems (tables=CustomColumns)
   // z aktuálne nakonfigurovaného ONIX prostredia a ukáže vzorku záznamov + štatistiku
