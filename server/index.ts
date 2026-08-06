@@ -156,16 +156,42 @@ app.get("/api/diagnostics", async (req, res) => {
       const MACMA_CFG_ID = "a537be86-7f7b-4453-be57-41ddcb3c14af";
       const NEW_NAME = "Easy Gifts - Onix";
 
+      const EG_SUPPLIER_CODE = "DOD0970"; // Easy Gifts v ONIXe (MACMA má DOD0521)
+
       const existingConfigs = await storage.getAllSyncConfigs();
       const existing: any = (existingConfigs as any[]).find((c: any) => c.name === NEW_NAME);
       if (existing) {
+        // Idempotentné dorovnanie: uisti sa, že SupplierCode je kód Easy Gifts, nie MACMY.
+        const fixedFields: any[] = Array.isArray(existing.onixFixedFields) ? existing.onixFixedFields : [];
+        const newFixedFields = fixedFields.map((f: any) =>
+          f.field === "SupplierCode" && f.value !== EG_SUPPLIER_CODE ? { ...f, value: EG_SUPPLIER_CODE } : f
+        );
+        const supplierFixed = JSON.stringify(newFixedFields) !== JSON.stringify(fixedFields);
+        if (supplierFixed) {
+          await storage.updateSyncConfig(existing.id, { onixFixedFields: newFixedFields } as any);
+          await storage.createAuditLog({
+            action: "update",
+            entity: "diagnostics-apply",
+            entityId: existing.id,
+            details: {
+              apply: "easygifts-prod-setup",
+              supplierCodeFixed: true,
+              before: fixedFields,
+              after: newFixedFields,
+            },
+          } as any);
+        }
         return res.json({
           _mode: "apply",
           apply: "easygifts-prod-setup",
           created: false,
-          note: "Config already exists — nothing changed",
+          supplierFixed,
+          note: supplierFixed
+            ? `Config existed — SupplierCode updated to ${EG_SUPPLIER_CODE}`
+            : "Config already exists — nothing changed",
           configId: existing.id,
           hKodConfig: existing.hKodConfig,
+          onixFixedFields: newFixedFields,
         });
       }
 
@@ -199,7 +225,9 @@ app.get("/api/diagnostics", async (req, res) => {
           field: "Ns_Number",
           detectionPrefix: "H24",
         },
-        onixFixedFields: src.onixFixedFields,
+        onixFixedFields: (Array.isArray(src.onixFixedFields) ? src.onixFixedFields : []).map((f: any) =>
+          f.field === "SupplierCode" ? { ...f, value: EG_SUPPLIER_CODE } : f
+        ),
         onixEmptyIndexAction: src.onixEmptyIndexAction,
         schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
         notes: "Klon konfigurácie Macma - Onix pre Easy Gifts. H kódy: H24 + 5-miestne číslo (od H2400001).",
