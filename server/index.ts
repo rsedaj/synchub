@@ -333,11 +333,22 @@ app.get("/api/diagnostics", async (req, res) => {
   // ── MODE 0e: ?apply=easygifts-cena-setup ── "Easy Gifts - Onix (cena)"
   if (apply === "easygifts-cena-setup") {
     try {
+      const COEFF = "1.15"; // Easy Gifts price coefficient (MACMA uses 1.2)
       const NEW_NAME = "Easy Gifts - Onix (cena)";
       const allConfigs = await storage.getAllSyncConfigs();
       const existing: any = (allConfigs as any[]).find((c: any) => c.name === NEW_NAME);
       if (existing) {
-        return res.json({ _mode: "apply", apply: "easygifts-cena-setup", created: false, note: "Config already exists — nothing changed", configId: existing.id });
+        // Idempotentná oprava koeficientu ak bol nesprávny
+        const mappings: any[] = Array.isArray(existing.fieldMappings) ? existing.fieldMappings : [];
+        const newMappings = mappings.map((m: any) =>
+          m.targetField === "Default_Price" ? { ...m, transform: `multiply:${COEFF}` } : m
+        );
+        const coeffFixed = JSON.stringify(newMappings) !== JSON.stringify(mappings);
+        if (coeffFixed) {
+          await storage.updateSyncConfig(existing.id, { fieldMappings: newMappings } as any);
+          await storage.createAuditLog({ action: "update", entity: "diagnostics-apply", entityId: existing.id, details: { apply: "easygifts-cena-setup", coeffFixed: true, newCoeff: COEFF } } as any);
+        }
+        return res.json({ _mode: "apply", apply: "easygifts-cena-setup", created: false, coeffFixed, coeff: COEFF, note: coeffFixed ? `Coefficient updated to ${COEFF}` : "Config already correct — nothing changed", configId: existing.id });
       }
       const modules = await storage.getAllModules();
       const egModule: any = modules.find((m: any) => m.code === "EASYGIFTS");
@@ -353,7 +364,7 @@ app.get("/api/diagnostics", async (req, res) => {
         sourceRecordLimit: 120000,
         fieldMappings: [
           { sourceField: "id", targetField: "Product_Code" },
-          { sourceField: "price", targetField: "Default_Price", transform: "multiply:1.2" },
+          { sourceField: "price", targetField: "Default_Price", transform: `multiply:${COEFF}` },
         ],
         matchFields: ["id"],
         matchOperator: "and",
@@ -365,13 +376,126 @@ app.get("/api/diagnostics", async (req, res) => {
         onixFixedFields: null,
         onixEmptyIndexAction: "abort",
         schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
-        notes: "Aktualizácia ceny z Easy Gifts pricelist feedu. Koeficient 1.2 na poli price → Default_Price. Nevytvára nové karty.",
+        notes: `Aktualizácia ceny z Easy Gifts pricelist feedu. Koeficient ${COEFF} na poli price → Default_Price. Nevytvára nové karty.`,
         isEnabled: true,
         autoRetry: false,
         retryDelayMin: 3,
       } as any);
       await storage.createAuditLog({ action: "create", entity: "diagnostics-apply", entityId: created.id, details: { apply: "easygifts-cena-setup", sourceModule: "EASYGIFTS", sourceDataSource: "pricelist" } } as any);
       return res.json({ _mode: "apply", apply: "easygifts-cena-setup", created: true, configId: created.id, name: created.name, fieldMappings: created.fieldMappings, onMissing: created.onMissing });
+    } catch (err: any) {
+      return res.status(500).json({ error: `apply failed: ${err.message}` });
+    }
+  }
+
+  // ── MODE 0f: ?apply=macma-sklad-setup ── vytvorí "Macma - Onix (sklad)" config
+  // (stock feed, international qty → Int_Quantity, len aktualizácia – onMissing=skip, bez H kódov)
+  if (apply === "macma-sklad-setup") {
+    try {
+      const NEW_NAME = "Macma - Onix (sklad)";
+      const allConfigs = await storage.getAllSyncConfigs();
+      const existing: any = (allConfigs as any[]).find((c: any) => c.name === NEW_NAME);
+      if (existing) {
+        return res.json({
+          _mode: "apply", apply: "macma-sklad-setup",
+          created: false, note: "Config already exists — nothing changed",
+          configId: existing.id,
+        });
+      }
+
+      const modules = await storage.getAllModules();
+      const macmaModule: any = modules.find((m: any) => m.code === "MACMA");
+      const onixModule: any = modules.find((m: any) => m.code === "ONIX");
+      if (!macmaModule || !onixModule) return res.status(404).json({ error: "MACMA or ONIX module not found" });
+
+      const srcCfg: any = (allConfigs as any[]).find((c: any) =>
+        c.name === "Macma - Onix" || (c.sourceModuleId === macmaModule.id && c.onMissing === "create")
+      );
+
+      const created: any = await storage.createSyncConfig({
+        name: NEW_NAME,
+        sourceModuleId: macmaModule.id,
+        targetModuleId: onixModule.id,
+        sourceDataSource: "stock",
+        targetDataSource: "auto",
+        sourceRecordLimit: 120000,
+        fieldMappings: [
+          { sourceField: "id", targetField: "Product_Code" },
+          { sourceField: "international", targetField: "Int_Quantity" },
+        ],
+        matchFields: ["id"],
+        matchOperator: "and",
+        matchNormalization: srcCfg?.matchNormalization ?? { collapseWhitespace: true },
+        onMissing: "skip",
+        targetStock: srcCfg?.targetStock ?? "T",
+        sourceFilters: [],
+        hKodConfig: null,
+        onixFixedFields: null,
+        onixEmptyIndexAction: "abort",
+        schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
+        notes: "Aktualizácia stavu skladu z MACMA stock feedu. Pole international → Int_Quantity. Nevytvára nové karty.",
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      } as any);
+
+      await storage.createAuditLog({
+        action: "create", entity: "diagnostics-apply", entityId: created.id,
+        details: { apply: "macma-sklad-setup", sourceModule: "MACMA", sourceDataSource: "stock" },
+      } as any);
+
+      return res.json({
+        _mode: "apply", apply: "macma-sklad-setup",
+        created: true, configId: created.id, name: created.name,
+        fieldMappings: created.fieldMappings, onMissing: created.onMissing,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `apply failed: ${err.message}` });
+    }
+  }
+
+  // ── MODE 0g: ?apply=easygifts-sklad-setup ── "Easy Gifts - Onix (sklad)"
+  if (apply === "easygifts-sklad-setup") {
+    try {
+      const NEW_NAME = "Easy Gifts - Onix (sklad)";
+      const allConfigs = await storage.getAllSyncConfigs();
+      const existing: any = (allConfigs as any[]).find((c: any) => c.name === NEW_NAME);
+      if (existing) {
+        return res.json({ _mode: "apply", apply: "easygifts-sklad-setup", created: false, note: "Config already exists — nothing changed", configId: existing.id });
+      }
+      const modules = await storage.getAllModules();
+      const egModule: any = modules.find((m: any) => m.code === "EASYGIFTS");
+      const onixModule: any = modules.find((m: any) => m.code === "ONIX");
+      if (!egModule || !onixModule) return res.status(404).json({ error: "EASYGIFTS or ONIX module not found" });
+      const srcCfg: any = (allConfigs as any[]).find((c: any) => c.name === "Easy Gifts - Onix");
+      const created: any = await storage.createSyncConfig({
+        name: NEW_NAME,
+        sourceModuleId: egModule.id,
+        targetModuleId: onixModule.id,
+        sourceDataSource: "stock",
+        targetDataSource: "auto",
+        sourceRecordLimit: 120000,
+        fieldMappings: [
+          { sourceField: "id", targetField: "Product_Code" },
+          { sourceField: "international", targetField: "Int_Quantity" },
+        ],
+        matchFields: ["id"],
+        matchOperator: "and",
+        matchNormalization: srcCfg?.matchNormalization ?? { collapseWhitespace: true },
+        onMissing: "skip",
+        targetStock: srcCfg?.targetStock ?? "T",
+        sourceFilters: [],
+        hKodConfig: null,
+        onixFixedFields: null,
+        onixEmptyIndexAction: "abort",
+        schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
+        notes: "Aktualizácia stavu skladu z Easy Gifts stock feedu. Pole international → Int_Quantity. Nevytvára nové karty.",
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      } as any);
+      await storage.createAuditLog({ action: "create", entity: "diagnostics-apply", entityId: created.id, details: { apply: "easygifts-sklad-setup", sourceModule: "EASYGIFTS", sourceDataSource: "stock" } } as any);
+      return res.json({ _mode: "apply", apply: "easygifts-sklad-setup", created: true, configId: created.id, name: created.name, fieldMappings: created.fieldMappings, onMissing: created.onMissing });
     } catch (err: any) {
       return res.status(500).json({ error: `apply failed: ${err.message}` });
     }
