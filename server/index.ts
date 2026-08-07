@@ -330,6 +330,53 @@ app.get("/api/diagnostics", async (req, res) => {
     }
   }
 
+  // ── MODE 0e: ?apply=easygifts-cena-setup ── "Easy Gifts - Onix (cena)"
+  if (apply === "easygifts-cena-setup") {
+    try {
+      const NEW_NAME = "Easy Gifts - Onix (cena)";
+      const allConfigs = await storage.getAllSyncConfigs();
+      const existing: any = (allConfigs as any[]).find((c: any) => c.name === NEW_NAME);
+      if (existing) {
+        return res.json({ _mode: "apply", apply: "easygifts-cena-setup", created: false, note: "Config already exists — nothing changed", configId: existing.id });
+      }
+      const modules = await storage.getAllModules();
+      const egModule: any = modules.find((m: any) => m.code === "EASYGIFTS");
+      const onixModule: any = modules.find((m: any) => m.code === "ONIX");
+      if (!egModule || !onixModule) return res.status(404).json({ error: "EASYGIFTS or ONIX module not found" });
+      const srcCfg: any = (allConfigs as any[]).find((c: any) => c.name === "Easy Gifts - Onix");
+      const created: any = await storage.createSyncConfig({
+        name: NEW_NAME,
+        sourceModuleId: egModule.id,
+        targetModuleId: onixModule.id,
+        sourceDataSource: "pricelist",
+        targetDataSource: "auto",
+        sourceRecordLimit: 120000,
+        fieldMappings: [
+          { sourceField: "id", targetField: "Product_Code" },
+          { sourceField: "price", targetField: "Default_Price", transform: "multiply:1.2" },
+        ],
+        matchFields: ["id"],
+        matchOperator: "and",
+        matchNormalization: srcCfg?.matchNormalization ?? { collapseWhitespace: true },
+        onMissing: "skip",
+        targetStock: srcCfg?.targetStock ?? "T",
+        sourceFilters: [],
+        hKodConfig: null,
+        onixFixedFields: null,
+        onixEmptyIndexAction: "abort",
+        schedule: { enabled: false, frequency: "daily", timeOfDay: "06:00", backupBeforeSync: false },
+        notes: "Aktualizácia ceny z Easy Gifts pricelist feedu. Koeficient 1.2 na poli price → Default_Price. Nevytvára nové karty.",
+        isEnabled: true,
+        autoRetry: false,
+        retryDelayMin: 3,
+      } as any);
+      await storage.createAuditLog({ action: "create", entity: "diagnostics-apply", entityId: created.id, details: { apply: "easygifts-cena-setup", sourceModule: "EASYGIFTS", sourceDataSource: "pricelist" } } as any);
+      return res.json({ _mode: "apply", apply: "easygifts-cena-setup", created: true, configId: created.id, name: created.name, fieldMappings: created.fieldMappings, onMissing: created.onMissing });
+    } catch (err: any) {
+      return res.status(500).json({ error: `apply failed: ${err.message}` });
+    }
+  }
+
   // ── MODE 0b: ?onixSample=1 ── stiahne PRVÚ stránku /stockitems (tables=CustomColumns)
   // z aktuálne nakonfigurovaného ONIX prostredia a ukáže vzorku záznamov + štatistiku
   // CustomColumns kľúčov. Read-only; slúži na overenie, ako reálne vyzerajú karty
